@@ -1,4 +1,5 @@
 import * as migration_20261026_000002_listing_fields from './20261026_000002_listing_fields';
+import * as migration_20261027_135539_upgrade_payload_3_90_security_fields from './20261027_135539_upgrade_payload_3_90_security_fields';
 import * as migration_20261020_012245_init from './20261020_012245_init';
 import * as migration_20261020_024011 from './20261020_024011';
 import * as migration_20261020_025344 from './20261020_025344';
@@ -10,8 +11,8 @@ import * as migration_20261022_000000_developer_agency_platform from './20261022
 import * as migration_20261022_000001_migrate_owners_to_developers from './20261022_000001_migrate_owners_to_developers';
 import * as migration_20261026_000000_agency_member_password from './20261026_000000_agency_member_password';
 import * as migration_20261026_000001_account_suspension from './20261026_000001_account_suspension';
-
 export const migrations = [
+  // Applied after the existing schema migrations below.
   // Applied after the existing schema migrations below.
   {
     up: migration_20261020_012245_init.up,
@@ -69,4 +70,9 @@ export const migrations = [
     name: '20261026_000001_account_suspension'
   },
   { up: migration_20261026_000002_listing_fields.up, down: migration_20261026_000002_listing_fields.down, name: '20261026_000002_listing_fields' },
+  {
+    up: migration_20261027_135539_upgrade_payload_3_90_security_fields.up,
+    down: migration_20261027_135539_upgrade_payload_3_90_security_fields.down,
+    name: '20261027_135539_upgrade_payload_3_90_security_fields'
+  },
 ];
