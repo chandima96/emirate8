@@ -1,0 +1,61 @@
+{
+  "name": "emirate08",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Emirate08 — Dubai real estate portal and broker workspace (Next.js App Router, Payload CMS 3, PostgreSQL on Supabase, Supabase S3 Storage)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "storage:check": "node scripts/check-storage.mjs",
+    "media:sync": "node --import tsx scripts/sync-property-media.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "migrate": "payload migrate",
+    "migrate:create": "payload migrate:create",
+    "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
+    "seed:demo-users": "tsx --tsconfig tsconfig.json scripts/seed-demo-users.ts",
+    "seed:plans": "tsx --tsconfig tsconfig.json scripts/seed-plans.ts",
+    "fix:demo-property-images": "tsx --tsconfig tsconfig.json scripts/fix-demo-property-images.ts",
+    "generate:types": "payload generate:types",
+    "generate:importmap": "payload generate:importmap",
+    "build:css": "tailwindcss -i src/app/globals.css -o public/output.css"
+  },
+  "dependencies": {
+    "@payloadcms/db-postgres": "3.43.0",
+    "@payloadcms/next": "3.43.0",
+    "@payloadcms/storage-s3": "3.43.0",
+    "bootstrap-icons": "1.13.2",
+    "dotenv": "^18.0.8",
+    "graphql": "16.9.0",
+    "gsap": "3.13.0",
+    "next": "16.4.2",
+    "payload": "3.43.0",
+    "pg": "^8.23.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sharp": "^0.32.6",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.15.21",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.2",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.10",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "tailwindcss": "4.3.3",
+    "ts-node": "10.9.2",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}
