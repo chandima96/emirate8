@@ -21,6 +21,7 @@ import {
   getPublicBrokers,
   getPublicListings,
   getPublicMemberBrokers,
+  getPublicAgencies,
   getPublicPlans,
   refreshPublicData,
   type PublicPlan,
@@ -36,6 +37,7 @@ function applyPublicData(data) {
     brokers: data?.brokers,
     listings: data?.listings,
     memberBrokers: data?.memberBrokers,
+    agencies: data?.agencies,
     plans: data?.plans,
   });
   write('session', { userId: activeUser?.id || null });
@@ -598,43 +600,9 @@ export function brokerUrl(b) {
   return '/brokers/' + encodeURIComponent(b.slug || b.id);
 }
 
-/* Agencies are derived from brokers who list an agency affiliation */
+/* Public agency directory records come from Payload's agencies collection. */
 export function agencies() {
-  var map = {};
-  brokers().forEach(function (b) {
-    if (!b.agencyName) return;
-    var id = slugify(b.agencyName);
-    if (!map[id])
-      map[id] = {
-        id: id,
-        name: b.agencyName,
-        website: (b.agency && b.agency.website) || '',
-        orn: (b.agency && b.agency.orn) || 'Sample ORN ' + (21000 + Object.keys(map).length * 137),
-        brokers: [],
-        areas: [],
-        tone: (Object.keys(map).length + 1) % 4,
-      };
-    map[id].brokers.push(b.id);
-    b.areas.forEach(function (a) {
-      if (map[id].areas.indexOf(a) < 0) map[id].areas.push(a);
-    });
-  });
-  return Object.keys(map).map(function (k) {
-    var a = map[k];
-    a.initials = a.name
-      .split(' ')
-      .map(function (x) {
-        return x[0];
-      })
-      .slice(0, 2)
-      .join('');
-    a.about =
-      a.name +
-      ' is a Dubai brokerage serving ' +
-      a.areas.join(', ') +
-      '. Its brokers publish listings on Emirate08 and cooperate with independent brokers through the network.';
-    return a;
-  });
+  return getPublicAgencies();
 }
 export function agency(id) {
   return (

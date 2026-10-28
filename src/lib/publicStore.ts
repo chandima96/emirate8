@@ -123,10 +123,26 @@ export type PublicPlan = {
   highlighted?: boolean;
 };
 
+export type PublicAgency = {
+  id: string | number;
+  slug: string;
+  name: string;
+  photo?: string;
+  initials?: string;
+  location?: string;
+  website?: string;
+  orn?: string;
+  about?: string;
+  areas: string[];
+  brokers: Array<string | number>;
+  tone?: number;
+};
+
 type PublicState = {
   brokers: PublicBroker[];
   listings: PublicListing[];
   memberBrokers: PublicBroker[];
+  agencies: PublicAgency[];
   plans: Record<string, PublicPlan>;
   /** Incremented each time remote data is applied — triggers reactive re-renders. */
   tick: number;
@@ -136,6 +152,7 @@ export type PublicData = {
   brokers?: PublicBroker[];
   listings?: PublicListing[];
   memberBrokers?: PublicBroker[];
+  agencies?: PublicAgency[];
   plans?: PublicPlan[];
 };
 
@@ -145,6 +162,7 @@ export const publicStore = createStore<PublicState>(() => ({
   brokers: [],
   listings: [],
   memberBrokers: [],
+  agencies: [],
   plans: {},
   tick: 0,
 }));
@@ -166,6 +184,7 @@ export function setPublicData(data: PublicData) {
     brokers: Array.isArray(data?.brokers) ? data.brokers : [],
     listings: Array.isArray(data?.listings) ? data.listings : [],
     memberBrokers: Array.isArray(data?.memberBrokers) ? data.memberBrokers : [],
+    agencies: Array.isArray(data?.agencies) ? data.agencies : [],
     plans,
     tick: s.tick + 1,
   }));
@@ -207,6 +226,11 @@ export function getPublicListings(): PublicListing[] {
 /** Read current memberBrokers without subscribing. */
 export function getPublicMemberBrokers(): PublicBroker[] {
   return publicStore.getState().memberBrokers;
+}
+
+/** Read current agency directory records. */
+export function getPublicAgencies(): PublicAgency[] {
+  return publicStore.getState().agencies;
 }
 
 /** Read current plans without subscribing. */
