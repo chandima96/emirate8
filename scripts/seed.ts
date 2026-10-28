@@ -184,7 +184,7 @@ async function seed() {
   // Import every bundled WebP asset into Supabase Storage through Payload Media.
   console.log('\n🌱 Importing image assets into Supabase Storage…');
   const imageDirectory = path.resolve(process.cwd(), 'public/images');
-  const mediaIDs = new Map<string, number>();
+  const mediaIDs = new Map<string, string | number>();
   for (const filePath of await imageFiles(imageDirectory)) {
     const sourcePath = path.relative(imageDirectory, filePath).split(path.sep).join('/');
     const existing = await payload.find({
@@ -214,7 +214,7 @@ async function seed() {
 
   // Public demo inventory lives in the database too; the frontend reads it from Payload.
   console.log('\nðŸŒ± Seeding public broker and property records...');
-  const brokerIDs = new Map<string, number>();
+  const brokerIDs = new Map<string, string | number>();
   for (const [key, broker] of Object.entries(BROKERS) as [string, any][]) {
     const found = await payload.find({
       collection: 'brokers',

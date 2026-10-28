@@ -37,7 +37,7 @@ async function main() {
   try {
     const root = path.resolve('public/images');
     const media = await payload.find({ collection: 'media', limit: 10000, depth: 0, overrideAccess: true });
-    const mappings = new Map<string, { id: number; url: string }>();
+    const mappings = new Map<string, { id: string | number; url: string }>();
     let uploaded = 0;
     async function syncFile(filePath: string) {
       const sourcePath = path.relative(root, filePath).split(path.sep).join('/');

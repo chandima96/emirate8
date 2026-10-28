@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import configPromise from '@payload-config';
 import { getPayload } from 'payload';
-import type { MemberState } from '../../../../payload-types';
 import { listingFromProperty, syncMemberProperties } from '@/lib/server/member-properties';
 
 export const dynamic = 'force-dynamic';
@@ -144,13 +143,13 @@ export async function PUT(request: Request) {
     await context.payload.update({
       collection: 'member-state',
       id: existing.docs[0].id,
-      data: { state: value as MemberState['state'] },
+      data: { state: value },
       overrideAccess: true,
     });
   } else {
     await context.payload.create({
       collection: 'member-state',
-      data: { member: context.user.id, key: body.key, state: value as MemberState['state'] },
+      data: { member: context.user.id, key: body.key, state: value },
       overrideAccess: true,
     });
   }
