@@ -58,10 +58,9 @@ export default buildConfig({
   db: postgresAdapter({
     pool: {
       connectionString: process.env.DATABASE_URI || '',
-      // Supabase session poolers have a relatively small per-session client cap.
-      // Keep each Next.js process pool modest so parallel workspace/API requests
-      // do not exhaust the shared pooler limit.
-      max: process.env.DATABASE_POOL_MAX ? Number(process.env.DATABASE_POOL_MAX) : 3,
+      // Vercel can run many warm function instances, each with its own pool.
+      // Start small for Supabase poolers; raise only if per-instance queries queue.
+      max: process.env.DATABASE_POOL_MAX ? Number(process.env.DATABASE_POOL_MAX) : 1,
       ssl:
         process.env.DATABASE_SSL === 'false'
           ? false
