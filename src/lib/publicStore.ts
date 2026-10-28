@@ -126,6 +126,7 @@ export type PublicPlan = {
 export type PublicAgency = {
   id: string | number;
   slug: string;
+  portfolioSlug?: string;
   name: string;
   photo?: string;
   initials?: string;

@@ -20,7 +20,11 @@ export function copyText(text) {
 }
 
 export function absUrl(path) {
-  return new URL(path, window.location.href).href;
+  const base =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  return new URL(path, base).href;
 }
 
 /** Native share sheet where available, otherwise copies the link. `toast` comes from useFeedback(). */

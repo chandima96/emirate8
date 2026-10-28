@@ -152,10 +152,17 @@ const loadPublicData = unstable_cache(async () => {
         return String(relation?.id || relation || '') === String(doc.id);
       })
       .map((broker) => broker.appData)
-      .filter((broker) => broker && broker.isPublic !== false && broker.searchable !== false);
+      .filter(
+        (broker) =>
+          broker &&
+          broker.isPublic !== false &&
+          broker.searchable !== false &&
+          broker.agency?.agencyRole !== 'agency_admin',
+      );
     const teamMembers = memberBrokers.filter(
-      (member) => String(member.organizationId || '') === String(doc.id),
+      (member) => String(member.organizationId || '') === String(doc.id) && member.type !== 'agency',
     );
+    const agencyAccount = teamMembers.find((member) => member.type === 'agency');
     const areas = [...new Set([
       ...agencyBrokers.flatMap((broker) => broker.areas || []),
       ...teamMembers.flatMap((member) => member.areas || []),
@@ -165,6 +172,7 @@ const loadPublicData = unstable_cache(async () => {
     return {
       id: doc.slug || doc.id,
       slug: doc.slug || String(doc.id),
+      portfolioSlug: agencyAccount?.slug || doc.slug || String(doc.id),
       name,
       photo: logo || '',
       initials: name.split(/\s+/).map((part: string) => part[0]).slice(0, 2).join('').toUpperCase(),
