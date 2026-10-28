@@ -4,7 +4,7 @@ import { ROLE_SCRIPT, SiteProviders, metadata, siteHtmlClassName, viewport } fro
 
 export { metadata, viewport };
 
-/** Full-width public pages (platform overview, legal):header and footer without the shortcut rail. */
+/** Full-width public pages (platform overview, legal): header and footer without the shortcut rail. */
 export default function SiteLayout({ children }) {
   return (
     <html lang="en" className={siteHtmlClassName} suppressHydrationWarning>
