@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const loadPublicData = unstable_cache(async () => {
   const config = await configPromise;
   const payload = await getPayload({ config });
-  const [propertyResult, brokerResult, memberResult, planResult] = await Promise.all([
+  const [propertyResult, brokerResult, memberResult, planResult, agencyResult] = await Promise.all([
     payload.find({
       collection: 'properties',
       where: {
@@ -33,6 +33,7 @@ const loadPublicData = unstable_cache(async () => {
       overrideAccess: true,
     }),
     payload.find({ collection: 'plans', sort: 'sortOrder', limit: 100, depth: 0, overrideAccess: true }),
+    payload.find({ collection: 'agencies', limit: 500, depth: 1, overrideAccess: true }),
   ]);
 
   const sampleBrokers = brokerResult.docs
@@ -144,6 +145,47 @@ const loadPublicData = unstable_cache(async () => {
     if (orgId) agency.team = agencyTeams.get(orgId) || [];
   }
 
+  const agencies = (agencyResult.docs as any[]).map((doc, index) => {
+    const agencyBrokers = (brokerResult.docs as any[])
+      .filter((broker) => {
+        const relation = broker.agency;
+        return String(relation?.id || relation || '') === String(doc.id);
+      })
+      .map((broker) => broker.appData)
+      .filter(
+        (broker) =>
+          broker &&
+          broker.isPublic !== false &&
+          broker.searchable !== false &&
+          broker.agency?.agencyRole !== 'agency_admin',
+      );
+    const teamMembers = memberBrokers.filter(
+      (member) => String(member.organizationId || '') === String(doc.id) && member.type !== 'agency',
+    );
+    const agencyAccount = teamMembers.find((member) => member.type === 'agency');
+    const areas = [...new Set([
+      ...agencyBrokers.flatMap((broker) => broker.areas || []),
+      ...teamMembers.flatMap((member) => member.areas || []),
+    ])];
+    const name = doc.name || 'Real estate agency';
+    const logo = doc.logo && typeof doc.logo === 'object' ? doc.logo.url : '';
+    return {
+      id: doc.slug || doc.id,
+      slug: doc.slug || String(doc.id),
+      portfolioSlug: agencyAccount?.slug || doc.slug || String(doc.id),
+      name,
+      photo: logo || '',
+      initials: name.split(/\s+/).map((part: string) => part[0]).slice(0, 2).join('').toUpperCase(),
+      location: doc.location || '',
+      website: doc.website || '',
+      orn: doc.licenseNumber || '',
+      about: doc.description || `${name} is a real estate agency in ${doc.location || 'the UAE'}.`,
+      areas,
+      brokers: [...agencyBrokers.map((broker) => broker.id), ...teamMembers.map((member) => member.id)],
+      tone: index % 4,
+    };
+  });
+
   // Published member listings come from the properties collection. The complete
   // editable listing is stored in appData with its owning member ID.
   const brokersByMemberId = new Map(memberBrokers.map((broker) => [String(broker.id), broker]));
@@ -167,6 +209,7 @@ const loadPublicData = unstable_cache(async () => {
     brokers: sampleBrokers,
     listings: [...sampleListings, ...memberListings],
     memberBrokers,
+    agencies,
     plans: planResult.docs.filter((plan: any) => Boolean(PLAN_CATALOG[plan.slug])).map((plan: any) => ({
         id: plan.slug,
         name: plan.name,
@@ -179,7 +222,7 @@ const loadPublicData = unstable_cache(async () => {
         highlighted: Boolean(plan.highlighted),
     })),
   };
-}, ['app-public-v1'], { revalidate: 60, tags: ['cms'] });
+}, ['app-public-v2'], { revalidate: 60, tags: ['cms'] });
 
 export async function GET() {
   return NextResponse.json(await loadPublicData(), {

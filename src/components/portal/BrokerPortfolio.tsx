@@ -71,7 +71,7 @@ function decode(s) {
 }
 
 /** /brokers/[slug] — Bayut-style public portfolio. `me` = the signed-in broker; ?preview=draft shows the unsaved draft; ?embed=1 hides the chrome. */
-export function BrokerPortfolio({ initialBroker = null, initialListings = [] }) {
+export function BrokerPortfolio({ initialBroker = null, initialListings = [], profilePath = null }) {
   const { ready, user: u } = useSession();
   useStoreVersion();
   const params = useParams();
@@ -88,7 +88,7 @@ export function BrokerPortfolio({ initialBroker = null, initialListings = [] }) 
 
   if (!ready && !initialBroker) return <BrokerPortfolioSkeleton />;
 
-  let b = ready ? broker(slug === 'me' && u ? u.id : slug) : initialBroker;
+  let b = ready ? broker(slug === 'me' && u ? u.id : slug) || initialBroker : initialBroker;
   const owner = !!(b && u && b.id === u.id);
   const previewDraft = owner && sp.get('preview') === 'draft';
   if (previewDraft) b = brokerPreview(u);
@@ -112,19 +112,24 @@ export function BrokerPortfolio({ initialBroker = null, initialListings = [] }) 
       owner={owner}
       previewDraft={previewDraft}
       initialListings={initialListings}
+      profilePath={profilePath}
     />
   );
 }
 
-function Portfolio({ b, owner, previewDraft, initialListings }) {
+function Portfolio({ b, owner, previewDraft, initialListings, profilePath }) {
   const { toast } = useFeedback();
   const agencyAccount = b.type === 'agency';
   const liveListings = listingsFor(b.id);
-  const mine = liveListings.length ? liveListings : initialListings;
+  const mine = [...liveListings, ...initialListings].filter(
+    (listing, index, all) =>
+      all.findIndex((item) => String(item.slug || item.id) === String(listing.slug || listing.id)) === index,
+  );
   const active = mine.filter(isPublic);
   const history = b.showClosed ? mine.filter(isHistory) : [];
   const st = brokerStats(b);
-  const url = brokerUrl(b);
+  const url = profilePath || brokerUrl(b);
+  const [shareUrl, setShareUrl] = useState(url);
   const first = b.name.split(' ')[0];
   const bio = b.bio || b.intro || '';
   const longBio = bio.length > 360;
@@ -147,6 +152,10 @@ function Portfolio({ b, owner, previewDraft, initialListings }) {
   const set = (patch) => setF((s) => ({ ...s, ...patch, limit: 10 }));
   const resetFilters = () => setF((s) => ({ ...s, purpose: 'all', dev: '', type: '', loc: '', price: '', beds: '' }));
   const urlInput = useRef(null);
+
+  useEffect(() => {
+    setShareUrl(absUrl(url));
+  }, [url]);
 
   useDocumentTitle(`${b.name} — ${b.title || (agencyAccount ? 'Real estate agency' : 'Real estate broker')} · Emirate08`);
 
@@ -811,7 +820,7 @@ function Portfolio({ b, owner, previewDraft, initialListings }) {
                   id="pf-url"
                   className="input h-10 min-w-0 flex-1 text-[12px]"
                   readOnly
-                  value={absUrl(url)}
+                  value={shareUrl}
                 />
                 <button type="button" className="btn btn-dark h-10" onClick={copyLink}>
                   <Icon name="link-45deg" />

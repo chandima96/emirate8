@@ -5,6 +5,7 @@ function textOr(value: unknown, fallback = '') {
 }
 
 function profileData(member: any) {
+  const isAgency = member.accountType === 'agency';
   const profile = member.profile && typeof member.profile === 'object' ? member.profile : {};
   const portfolio = profile.portfolio && typeof profile.portfolio === 'object' ? profile.portfolio : {};
   const credentials = profile.credentials && typeof profile.credentials === 'object' ? profile.credentials : {};
@@ -24,7 +25,7 @@ function profileData(member: any) {
     reraNumber: textOr(credentials.brn) || null,
     agency: profile.agency?.agencyId || portfolio.agency?.id || undefined,
     agencyLabel: textOr(portfolio.agency?.name) || textOr(profile.agency?.name) || null,
-    title: textOr(portfolio.title, 'Licensed Real Estate Broker'),
+    title: textOr(portfolio.title, isAgency ? 'Real Estate Agency' : 'Licensed Real Estate Broker'),
     bio: textOr(portfolio.bio) || null,
     specialties,
     languages,
@@ -36,7 +37,7 @@ function profileData(member: any) {
     stats: { listingCount: 0, soldCount: 0, yearsExperience: 0, rating: 0, reviewCount: 0 },
     verified: member.credentialStatus === 'verified',
     featured: false,
-    type: member.accountType === 'buyer' || member.accountType === 'owner' ? 'buyer' : 'broker',
+    type: isAgency ? 'agency' : member.accountType === 'buyer' || member.accountType === 'owner' ? 'buyer' : 'broker',
   };
 }
 

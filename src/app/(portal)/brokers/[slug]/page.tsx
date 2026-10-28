@@ -16,15 +16,21 @@ function decodeSlug(value: string) {
 
 function normalizeBroker(raw: any) {
   const data = raw?.appData && typeof raw.appData === 'object' ? { ...raw.appData, ...raw } : raw;
+  const agencyAccount =
+    data.type === 'agency' || raw?.appData?.agency?.agencyRole === 'agency_admin';
   const name = data.name || 'Real estate broker';
   const agency = data.agency && typeof data.agency === 'object' ? data.agency : null;
   return {
     ...data,
+    type: agencyAccount ? 'agency' : data.type,
     id: data.id || raw.id,
     userId: data.userId || raw.id,
     slug: data.slug,
     name,
-    title: data.title || 'Real estate broker',
+    title:
+      agencyAccount && /broker/i.test(data.title || '')
+        ? 'Real Estate Agency'
+        : data.title || (agencyAccount ? 'Real Estate Agency' : 'Real estate broker'),
     initials: name
       .split(/\s+/)
       .map((part: string) => part[0])
