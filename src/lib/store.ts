@@ -245,7 +245,9 @@ export function refreshData() {
     if (workspace) hydrate(workspace);
     else setAuthenticated(false);
     if (publicData) applyPublicData(publicData);
-  })().finally(() => { refreshing = null; });
+  })().finally(() => {
+    refreshing = null;
+  });
   return refreshing;
 }
 
@@ -363,6 +365,16 @@ export function login(loginId, password, remember) {
     }));
 }
 
+export function checkRegistrationEmail(email) {
+  return authenticateAction({ action: 'check-registration-email', email })
+    .then((result) => ({ ok: result.ok, field: result.field, message: result.error }))
+    .catch((error) => ({
+      ok: false,
+      field: 'form',
+      message: error.message || 'Could not check this email address. Please try again.',
+    }));
+}
+
 export function register(payload) {
   const type = payload.type || 'buyer';
   const profile = {
@@ -403,7 +415,12 @@ export function register(payload) {
     profile,
   })
     .then(async (result) => {
-      if (!result.ok) return { ok: false, field: result.status === 409 ? 'email' : 'form', message: result.error };
+      if (!result.ok)
+        return {
+          ok: false,
+          field: result.field || (result.status === 409 ? 'email' : 'form'),
+          message: result.error,
+        };
       await activateUser(result.user);
       const user = currentUser();
       if (user && user.type !== 'buyer') {

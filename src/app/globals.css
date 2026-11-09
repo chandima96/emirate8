@@ -543,7 +543,7 @@
     @apply border-sage bg-sage text-ink;
   }
   .listing-editor-title {
-    @apply font-display text-[30px] font-semibold leading-tight tracking-[-0.01em] text-ink;
+    @apply font-display text-[30px] leading-tight font-semibold tracking-[-0.01em] text-ink;
   }
   .listing-editor .eyebrow {
     @apply text-muted;
@@ -1093,4 +1093,44 @@ html.is-embed .mkt-shell {
 }
 .acc-in:not([hidden]) {
   animation: accIn 0.22s ease-out;
+}
+
+@keyframes paymentSuccessIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes paymentCheckPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.payment-success-in {
+  animation: paymentSuccessIn 0.38s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.payment-check-pop {
+  animation: paymentCheckPop 0.42s 0.12s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payment-success-in,
+  .payment-check-pop {
+    animation: none;
+  }
 }
