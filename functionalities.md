@@ -1,847 +1,326 @@
 # Emirate08 — Current Functionality and User Flows
 
+This document describes the behavior implemented in the current source tree. It distinguishes persisted workflows from demonstrations and provider integrations that are not enabled. Routes below are Next.js application routes unless identified as API routes.
+
 ## 1. Product overview
 
-Emirate08 is a UAE real-estate portal and broker workspace. It currently combines:
+Emirate08 is a UAE real-estate portal and workspace for buyers/tenants, brokers, agencies, developers and Control Room staff. It includes:
 
-- A public property discovery portal
-- Public broker and agency profiles
-- Broker/agency account registration and authentication
-- A broker workspace for listings, portfolio management and enquiries
-- A broker network for discovering and selecting other brokers’ properties
-- A buyer saved-properties experience
-- Developer and agency workspaces with role-specific tools
-- Developer subscriptions, broker claims and listing notifications
-- A Control Room for administrators, subadmins and verifiers
-- Payload CMS collections and API routes for properties, brokers, agencies, members, media, enquiries, plans and waitlist signups
+- Public property search and detail pages, broker and agency directories/profiles, and developer directory/profiles.
+- Buyer accounts, saved properties and activity views.
+- Broker listing, profile, enquiry, network and account tools.
+- Agency dashboards, team invitations, agency listings and verification workflow.
+- Developer projects/properties, broker representation claims, subscriptions and notifications.
+- Control Room member/credential review, staff management and property moderation.
+- Payload CMS collections and API routes backed by PostgreSQL, with optional S3-compatible media storage.
 
-The application supports sample/demo inventory as well as member-created records. Public records are intended to be published, visible and searchable according to their profile/listing settings.
+Sample inventory and demo controls are present alongside records created by members. Public visibility depends on publication state, display settings, profile visibility and privacy settings.
 
-## 2. Roles and permissions
+## 2. Roles and access
 
 ### Guest
 
-Guests can browse public properties, brokers and agencies, open public detail pages, search/filter inventory, read help/legal pages and submit selected public forms. Actions that require an account redirect to login or registration.
+Can browse public pages, search and filter visible listings, open public profiles, view help/legal/marketing pages, and submit the seller waitlist form. Account-specific actions lead to authentication.
 
 ### Buyer
 
-Buyers can create a quick account, sign in, save properties, view saved activity and contact brokers through enquiries. They do not receive professional workspace tools. The previous Owner account type has been replaced by Developer.
+Can use a buyer account to save properties and view saved/recent/enquiry activity. Buyers do not receive broker or agency workspace access.
+
+### Broker
+
+Can manage listings, a public broker portfolio, enquiries, selected network properties, developer subscriptions/claims, notifications, plan preferences and account settings. Credential review is required for publishing; the UI also provides a clearly labelled demo verification control.
+
+### Agency and agency team members
+
+Agency accounts have a dedicated dashboard, team and invitation management, agency property/enquiry views, developer network, notifications, verification and subscription/account access. Agency brokers are associated with the agency and can manage their own broker profile and listings subject to agency and credential rules. Agencies and individual brokers are distinct account types.
 
 ### Developer
 
-Developers can maintain a public developer profile, publish project inventory, select a primary broker for a property, publish properties directly without a primary broker, subscribe brokers/agencies to receive listing notifications and review broker claim activity.
-
-### Agency
-
-Agency accounts have a dedicated workspace with team management, agency properties, enquiries, subscriptions and developer-following workflows. Agency accounts are separate from individual broker accounts.
-
-### Broker / agency member
-
-Licensed brokers and agency members can use the workspace to manage their profile, listings, network selections, enquiries, account settings and subscription plan.
+Can manage a developer profile, developer-owned inventory, primary broker assignment, owner-direct publication/claimability, broker claims, subscribers and notifications. The legacy `owner` account type is normalized to developer in relevant workspace logic.
 
 ### Control Room staff
 
-Control Room users are administrators, subadmins or verifiers. They can review members and properties according to role permissions. Verifiers have restricted review-only permissions.
+Control Room roles are administrator, subadmin and verifier. Actions are permission-gated; verifiers have narrower review permissions. Payload Admin users and application Control Room members are separate account/access paths.
 
-### Payload administrator
+## 3. Public website
 
-Payload’s admin panel and API provide CMS-level management of collections and media. This is separate from the application Control Room.
+### Homepage — `/`
 
-## 3. Public website functionality
-
-### 3.1 Homepage — `/`
-
-The homepage provides:
-
-- Dubai-focused hero section
-- Buy, rent and sell entry points
-- Search entry field for communities, buildings and property types
-- Popular community shortcuts
-- Recent/recommended listings carousel
-- Budget explorer
-- Find-an-agent and browse-agencies calls to action
-- Community image links
-- Public header, navigation and footer
-- Navbar Sign In account-choice modal for Buyer/Tenant or Professional access
-- Animated buyer sign-up modal with Google and email options
-
-Flow:
+The homepage includes a Dubai-focused hero/search, buy/rent/sell entry points, community shortcuts, recent/recommended listings, a budget explorer, community imagery, agent/agency discovery links and the public header/footer. The Sign In control opens an account-choice flow for Buyer/Tenant or Professional access. The buyer flow offers Google or email registration.
 
 ```text
-Visitor opens homepage
-  → enters a location/property keyword or selects a purpose
-  → navigates to /properties with query parameters
-  → filters results or opens a property detail page
+Homepage → enter a keyword or choose a purpose → /properties with query parameters
+          → refine results → open /property/[slug]
 ```
 
-### 3.2 Property search — `/properties`
+### Property search — `/properties`
 
-The property search page supports:
+Search supports keyword matching, sale/rent purpose, property type, bedrooms, price, ready/off-plan completion, community shortcuts and sorting. Search state is reflected in the URL; filters can be reset. Result cards link to property detail pages. Public inventory is filtered according to publication and visibility rules.
 
-- Keyword search across community, building and listing text
-- Sale/rent selection
-- Property type filtering
-- Bedrooms filtering
-- Price range filtering
-- Ready/off-plan filtering
-- Community shortcuts
-- Sort order and result count
-- URL-synchronised filters using query parameters
-- Reset filters
-- Property cards linking to `/property/[slug]`
+### Property detail — `/property/[slug]`
 
-Flow:
+The page renders published, visible property data normalized from the CMS, attaches broker/developer context where available and returns 404 for missing or unavailable records. It includes:
+
+- Price, purpose, completion state, location and property characteristics.
+- Featured image/gallery and lightbox; optional floor plans, video, virtual tour, master plan and brochure.
+- Description, highlights, features/amenities, grouped details and off-plan payment plan.
+- A demonstration map with approximate community positioning and community insights.
+- Mortgage, purchase-cost, rental-affordability and off-plan payment-plan calculators.
+- Listing contact card, broker/developer context, similar properties and mobile contact bar.
+- Save/favourite and share controls.
+
+Phone, email and WhatsApp controls may open the corresponding external contact method. Enquiry and viewing requests submitted through the app are stored for the listing broker. A signed-in user can save listings to their account.
+
+### Broker and agency directory — `/agents`
+
+Visitors can switch between broker/agent and agency views, search by name, agency, specialty or location, browse public/featured cards and load additional results. Cards lead to `/brokers/[slug]` and `/agencies/[id]`.
+
+### Broker portfolio — `/brokers/[slug]`
+
+Public broker pages show profile/cover images, name and professional details, agency, location, credentials/badges where supplied, biography, specialities, languages, experience, portfolio listings, and optional sold/rented history. Portfolio filters include purpose, completion, type, area, price and bedrooms; sorting, contact links and sharing are available. `me` is used for the signed-in member's portfolio route; draft preview and embedded display modes are supported by query parameters. Private or non-searchable profiles are excluded from ordinary public discovery.
+
+### Agency profile — `/agencies/[id]`
+
+Shows public agency identity, location/licence details, verification state where available, about text, public broker team and active agency listings, with paths into broker and property detail pages.
+
+### Developer directory and profile — `/developers`, `/developers/[slug]`
+
+Visitors can browse public developers and their public projects/properties. Published developer properties link back to the developer and property detail pages. Developer visibility settings and listing publication/visibility govern what appears publicly.
+
+### Saved properties and activity — `/saved`
+
+Signed-in buyers can review saved properties and available recent-view/enquiry activity, filter activity where controls are available, and open property/broker links. The favourite control is available on property cards and detail pages. Workspace state is scoped to the authenticated member.
+
+### Seller waitlist — `/sell`
+
+The sell page explains the seller pathway and accepts an email for the owner waitlist. The form submits to the waitlist service/API and presents success or validation feedback. This is a waitlist, not a property listing submission flow.
+
+### Help/contact — `/help`
+
+The form validates name, email and message and displays a success state. **It is currently a frontend demonstration: no message is sent or persisted.**
+
+### Marketing and legal pages
+
+- `/platform` — platform overview and product presentation.
+- `/for-professionals` — broker and agency acquisition information.
+- `/privacy` and `/terms` — policy pages; image credits are included in Terms.
+
+## 4. Authentication and account security
+
+### Professional registration — `/register`
+
+The registration wizard supports broker, real estate agency and developer account types. It collects account credentials and role-specific information, including profile/agency/developer details and professional credentials where relevant. Registration has multiple steps and creates a member account; credential status is pending until reviewed. Mobile OTP behavior shown in the wizard is a **demo code flow**, not delivery through an SMS provider. Plan selection is part of the registration experience, but no payment is collected.
+
+### Buyer registration — `/register/buyer` and navbar modal
+
+Buyer signup is separate from the professional wizard. The navbar account-choice modal offers Google or email signup. The email form collects name, email, password and terms consent, with password visibility/strength feedback and validation. Google OAuth routes are available when Google credentials and callback configuration are supplied. Successful buyer signup leads to the saved-properties experience.
+
+### Login and logout — `/login`
+
+Users authenticate using email or mobile plus password. The destination is role-aware and respects an allowed `next` destination: professional users enter their workspace, buyers enter the buyer area, and unauthorized workspace access receives guidance. Logout clears the Payload-backed session and returns to `/`.
+
+### Password reset — `/forgot-password`, `/change-password`
+
+Users can request a reset and submit a reset token with a new password through Payload authentication. Email delivery depends on configured mail transport. Authenticated members can change email/password after confirming the current password.
+
+### Account deletion and export
+
+Account settings provide password-confirmed deletion and a browser download of account/workspace JSON. Export is generated client-side from the available account, workspace and enquiry state. Account deletion removes the member's associated account data through server-side handling. The account UI also exposes a workspace reset action; it is distinct from deleting the account.
+
+## 5. Broker and agency workspace
+
+Workspace routes use an authenticated shell and role-aware access checks. Core broker routes include `/dashboard`, `/listings`, `/listings/new`, `/listings/[id]`, `/listings/[id]/edit`, `/profile`, `/network`, `/network/[id]`, `/selected`, `/enquiries`, `/notifications`, `/subscription` and `/account`.
+
+### Dashboard — `/dashboard`
+
+Shows workspace summary, listing/status counts, recent activity/enquiries and network/selected-property information, with shortcuts to common listing and profile tasks. Contents depend on member role and stored data.
+
+### Listings — `/listings`
+
+The listing manager supports browsing/searching/filtering listings and opening detail/editor views. Listing actions include preview, publish/unpublish, feature/portfolio selection where available, mark sold/rented, duplicate, archive and delete. Actions are subject to readiness, credentials, ownership and plan constraints.
+
+### Listing editor — `/listings/new`, `/listings/[id]/edit`
+
+The multi-step editor covers:
+
+1. Classification: ready/off-plan, sale/rent, category and property type (off-plan is sale-only).
+2. Location/development: community/building/unit or project/developer/status/handover and related development information.
+3. Unit/property facts: title, summary/description, bedrooms, bathrooms, size, parking, furnishing, condition, floor/view and availability.
+4. Price and terms: sale/rent pricing and rental terms; off-plan payment-plan milestones can be added, edited, reordered or removed and must total 100%.
+5. Marketing: highlights, amenities and selling points.
+6. Photos and media: upload, reorder, caption, replace/remove, set featured photo, and attach supported floorplan, brochure, master plan, video and virtual tour media.
+7. Permit and display: advertising permit details/document, contact preference, visibility and portfolio options.
+8. Review and publish: readiness checklist with links to missing fields/evidence.
+
+The desktop/mobile preview modal renders the public card or page in an iframe using unsaved editor data. Publishing requires required listing information and verified credentials; unverified submissions are routed to pending review. Application status values include draft, pending, published, unpublished, sold, rented and archived.
+
+Member listings are synchronized to canonical Payload property records before a workspace save is acknowledged. Uploaded listing images are persisted as media/data associated with the record; available storage depends on configured media storage.
+
+### Portfolio management — `/profile`
+
+Broker portfolio editing includes public name/title/headline, biography, experience, languages, service areas, specialisations, credentials, profile and cover images/crop, public contact preferences, agency details, property ordering/featured listings, default sorting, transaction-history visibility and directory/profile visibility. Draft/editing, preview, publish, discard and share controls are available. Public profile output respects visibility and privacy settings.
+
+### Broker network and selected properties — `/network`, `/network/[id]`, `/selected`
+
+The network lets brokers discover participating broker inventory, search/filter/sort, view listing broker/agency context and open a network detail page. Brokers can contact the listing broker or save an opportunity to their private selected collection. Selected properties support search/availability filters, private notes, removal and links to the property/network detail. Notes are member-private. Selection quotas depend on the member's plan.
+
+The developer network is also available to broker/agency accounts at `/developer-network`, with public developer inventory and subscription actions.
+
+### Enquiries — `/enquiries`
+
+The inbox displays enquiry and viewing-request context, sender/property details and status. Members can review and update status and use available contact details. Public enquiry submissions are stored against the relevant broker/property and surfaced in the broker workspace.
+
+### Notifications — `/notifications`
+
+The workspace displays member notifications, including developer property/subscription activity and broker claim requests/decisions where applicable. Notifications can be marked read. In-app notifications are persisted; outbound email/SMS notifications depend on provider configuration and are not implied by these records.
+
+### Plans and billing — `/subscription`
+
+Displays audience-specific plan comparison, limits and current usage for listings, selections and seats. Plan changes and trial cancellation are saved to the account. **Billing is disabled:** prices are unconfirmed and no payment is processed. Plan limit enforcement is applied to relevant workspace actions.
+
+### Account — `/account`
+
+Account settings include personal/legal and contact information, office/billing details, credential/review state, RERA/BRN information, privacy/contact visibility, language/currency preferences, notification preferences, plan summary, email/password changes, sign out, JSON export, account deletion and workspace reset. English is available; Arabic is marked coming soon. Notification preferences are saved, but the UI states that messages are not sent in this demo. The credential demo control simulates verification and does not check RERA.
+
+## 6. Developer and agency workspaces
+
+### Developer dashboard — `/developer-dashboard`
+
+Developer tools include profile/public visibility, property/project inventory, claims and subscriber context. Developer properties can be created with title, area, type, purpose, price and related property details, and can have a primary broker selected or be configured for owner-direct publishing. Owner-direct claimability enables brokers to request representation. Plan limits apply to developer property creation. Public visibility still depends on publication and display state.
+
+Developers can review pending broker claims and approve or reject them, with a decision reason. Approval assigns the broker as primary representative if none is already assigned and cancels other pending claims for that property. Claim requests and decisions create in-app notifications.
+
+### Developer subscriptions and network
+
+Broker and agency members can subscribe/unsubscribe to public developers and browse published developer inventory through `/developer-network`. Developer subscription records are persisted; notifications are generated for eligible subscription/property events by the application workflow.
+
+### Agency dashboard — `/agency-dashboard`
+
+Agency workspace includes overview/property counts, agency-owned and team broker inventory, enquiries and notifications. Agency properties can be assigned to a broker belonging to that agency. Agency dashboard also links to team, verification, developer network, account and subscription tools.
+
+### Agency team — `/agency-team` and `/agency-invite`
+
+Agency administrators can search eligible unaffiliated brokers, invite members with an agency role, review/cancel invitations and manage team context. Invitation acceptance is checked against token, expiry and invited email, then associates the member with the agency. New-member invitations use temporary credentials and email delivery; this requires mail transport. Temporary staff/team accounts may be required to change their temporary password. Agency brokers' listings are subject to agency assignment and credential checks.
+
+### Agency verification — `/agency-verification`
+
+Provides the agency verification workflow/status interface for submitting or reviewing agency details and credentials. Final verification is an administrative review process; the application does not automatically validate licensing with an external regulator.
+
+## 7. Control Room
+
+Routes include `/control-room`, `/control-room/verification/[id]` and `/control-room/property-verification/[id]`. Control Room access is separate from Payload Admin and requires an authorized staff/member role. Temporary staff accounts must change their temporary password before proceeding where the account is flagged accordingly.
+
+### Dashboard and member review
+
+The dashboard surfaces member/property/enquiry and review information, including pending credentials and property readiness. Staff can inspect member records, set credential status, record review checks/rejection reasons and manage staff access according to their role. Administrators can create staff accounts and assign staff roles; verifiers cannot create staff or grant/revoke administrator access and have restricted review scope.
+
+### Property verification and moderation
+
+Property review examines identity, price, specifications, permit, media and responsible broker evidence. Required readiness checks determine whether a record can be approved. Authorized staff can return records for changes, publish/unpublish, adjust status, toggle visibility, mark sold/rented or archive, subject to permissions.
+
+## 8. CMS, persistence and visibility
+
+Payload collections include Members, Users, Properties, Brokers, Agencies, Media, Enquiries, Plans, WaitlistSignups, MemberState, AmenityDefinitions, DeveloperSubscriptions, Notifications, PropertyBrokerClaims and AgencyInvitations. Property/member compatibility data is synchronized into canonical public/CMS records where required.
+
+Payload uses `DATABASE_URI` for PostgreSQL. Workspace state and account-scoped data are read/written through authenticated server routes and persisted in Payload; the browser's in-memory store is a reactive cache, not durable storage. CMS hooks clear/revalidate cached public data. Media uses configured S3-compatible storage when available, with local/configuration-dependent handling otherwise. Seed and media-sync scripts import/link bundled sample media and inventory.
+
+Public visibility rules include:
+
+- Property records must be published and not explicitly hidden (`display.visible !== false`).
+- Public broker records need valid public slugs and must satisfy profile/search visibility/privacy settings.
+- Developer profiles and properties must be public/visible and published as appropriate.
+- Private workspace, staff/admin and editor-preview routes are not public inventory pages.
+
+## 9. APIs and server actions
+
+Application API routes include:
+
+- `/api/app-auth` — login, registration, logout and password/account authentication operations.
+- `/api/auth/google`, `/api/auth/google/callback` — optional Google OAuth.
+- `/api/app-public` — public brokers, listings, member brokers and plans.
+- `/api/app-session` — current member session operations.
+- `/api/app-state` — authenticated member workspace state and listing synchronization.
+- `/api/app-enquiries` — enquiry retrieval and mutations.
+- `/api/app-media` and `/api/register-media` — authenticated media upload/registration.
+- `/api/admin` — Control Room requests.
+- `/api/role-workspace` — developer/agency workspace data, subscriptions, team invitations, claims and notification actions.
+- `/api/waitlist` — waitlist submissions.
+- `/api/revalidate` — cache revalidation.
+- `/api/media-assets/[...path]` — media asset delivery.
+- Payload's `/admin` and API — CMS administration and collection operations.
+
+Next.js server actions wrap authentication, account updates/deletion, enquiry creation/status updates and waitlist submission. Shared server services perform validation, authorization, Payload operations and session-cookie handling.
+
+## 10. Cross-cutting behavior and limits
+
+### Media and contact
+
+Listings and profiles support images and associated media. Gallery/lightbox interactions are keyboard/touch friendly. Phone/email/WhatsApp links can open external apps; actual message delivery is outside the app. In-app enquiries are persisted. The Help form is a demo and does not send. Mail-dependent flows (password reset, team invitation and credential emails) require configured SMTP/provider settings.
+
+### Demonstration features
+
+- Mobile OTP and account credential demo verification simulate checks; they do not send SMS or verify regulatory status.
+- Subscription/trial controls update plan/account state but do not charge money.
+- Help/contact form only validates and shows a demo success state.
+- Maps are approximate community demonstrations and do not show an exact unit location or verified distances.
+- Calculators are estimates based on editable assumptions, not quotations. USD equivalents use the fixed AED peg (3.6725).
+- Sample broker, agency, developer and property records are fictional; sample photos are illustrative and may not depict advertised units.
+
+### Responsive/accessibility patterns
+
+The site uses responsive public/workspace layouts, mobile property contact controls, mobile/desktop previews, responsive filters/navigation, semantic headings/forms, labels, skip link, breadcrumbs, ARIA controls and keyboard-operable dialogs/actions where implemented.
+
+## 11. Current operational requirements
+
+- Set `DATABASE_URI` and `PAYLOAD_SECRET`; apply migrations with `npm run migrate` when deploying schema changes. Automatic schema push is disabled by default.
+- Configure S3-compatible storage credentials/settings for durable remote media uploads; `npm run storage:check` checks access.
+- Configure Google OAuth credentials and authorized callback URL to enable Google signup/login.
+- Configure mail transport for reset and invitation emails. SMS, WhatsApp delivery and payment processing are not configured.
+- Deploy to a public HTTPS domain for search engine access. Sitemap, robots and structured metadata are present in the app and should be checked against the deployed domain.
+- Credential verification is an internal review workflow, not an external RERA check. Demo/sample data should be reviewed before production use.
+
+## 12. Primary user journeys
+
+### Buyer discovery
 
 ```text
-Visitor opens /properties
-  → selects search filters
-  → URL updates without a full page reload
-  → matching published/visible listings are displayed
-  → visitor opens a card
-  → /property/[slug]
+Homepage → search/filter properties → open detail → review facts/media/calculators
+         → contact broker or save → sign in as buyer when prompted → review Saved/activity
 ```
 
-### 3.3 Property detail — `/property/[slug]`
-
-The public property page currently displays:
-
-- Breadcrumb and back-to-search navigation
-- Sale/rent and ready/off-plan status
-- Title, location and AED price
-- Price context such as annual rent, asking price or starting price
-- Gallery and image lightbox
-- Property characteristics
-- Description and highlights
-- Amenities/features
-- Payment plan for off-plan listings
-- Property details and approximate map section
-- Community insights
-- Mortgage, payment, purchase-cost and rent-affordability calculators
-- Listing broker profile and contact card
-- Similar properties
-- Mobile contact call-to-action
-- Save/favourite action
-- Share action
-
-Current server flow:
+### Broker onboarding and listing
 
 ```text
-Request /property/[slug]
-  → getProperty(slug) queries published and visible CMS data
-  → missing/unpublished record returns 404
-  → CMS record is normalized into the public listing shape
-  → broker relation is attached
-  → PropertyDetail renders the initial property content
-  → client-side interactions activate after hydration
+/for-professionals → /register → create broker account and credentials
+                   → credential review → configure /profile
+                   → create listing → complete readiness checklist
+                   → publish or submit for review → receive/manage enquiries
 ```
 
-Public visitors can contact the listing broker through the configured contact method. Signed-in users can save the listing and create an enquiry.
-
-### 3.4 Broker directory — `/agents`
-
-The directory supports:
-
-- Agent/broker view
-- Agency view
-- Search by name, agency, specialty or location
-- Featured/public broker cards
-- Agency cards
-- Load-more pagination
-- Links to broker and agency profiles
-
-Flow:
+### Broker collaboration
 
 ```text
-Visitor opens /agents
-  → chooses Agents or Agencies
-  → searches or browses cards
-  → opens /brokers/[slug] or /agencies/[id]
+/network → search broker inventory → open network detail
+         → contact listing broker or select property → add private note in /selected
 ```
 
-### 3.5 Broker portfolio — `/brokers/[slug]`
-
-Public broker pages include:
-
-- Cover image and profile photo/avatar
-- Broker name, professional title and agency
-- Dubai/UAE service location
-- Verification/BRN badges where available
-- Headline, biography and specialities
-- Languages and experience
-- Active listing count and performance summary
-- Active property portfolio
-- Optional sold/rented history
-- Filters for sale/rent, ready/off-plan, type, area, price and bedrooms
-- Listing sort options
-- Direct contact buttons
-- Copy/share profile link
-- Links to properties and agency profile
-
-Flow:
+### Developer representation
 
 ```text
-Visitor opens /brokers/[slug]
-  → server fetches the public broker and active properties
-  → broker profile and initial listings render
-  → visitor filters portfolio or opens a property
-  → visitor contacts broker or shares profile
+/developer-dashboard → create developer property → assign primary broker or enable owner-direct
+                      → receive claim request → approve/reject → broker/developer notifications
 ```
 
-Private, unsearchable or invalid broker profiles are not intended to be public.
-
-### 3.6 Agency profile — `/agencies/[id]`
-
-Agency pages provide:
-
-- Agency name and logo/avatar
-- Location and agency licence/ORN information
-- Verification badge where applicable
-- About section
-- Public broker team
-- Active agency listings
-- Contact-agency call to action
-
-Flow:
+### Agency team operations
 
 ```text
-Visitor opens /agencies/[id]
-  → server fetches the agency, public brokers and active listings
-  → agency profile renders
-  → visitor opens a broker or property
+/agency-dashboard → /agency-team → invite/search broker or manage invitation
+                  → invitee accepts with matching email/token → agency manages team inventory
 ```
 
-### 3.7 Saved properties and activity — `/saved`
-
-Signed-in users can:
-
-- View saved properties
-- View recently viewed properties
-- View enquiry/contact activity
-- Filter activity by category/status where available
-- Open saved property and broker links
-
-The save/favourite control is available from property cards and property detail pages. Saved activity is user-specific.
-
-### 3.8 Seller and owner flow — `/sell`
-
-The sell page explains the seller/owner path and presents an owner waitlist form. The waitlist flow collects an email and submits it to the waitlist endpoint/server action.
-
-Flow:
+### Control Room review
 
 ```text
-Visitor opens /sell
-  → reads selling guidance
-  → submits email to join the owner waitlist
-  → receives success or validation feedback
-```
-
-### 3.9 Help and contact — `/help`
-
-The help page provides contact/support form fields:
-
-- Name
-- Email
-- Topic
-- Message
-
-Validation errors and submission feedback are shown in the UI.
-
-### 3.10 Platform and professional marketing pages
-
-Available marketing pages include:
-
-- `/platform` — product/platform explanation
-- `/for-professionals` — broker and agency acquisition page
-- `/privacy` — privacy policy
-- `/terms` — terms of service
-
-These pages link visitors toward registration, public profiles and the professional workspace.
-
-## 4. Authentication functionality
-
-### 4.1 Registration — `/register`
-
-The registration wizard supports account types:
-
-- Licensed broker
-- Real estate agency
-- Property developer
-
-`/register` is reserved for professional registration. It collects account credentials and role-specific profile information. Broker/agency registration may include mobile number, professional details, RERA/credential information and plan selection. The former Owner account type is no longer presented; Developer is the replacement role.
-
-Flow:
-
-```text
-Visitor opens /register
-  → chooses account type
-  → completes multi-step form
-  → submits registration
-  → member record is created with pending credentials
-  → user is signed in or shown next-step feedback
-```
-
-### 4.2 Buyer registration modal
-
-Buyer registration is not presented in the professional `/register` wizard. It is opened from the public navbar:
-
-```text
-Visitor clicks Sign In
-  → chooses Buyer/Tenant in the animated account-choice modal
-  → buyer sign-up modal opens
-  → chooses Continue with Google or Continue with email
-  → email flow collects name, email, strong password and terms consent
-  → account is created as a buyer
-  → user is redirected to saved properties
-```
-
-The email form includes password visibility control, strength feedback, inline validation, loading state and Terms/Privacy consent. Google sign-up uses the optional Google OAuth routes and requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` configuration.
-
-### 4.3 Login — `/login`
-
-Users can sign in using email or mobile number plus password. After authentication, the destination depends on the user role and requested `next` URL:
-
-- Broker/agency → workspace/dashboard
-- Buyer → saved area
-- Guest/private workspace access → unauthorized guidance
-
-The public navbar Sign In button first opens the account-choice modal. Professional users continue to `/login`; buyers continue to the Google/email buyer modal.
-
-Logout from the navbar, dashboard, account settings and Control Room clears the session and redirects to the public homepage (`/`).
-
-### 4.4 Password recovery
-
-Available routes:
-
-- `/forgot-password`
-- `/change-password`
-
-Flow:
-
-```text
-User submits email
-  → password reset request is sent through Payload
-  → user enters reset token and new password
-  → token is validated
-  → password is changed and session can be established
-```
-
-### 4.5 Account security
-
-Authenticated users can:
-
-- Change email after verifying the current password
-- Change password after verifying the current password
-- Log out
-- Export account data in the account UI
-- Request account deletion with password and confirmation
-
-## 5. Broker and agency workspace functionality
-
-Workspace routes are under the authenticated application shell.
-
-### 5.1 Dashboard — `/dashboard`
-
-The dashboard provides:
-
-- Workspace summary and KPIs
-- Published listing count
-- Draft/pending listing count
-- Network opportunities
-- Selected properties
-- Recent enquiries
-- Recent listings
-- Recommended/network properties
-- Quick links to create a listing, portfolio, network and subscription
-
-### 5.2 Listing management — `/listings`
-
-The listing manager supports:
-
-- View listings
-- Filter by status and other listing attributes
-- Open listing detail
-- Create a new listing
-- Edit an existing listing
-- Preview a listing
-- Publish/unpublish listings
-- Mark properties sold or rented
-- Delete listings
-- View public listing link
-
-### 5.3 Listing creation and editing
-
-Routes:
-
-- `/listings/new`
-- `/listings/[id]`
-- `/listings/[id]/edit`
-
-The multi-step editor captures:
-
-#### Basics
-
-- Listing title
-- Summary and full description
-- Purpose: sale or rent
-- Residential/commercial category
-- Property type
-- Community, area, emirate and address
-- Ready/off-plan status
-- Bedrooms, bathrooms and size
-- Parking, floor and total floors
-- Price and price-on-request state
-- Rental terms and cheques where applicable
-- Availability and property condition details
-
-#### Media
-
-- Featured image
-- Gallery images
-- Floorplans
-- Image captions
-- Media upload and registration
-
-#### More details
-
-- Highlights
-- Amenities
-- Nearby attractions
-- Investment/developer highlights
-- Advertising permit number
-- Permit expiry
-- Permit document
-- Internal reference
-- Preferred contact method
-
-#### Off-plan/payment plan
-
-- Developer
-- Handover information
-- Payment milestones and percentages
-
-Flow:
-
-```text
-Broker opens New Listing
-  → completes editor steps
-  → saves draft or opens preview
-  → completes verification/readiness requirements
-  → publishes listing
-  → listing becomes eligible for public visibility
-```
-
-### 5.4 Listing preview
-
-The editor can open a desktop/mobile preview modal. Preview mode renders the public listing style while keeping links and contact actions inert. This lets the broker review content before publishing.
-
-### 5.5 Portfolio/profile management — `/profile`
-
-The broker portfolio editor supports:
-
-- Public display name
-- Professional title and headline
-- Biography
-- Years of experience
-- Languages
-- Service areas
-- Specialisations
-- Credentials
-- Profile photo
-- Cover image and crop position
-- Public email, phone and WhatsApp
-- Preferred contact method
-- Agency name, website and ORN
-- Portfolio property order
-- Featured portfolio listings
-- Default listing sort order
-- Sold/rented history visibility
-- Public profile visibility
-- Search-directory visibility
-
-Flow:
-
-```text
-Broker edits draft profile
-  → reviews the “What buyers see” preview
-  → publishes changes
-  → public /brokers/[slug] page reflects the published profile
-```
-
-The portfolio editor supports draft changes, publish, discard, desktop/mobile preview and profile sharing.
-
-### 5.6 Broker network — `/network`
-
-The network helps brokers discover property opportunities from participating brokers. It supports:
-
-- Browse network inventory
-- Search properties, brokers and notes
-- Filter/sort opportunities
-- Open network property detail
-- View listing broker and agency
-- Contact the listing broker
-- Select properties into a private collection
-
-Network property detail is available at `/network/[id]`.
-
-Flow:
-
-```text
-Broker opens Network
-  → searches or filters another broker’s inventory
-  → opens network detail
-  → contacts listing broker or selects the property
-  → selected property is saved to private collection
-```
-
-### 5.7 Selected properties — `/selected`
-
-Selected properties provide a private workspace collection with:
-
-- Availability filtering
-- Search
-- Private broker notes
-- Remove/deselect action
-- Contact listing broker
-- Open property/network detail
-
-Private notes are not displayed to public visitors or the listing broker.
-
-### 5.8 Enquiries — `/enquiries`
-
-The enquiries inbox supports:
-
-- View property and broker enquiries
-- See sender and property context
-- Filter or review enquiry status
-- Mark enquiries replied/updated
-- Contact or respond through available contact details
-
-Public enquiry flow:
-
-```text
-Visitor opens property/broker contact action
-  → enquiry form/provider opens
-  → visitor submits message and contact details
-  → enquiry is stored against broker/property
-  → broker sees it in /enquiries
-  → broker updates status
-```
-
-### 5.9 Subscription — `/subscription`
-
-The subscription screen provides:
-
-- Current plan summary
-- Plan comparison
-- Included seats/listing/selection allowances
-- Feature comparison
-- Trial/cancellation UI
-- Plan switching controls
-- Payment modal UI
-
-The current implementation presents plan and billing interactions in the workspace. External payment-provider integration should be verified separately before production billing.
-
-### 5.10 Account settings — `/account`
-
-Account settings include:
-
-- Personal information
-- Legal name
-- Mobile number
-- Office/billing address
-- Credential status and review information
-- RERA/BRN details
-- Credential verification/demo verification controls where enabled
-- Privacy controls
-- Contact visibility controls
-- Language and currency preferences
-- Notification preferences
-- Subscription summary
-- Change email
-- Change password
-- Logout
-- Export account data
-- Delete account
-
-Privacy controls can determine whether phone, WhatsApp, email, languages, experience, BRN, transaction history and portfolio visibility appear publicly.
-
-### 5.11 Developer workspace and public developer profiles
-
-Developer accounts have a dedicated dashboard at `/developer-dashboard` with:
-
-- Developer profile and public visibility controls
-- Project/property creation and management
-- Primary broker selection for developer-owned properties
-- Public/direct listing option when no primary broker is selected
-- Broker claim review and ownership context
-- Developer subscriber management
-- Notifications for broker and agency subscriptions
-
-Public developer pages are available at `/developers` and `/developers/[slug]`. Published developer properties are linked to the developer profile and public property pages.
-
-### 5.12 Agency workspace
-
-Agency accounts have a dedicated dashboard at `/agency-dashboard` with:
-
-- Agency overview and property summary
-- Team tab for agency members and invitations
-- Agency properties and enquiries
-- Developer subscriptions
-- Notifications and account/subscription access
-
-Agency registration creates the agency record and associates the registering member as the agency administrator.
-
-### 5.13 Broker claims and developer subscriptions
-
-Broker and agency members can subscribe to public developers. When a subscribed developer publishes a property, the platform creates notifications for eligible subscribers.
-
-For developer-direct/public properties, brokers and agencies can submit a claim saying they represent the property. The developer can review claim status and maintain the primary broker relationship separately from public broker claims.
-
-## 6. Control Room functionality
-
-Routes:
-
-- `/control-room`
-- `/control-room/property-verification/[id]`
-- `/control-room/verification/[id]`
-
-### 6.1 Control Room access
-
-Approved Payload users with roles `admin`, `subadmin` or `verifier` can log in. Approved administrator-created members with Control Room access can also use the Control Room.
-
-Temporary staff accounts must change their temporary password before using the rest of the Control Room.
-
-### 6.2 Dashboard
-
-The Control Room dashboard displays:
-
-- Member count
-- Pending credential count
-- Property count
-- Published property count
-- Enquiry count
-- New enquiry count
-- Broker count
-- Media count
-- Member list
-- Staff list
-- Property list
-- Property verification readiness checks
-
-### 6.3 Member management
-
-Administrators can:
-
-- Review members
-- Update credential status: pending, verified or rejected
-- Record credential review checks and rejection reason
-- Grant/revoke administrator access where permitted
-- Create Control Room staff accounts
-- Assign subadmin or verifier role
-- Send temporary credentials by email
-
-Verifier restrictions:
-
-- Verifiers can submit member verification decisions.
-- Verifiers cannot create staff accounts.
-- Verifiers cannot grant/revoke admin access.
-- Verifiers cannot review administrator-created accounts.
-
-### 6.4 Property verification
-
-Property readiness checks cover:
-
-- Property identity
-- Pricing
-- Specifications
-- Advertising permit
-- Media evidence
-- Responsible broker
-
-Each check displays submitted values/evidence and pass/fail state. A property can be approved only when all required checks pass. Approved properties become published; properties needing changes return to pending.
-
-### 6.5 Property moderation
-
-Authorized Control Room users can:
-
-- Change property status
-- Publish/unpublish properties
-- Mark properties sold or rented
-- Archive properties
-- Toggle public visibility
-
-## 7. CMS and data functionality
-
-Payload collections currently include:
-
-- Members
-- Users
-- Properties
-- Brokers
-- Agencies
-- Media
-- Enquiries
-- Plans
-- Waitlist signups
-- Member state
-- Amenity definitions
-- Developer subscriptions
-- Developer/agency notifications
-- Property broker claims
-- Agency invitations
-
-Property records include canonical CMS fields plus `appData` compatibility/workspace data. Member-created properties and broker profiles are synchronized into public-facing CMS records for administration and public display.
-
-Public data loading uses:
-
-- Server-side CMS helpers in `src/lib/cms.ts`
-- Public application endpoint `/api/app-public`
-- Session endpoint `/api/app-session`
-- State endpoint `/api/app-state`
-
-CMS changes invalidate the CMS cache through Payload hooks. Public CMS reads use a short revalidation period, while the public application payload currently uses no-store response headers.
-
-## 8. API and server action functionality
-
-### Application APIs
-
-- `/api/auth/google` and `/api/auth/google/callback` — optional Google OAuth buyer registration/login
-- `/api/app-auth` — login, registration, logout, password recovery/reset, password/email changes
-- `/api/app-public` — public brokers, listings, member brokers and plans
-- `/api/app-session` — current member session
-- `/api/app-state` — authenticated member workspace state and mutations
-- `/api/app-enquiries` — authenticated enquiry operations
-- `/api/app-media` — authenticated media operations
-- `/api/admin` — Control Room requests
-- `/api/waitlist` — owner waitlist submission
-- `/api/revalidate` — cache revalidation hook/endpoint
-- `/api/register-media` — media registration
-- `/api/media-assets/[...path]` — media asset delivery
-- `/api/role-workspace` — role-specific developer and agency workspace data/actions
-- Payload API route under `/admin/api`
-
-### Server actions
-
-Server actions wrap authentication, account changes, account deletion, enquiry creation/status updates and waitlist signup. They return normalized success/error results and set authentication cookies when required.
-
-## 9. Cross-cutting functionality
-
-### Media
-
-- Featured images, galleries, floorplans, profile photos, agency logos and cover images
-- Supabase S3-compatible storage when configured
-- Local media fallback when storage is not configured
-- Image lightbox/gallery interaction
-
-### Contact methods
-
-Depending on privacy settings and listing configuration, users can contact brokers through:
-
-- Enquiry/message
-- Phone
-- WhatsApp
-- Email
-
-### Notifications and feedback
-
-The app uses feedback/toast messaging for saves, shares, updates, errors, contact actions and successful submissions.
-
-### Responsive behavior
-
-Public and workspace screens include responsive layouts, mobile contact CTA, mobile/desktop preview switching and mobile-friendly filter/navigation controls.
-
-Authentication choice and buyer registration dialogs include responsive layouts, animated open/close transitions, backdrop dismissal, Escape handling and focus management.
-
-### Accessibility
-
-Implemented patterns include:
-
-- Skip-to-content link
-- Semantic headings and sections
-- Labels and screen-reader text
-- Breadcrumb navigation
-- ARIA tab/filter groups
-- Keyboard-friendly dialogs and controls
-- Alternative text/avatars for media where supplied
-
-## 10. Current public visibility rules
-
-The public data paths currently apply these rules:
-
-- Properties must be `published`.
-- Properties with `display.visible === false` are excluded.
-- Broker records need a slug.
-- Private/unsearchable broker profiles are excluded from public API output.
-- Member portfolios need a public, searchable slug.
-- Private workspace, admin and preview areas are not public product pages.
-
-## 11. Important current limitations and items to verify
-
-- The site is configured for `http://localhost:3000`; localhost cannot be crawled by Google or AI search systems.
-- Public indexing requires deployment to a real HTTPS domain.
-- Sitemap, robots controls and JSON-LD structured data are implemented and should be verified after deployment.
-- Some public interactive lists still hydrate from the client public store after the server-rendered shell.
-- Payment-provider processing is not confirmed by the current workspace subscription UI.
-- Google buyer sign-in requires Google Cloud OAuth credentials in `.env` and an authorized callback URL.
-- Demo/sample records and sample wording should be removed or clearly separated before production launch.
-- Property and broker availability depends on correct CMS relations, slugs, visibility flags and profile privacy settings.
-- Production build validation requires access to the configured remote database and storage services.
-
-## 12. Primary end-to-end user journeys
-
-### Property buyer journey
-
-```text
-Homepage
-  → Search property
-  → Filter sale/rent, location, type, budget and bedrooms
-  → Open property detail
-  → Review photos, facts, calculator and broker
-  → Save property or send enquiry
-  → Continue in Saved/Activity after login
-```
-
-### Buyer account journey
-
-```text
-Public homepage or any marketplace page
-  → click Navbar Sign In
-  → choose Buyer/Tenant
-  → choose Google or email
-  → create/sign in to buyer account
-  → return to saved properties and buyer activity
-```
-
-### Broker acquisition journey
-
-```text
-Professional marketing page
-  → Register as broker/agency
-  → Complete account and credential information
-  → Await/review verification
-  → Configure public portfolio
-  → Create and verify listing
-  → Publish listing
-  → Receive enquiries
-```
-
-### Broker collaboration journey
-
-```text
-Workspace dashboard
-  → Open Broker Network
-  → Search another broker’s inventory
-  → Open network property
-  → Contact listing broker or select property
-  → Add private notes in Selected Properties
-```
-
-### Administrator moderation journey
-
-```text
-Control Room login
-  → Review pending members/properties
-  → Inspect credentials and property evidence
-  → Approve or request changes
-  → Publish, hide, mark sold/rented or archive
+/control-room → review member credentials or property evidence
+              → approve / request changes / moderate visibility and status
 ```

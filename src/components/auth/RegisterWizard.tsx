@@ -1,6 +1,5 @@
 'use client';
 
-
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -10,7 +9,17 @@ import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useHydrated } from '@/hooks/useStore';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
-import { ensureSeed, findByLogin, register, signIn, currentUser, saveUser, log, plans } from '@/lib/store';
+import {
+  ensureSeed,
+  findByLogin,
+  checkRegistrationEmail,
+  register,
+  signIn,
+  currentUser,
+  saveUser,
+  log,
+  plans,
+} from '@/lib/store';
 import { uploadRegistrationEvidence } from '@/lib/mediaClient';
 import { RX, cx, fmtBytes, normaliseMobile, passwordScore } from '@/lib/utils';
 import { PasswordInput, FieldError, errProps, SignedInNote } from './authShared';
@@ -26,7 +35,12 @@ const TYPES: Array<{ id: string; title: string; icon: string; desc: string; soon
     icon: 'building',
     desc: 'For companies managing agents and property portfolios.',
   },
-  { id: 'developer', title: 'Property Developer', icon: 'buildings', desc: 'For developers publishing projects and inventory.' },
+  {
+    id: 'developer',
+    title: 'Property Developer',
+    icon: 'buildings',
+    desc: 'For developers publishing projects and inventory.',
+  },
 ];
 const S_LABELS = ['Password strength', 'Weak', 'Fair', 'Good', 'Strong'];
 const S_COLORS = ['#DCE2DE', '#A23B32', '#8A5A12', '#6E8F78', '#2F6B4A'];
@@ -171,17 +185,19 @@ function Wizard({ qType, qPlan }) {
   const [init] = useState(() => initialState(qType, qPlan));
   const [step, setStep] = useState(init.step);
   const [type, setTypeState] = useState(init.type);
-  const planCards = Object.values(plans()).filter((item) => item.roleAudience === type).map((item) => ({
-    id: item.id,
-    desc: [
-      item.audience,
-      item.seats ? `${item.seats} seat${item.seats === 1 ? '' : 's'}` : '',
-      item.listings ? `${item.listings} active listings` : '',
-      item.selections ? `${item.selections} selections` : '',
-    ]
-      .filter(Boolean)
-      .join(' · '),
-  }));
+  const planCards = Object.values(plans())
+    .filter((item) => item.roleAudience === type)
+    .map((item) => ({
+      id: item.id,
+      desc: [
+        item.audience,
+        item.seats ? `${item.seats} seat${item.seats === 1 ? '' : 's'}` : '',
+        item.listings ? `${item.listings} active listings` : '',
+        item.selections ? `${item.selections} selections` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    }));
   const [plan, setPlanState] = useState(init.plan);
   const [planTouched, setPlanTouched] = useState(init.planTouched);
   const [v, setV] = useState(() => ({ 'r-password': '', 'r-password2': '', ...init.v }));
@@ -190,6 +206,13 @@ function Wizard({ qType, qPlan }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [typeError, setTypeError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [payment, setPayment] = useState({ name: '', number: '', expiry: '', cvc: '' });
+  const [paymentError, setPaymentError] = useState('');
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentComplete, setPaymentComplete] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [registrationError, setRegistrationError] = useState('');
   const [otp, setOtp] = useState(null); // { mobile } while the modal is open
   const [success, setSuccess] = useState(null); // { verified }
   const doneRef = useRef(false);
@@ -330,7 +353,19 @@ function Wizard({ qType, qPlan }) {
       if (!checks['r-terms']) fail('r-terms', 'Please accept the Terms of Service.');
       if (!checks['r-privacy']) fail('r-privacy', 'Please confirm the Privacy Policy and PDPL consent.');
     }
-    setErrors((e) => ({ ...e, ...er }));
+    // Keep each validation message attached to the step that owns the field.
+    // Also remove stale messages for this step once its fields are corrected.
+    const stepFields = {
+      1: [],
+      2: ['r-name', 'r-email', 'r-mobile', 'r-password', 'r-password2'],
+      3: ['r-brn', 'r-card', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-tlfile', 'r-agents'],
+      4: ['r-terms', 'r-privacy'],
+    }[n];
+    setErrors((current) => {
+      const next = { ...current };
+      stepFields.forEach((id) => delete next[id]);
+      return { ...next, ...er };
+    });
     if (order.length) document.getElementById(order[0])?.focus();
     return !order.length;
   };
@@ -340,13 +375,8 @@ function Wizard({ qType, qPlan }) {
     setStep(n);
   };
 
-  const onSubmit = (e) => {
-    e.preventDefault();
-    if (busy || !validate(step)) return;
-    if (step < 4) {
-      go(step + 1);
-      return;
-    }
+  const createAccount = () => {
+    if (busy) return;
     setBusy(true);
     const mob = normaliseMobile(val('r-mobile'));
     const creds =
@@ -391,23 +421,91 @@ function Wizard({ qType, qPlan }) {
       .then((res) => {
         setBusy(false);
         if (!res.ok) {
-          go(2);
-          setErrors((er) => ({ ...er, 'r-email': res.message }));
+          if (res.field === 'email') {
+            setCheckoutOpen(false);
+            setRegistrationError('');
+            go(2);
+            setErrors((er) => ({ ...er, 'r-email': res.message || 'Enter a valid email address.' }));
+          } else {
+            setRegistrationError(res.message || 'Could not create the account. Please try again.');
+          }
           return;
         }
         signIn(res.user.id, true);
+        setCheckoutOpen(false);
         doneRef.current = true;
         clearDraft();
         setOtp({ mobile: mob });
       })
       .catch((error) => {
         setBusy(false);
+        setCheckoutOpen(false);
         go(3);
         setErrors((er) => ({
           ...er,
           'r-card': error instanceof Error ? error.message : 'Could not upload your evidence.',
         }));
       });
+  };
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (busy || !validate(step)) return;
+    if (step === 2) {
+      setCheckingEmail(true);
+      const result = await checkRegistrationEmail(val('r-email'));
+      setCheckingEmail(false);
+      if (!result.ok) {
+        const message =
+          result.field === 'email'
+            ? result.message || 'An account with this email already exists. Sign in or use a different email.'
+            : 'Could not verify this email address. Please try again.';
+        setErrors((current) => ({
+          ...current,
+          'r-email': message,
+        }));
+        document.getElementById('r-email')?.focus();
+        return;
+      }
+    }
+    if (step < 4) {
+      go(step + 1);
+      return;
+    }
+    setCheckoutOpen(true);
+  };
+
+  const completeDemoPayment = () => {
+    if (busy || paymentProcessing) return;
+    const digits = payment.number.replace(/\D/g, '');
+    const [month, year] = payment.expiry.split('/').map((part) => Number(part));
+    const currentYear = new Date().getFullYear() % 100;
+    const currentMonth = new Date().getMonth() + 1;
+    if (
+      !payment.name.trim() ||
+      digits !== '4242424242424242' ||
+      !month ||
+      month > 12 ||
+      !year ||
+      year < currentYear ||
+      (year === currentYear && month < currentMonth) ||
+      !/^\d{3,4}$/.test(payment.cvc)
+    ) {
+      setPaymentError('Use the demo card details shown below. No real payment was processed.');
+      return;
+    }
+    setPaymentError('');
+    setPaymentProcessing(true);
+    window.setTimeout(() => {
+      setPaymentProcessing(false);
+      setPaymentComplete(true);
+    }, 650);
+  };
+
+  const continueAfterPayment = () => {
+    if (!paymentComplete || busy) return;
+    setRegistrationError('');
+    createAccount();
   };
 
   const finish = (verified) => {
@@ -479,6 +577,313 @@ function Wizard({ qType, qPlan }) {
             Complete Profile
           </Link>
         </div>
+      </section>
+    );
+  }
+
+  if (checkoutOpen) {
+    const selectedPlan = plans()[plan];
+    return (
+      <section className="pt-6 lg:pt-14" aria-labelledby="checkout-title">
+        {paymentComplete ? (
+          <div className="payment-success-in mx-auto max-w-[480px] rounded-2xl border border-line bg-white p-7 text-center shadow-sm sm:p-10">
+            <span className="payment-check-pop mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-sage text-ink">
+              <i className="bi bi-check-lg h-6 w-6" aria-hidden="true" />
+            </span>
+            <p className="mt-6 text-xs font-semibold tracking-[.14em] text-ok uppercase">Demo payment complete</p>
+            <h1 id="checkout-title" className="h2 mt-2">
+              Payment approved
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Your {selectedPlan?.name || 'selected'} membership payment was simulated successfully. No card was
+              charged.
+            </p>
+            <div className="mt-6 rounded-xl bg-mist p-4 text-left text-sm">
+              <div className="flex justify-between gap-4">
+                <span className="text-muted">Plan</span>
+                <span className="font-medium text-ink">{selectedPlan?.name || 'Membership'}</span>
+              </div>
+              <div className="mt-2 flex justify-between gap-4">
+                <span className="text-muted">Payment</span>
+                <span className="font-medium text-ok">Successful (demo)</span>
+              </div>
+            </div>
+            {registrationError && (
+              <p
+                className="mt-4 rounded-lg border border-danger/20 bg-danger/5 p-3 text-left text-sm text-danger"
+                role="alert"
+              >
+                {registrationError}
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn btn-dark btn-lg mt-7 w-full"
+              onClick={continueAfterPayment}
+              disabled={busy}
+            >
+              {busy ? 'Creating your account…' : 'Continue'}
+              {!busy && <i className="bi bi-arrow-right" aria-hidden="true" />}
+            </button>
+          </div>
+        ) : (
+          <div className="relative left-1/2 w-[calc(100vw-2.5rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-white shadow-sm sm:w-[min(700px,calc(100vw-4rem))] lg:w-[min(760px,calc(60vw-4rem))]">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4 sm:px-7">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white">
+                  <i className="bi bi-lock h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-ink">Payment gateway preview</p>
+                  <p className="text-xs text-muted">Demo payment UI</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2" aria-label="Accepted cards">
+                <svg
+                  role="img"
+                  aria-label="Visa"
+                  viewBox="0 0 64 40"
+                  className="h-8 w-[52px]"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <rect x=".5" y=".5" width="63" height="39" rx="5.5" fill="white" stroke="#E3E7E5" />
+                  <text
+                    x="32"
+                    y="26"
+                    textAnchor="middle"
+                    fill="#1434CB"
+                    fontFamily="Arial,sans-serif"
+                    fontSize="19"
+                    fontWeight="700"
+                    fontStyle="italic"
+                  >
+                    VISA
+                  </text>
+                  <path d="M43 31h9" stroke="#F7B600" strokeWidth="2" />
+                </svg>
+                <svg
+                  role="img"
+                  aria-label="Mastercard"
+                  viewBox="0 0 78 40"
+                  className="h-8 w-[62px]"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <rect x=".5" y=".5" width="77" height="39" rx="5.5" fill="white" stroke="#E3E7E5" />
+                  <circle cx="32" cy="16" r="8" fill="#EB001B" />
+                  <circle cx="43" cy="16" r="8" fill="#F79E1B" fillOpacity=".95" />
+                  <path d="M37.5 9.1a8 8 0 0 1 0 13.8 8 8 0 0 1 0-13.8Z" fill="#FF5F00" />
+                  <text
+                    x="39"
+                    y="33"
+                    textAnchor="middle"
+                    fill="#252525"
+                    fontFamily="Arial,sans-serif"
+                    fontSize="7"
+                    fontWeight="700"
+                  >
+                    mastercard
+                  </text>
+                </svg>
+                <svg
+                  role="img"
+                  aria-label="American Express"
+                  viewBox="0 0 54 40"
+                  className="h-8 w-[44px]"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <rect x=".5" y=".5" width="53" height="39" rx="5.5" fill="#176FC1" stroke="#176FC1" />
+                  <text
+                    x="27"
+                    y="17"
+                    textAnchor="middle"
+                    fill="white"
+                    fontFamily="Arial,sans-serif"
+                    fontSize="7.2"
+                    fontWeight="700"
+                  >
+                    AMERICAN
+                  </text>
+                  <text
+                    x="27"
+                    y="27"
+                    textAnchor="middle"
+                    fill="white"
+                    fontFamily="Arial,sans-serif"
+                    fontSize="9"
+                    fontWeight="700"
+                  >
+                    EXPRESS
+                  </text>
+                </svg>
+              </div>
+            </div>
+            <div className="grid min-h-[700px] lg:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="p-5 sm:p-8 lg:p-10">
+                <div className="flex items-center justify-between gap-3">
+                  <h1 id="checkout-title" className="h3">
+                    Payment details
+                  </h1>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-ink underline underline-offset-4"
+                    onClick={() => {
+                      const nextYear = (new Date().getFullYear() + 1) % 100;
+                      setPayment({
+                        name: val('r-name'),
+                        number: '4242 4242 4242 4242',
+                        expiry: `12/${String(nextYear).padStart(2, '0')}`,
+                        cvc: '123',
+                      });
+                      setPaymentError('');
+                    }}
+                    disabled={paymentProcessing}
+                  >
+                    Fill demo details
+                  </button>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  Use the demo details to preview the payment flow. No real payment will be made.
+                </p>
+                <div className="mt-6 space-y-4">
+                  <label className="field block">
+                    <span className="label">Cardholder name</span>
+                    <input
+                      className="input"
+                      autoComplete="cc-name"
+                      placeholder="Name on card"
+                      value={payment.name}
+                      disabled={paymentProcessing}
+                      onChange={(event) => {
+                        setPayment({ ...payment, name: event.target.value });
+                        setPaymentError('');
+                      }}
+                    />
+                  </label>
+                  <label className="field block">
+                    <span className="label">Card number</span>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                      placeholder="1234 1234 1234 1234"
+                      value={payment.number}
+                      disabled={paymentProcessing}
+                      onChange={(event) => {
+                        setPayment({ ...payment, number: event.target.value });
+                        setPaymentError('');
+                      }}
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="field block">
+                      <span className="label">Expiry date</span>
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        autoComplete="cc-exp"
+                        placeholder="MM/YY"
+                        value={payment.expiry}
+                        disabled={paymentProcessing}
+                        onChange={(event) => {
+                          setPayment({ ...payment, expiry: event.target.value });
+                          setPaymentError('');
+                        }}
+                      />
+                    </label>
+                    <label className="field block">
+                      <span className="label">Security code</span>
+                      <input
+                        className="input"
+                        inputMode="numeric"
+                        autoComplete="cc-csc"
+                        placeholder="CVC"
+                        value={payment.cvc}
+                        disabled={paymentProcessing}
+                        onChange={(event) => {
+                          setPayment({ ...payment, cvc: event.target.value });
+                          setPaymentError('');
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {paymentError && (
+                    <p className="text-sm text-danger" role="alert">
+                      {paymentError}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-dark btn-lg mt-6 w-full"
+                  onClick={completeDemoPayment}
+                  disabled={busy || paymentProcessing}
+                >
+                  {paymentProcessing ? (
+                    <>
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Processing payment
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-lock" aria-hidden="true" /> Pay securely
+                    </>
+                  )}
+                </button>
+                <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">
+                  Demo only. Card details stay in this page and are not sent to a payment provider.
+                </p>
+              </div>
+              <aside
+                className="flex min-h-full flex-col border-t border-line bg-[#F8F9F8] p-5 sm:p-8 lg:border-t-0 lg:border-l lg:p-8"
+                aria-label="Order summary"
+              >
+                <p className="text-xs font-semibold tracking-[.12em] text-muted uppercase">Order summary</p>
+                <div className="mt-5 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{selectedPlan?.name || 'Membership'} plan</p>
+                    <p className="mt-1 text-xs text-muted">{selectedPlan?.audience || 'Professional account'}</p>
+                  </div>
+                  <i className="bi bi-building text-muted" aria-hidden="true" />
+                </div>
+                {selectedPlan?.features?.length > 0 && (
+                  <ul className="mt-5 space-y-2.5 border-t border-line pt-4">
+                    {selectedPlan.features.slice(0, 4).map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-xs leading-relaxed text-muted">
+                        <i className="bi bi-check2 mt-0.5 text-ok" aria-hidden="true" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="my-5 border-t border-line" />
+                <div className="flex justify-between text-xs text-muted">
+                  <span>Amount</span>
+                  <span>Pricing to be confirmed</span>
+                </div>
+                <div className="mt-3 flex justify-between text-sm font-semibold text-ink">
+                  <span>Total</span>
+                  <span>Demo</span>
+                </div>
+                <p className="mt-5 rounded-lg border border-line bg-white p-3 text-xs leading-relaxed text-muted">
+                  Demo card: <strong className="text-ink">4242 4242 4242 4242</strong>
+                  <br />
+                  Any future expiry · CVC 123
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-ghost mt-auto w-full pt-8"
+                  onClick={() => {
+                    setCheckoutOpen(false);
+                    setPaymentError('');
+                  }}
+                  disabled={paymentProcessing}
+                >
+                  Back to membership
+                </button>
+              </aside>
+            </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -770,7 +1175,8 @@ function Wizard({ qType, qPlan }) {
           <div className="mt-6 rounded-lg border border-line bg-mist p-4" hidden={credKind !== 'developer'}>
             <p className="text-sm font-semibold text-ink">Developer profile</p>
             <p className="mt-1 text-xs leading-[1.55] text-muted">
-              Add your company logo so brokers can recognise your developer card. You can skip this and use the default logo.
+              Add your company logo so brokers can recognise your developer card. You can skip this and use the default
+              logo.
             </p>
             <div className="mt-4">
               <UploadField
@@ -886,7 +1292,7 @@ function Wizard({ qType, qPlan }) {
           </div>
           <p className="mt-3 flex items-center gap-2 text-xs text-muted">
             <i className="bi bi-calendar-event h-3.5 w-3.5 text-ink" aria-hidden="true" />
-            Every plan starts with a 14-day trial. No payment details are requested during registration.
+            Plan pricing is being finalized. Continue to the demo payment step to complete registration.
           </p>
           <div className="mt-6 space-y-3 border-t border-line pt-5">
             <div className={cx('field', errors['r-terms'] && 'invalid')}>
@@ -928,15 +1334,20 @@ function Wizard({ qType, qPlan }) {
             </button>
           )}
           {step === 1 && <span className="text-xs text-muted">Your progress is kept on this device.</span>}
-          <button type="submit" className="btn btn-dark btn-lg ml-auto" disabled={nextDisabled}>
+          <button type="submit" className="btn btn-dark btn-lg ml-auto" disabled={nextDisabled || checkingEmail}>
             {busy ? (
               <>
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 Creating account
               </>
+            ) : checkingEmail ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Checking email
+              </>
             ) : (
               <>
-                {step === 4 ? 'Create Account' : 'Continue'}
+                Continue
                 <i className="bi bi-arrow-right" aria-hidden="true" />
               </>
             )}
@@ -1032,7 +1443,11 @@ function UploadField({ id, labelId, label, title, file, error, onError, onFile, 
         id={id}
         type="file"
         className="sr-only"
-        accept={imageOnly ? '.jpg,.jpeg,.png,image/jpeg,image/png' : '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png'}
+        accept={
+          imageOnly
+            ? '.jpg,.jpeg,.png,image/jpeg,image/png'
+            : '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png'
+        }
         aria-labelledby={labelId}
         {...errProps(id, error)}
         onChange={(e) => accept(e.target.files[0])}
