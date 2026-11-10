@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "anthropic:check": "node scripts/check-anthropic-api.cjs",
     "storage:check": "node scripts/check-storage.mjs",
     "media:sync": "node --import tsx scripts/sync-property-media.ts",
     "format": "prettier --write .",

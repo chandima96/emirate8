@@ -59,7 +59,7 @@ function collectCandidates(sources: SourceResult[] | null) {
 
 export function ProfileAutofill({ profile, onApply }: Props) {
   const [website, setWebsite] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [sources, setSources] = useState<SourceResult[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [selection, setSelection] = useState<Record<string, Selection>>({});
@@ -69,7 +69,7 @@ export function ProfileAutofill({ profile, onApply }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const reset = () => {
-    setWebsite(''); setFile(null); setSources(null); setWarnings([]); setSelection({}); setEdits({}); setError('');
+    setWebsite(''); setFiles([]); setSources(null); setWarnings([]); setSelection({}); setEdits({}); setError('');
     if (fileInput.current) fileInput.current.value = '';
   };
 
@@ -78,7 +78,7 @@ export function ProfileAutofill({ profile, onApply }: Props) {
     try {
       const form = new FormData();
       if (website.trim()) form.set('website', website.trim());
-      if (file) form.set('file', file);
+      for (const file of files) form.append('files', file);
       form.set('profile', JSON.stringify(profile));
       const response = await fetch('/api/profile-autofill', { method: 'POST', body: form, credentials: 'same-origin' });
       const result = await response.json();
@@ -139,17 +139,17 @@ export function ProfileAutofill({ profile, onApply }: Props) {
     <section className="mb-8 rounded-lg border border-sage/30 bg-sage-soft/40 p-4 sm:p-5" aria-labelledby="profile-autofill-title">
       <div>
         <h3 id="profile-autofill-title" className="h4">Fill from your documents or website</h3>
-        <p className="mt-1 max-w-3xl text-[13px] text-muted">Add a CV, broker profile, credential document, or your agency/brokerage website. Gemini analyzes each resource separately so conflicting suggestions can be reviewed before they enter your draft.</p>
+        <p className="mt-1 max-w-3xl text-[13px] text-muted">Add up to eight CVs, broker profiles, or credential documents together, or analyze one agency website. Claude suggests supported profile details for you to review before they enter your draft.</p>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)_auto] sm:items-start">
-        <label className="field"><span className="label">Website link</span><input className="input" type="url" placeholder="https://your-agency.com/team/you" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
-        <label className="field"><span className="label">Document</span><input ref={fileInput} className="input h-auto min-h-10 py-2" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] || null)} /><span className="hint">PDF, JPG, PNG or WebP · up to 10 MB</span></label>
+        <label className="field"><span className="label">Website link</span><input className="input" type="url" placeholder="https://your-agency.com/team/you" value={website} disabled={Boolean(files.length)} onChange={(event) => setWebsite(event.target.value)} /></label>
+        <label className="field"><span className="label">Documents</span><input ref={fileInput} className="input h-auto min-h-10 py-2" type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(website.trim())} onChange={(event) => setFiles(Array.from(event.target.files || []))} /><span className="hint">PDF, JPG, PNG or WebP · up to 20 MB each, 50 MB combined (8 files max).</span></label>
         <div className="flex gap-2 sm:mt-6">
-          <button type="button" className="btn btn-dark" onClick={analyze} disabled={busy || (!website.trim() && !file)}>{busy ? 'Reading resources…' : 'Suggest profile details'}</button>
-          <button type="button" className="btn btn-outline" onClick={reset} disabled={busy || (!website && !file && !sources && !error)}>Reset</button>
+          <button type="button" className="btn btn-dark" onClick={analyze} disabled={busy || (!website.trim() && !files.length)}>{busy ? 'Analyzing resources…' : 'Suggest profile details'}</button>
+          <button type="button" className="btn btn-outline" onClick={reset} disabled={busy || (!website && !files.length && !sources && !error)}>Reset</button>
         </div>
       </div>
-      {file && <p className="mt-2 text-xs text-muted">Selected: {file.name}</p>}
+      {files.length > 0 && <p className="mt-2 text-xs text-muted">Selected: {files.map((file) => file.name).join(', ')}</p>}
       {error && <p className="mt-3 text-sm text-danger" role="alert">{error}</p>}
       {warnings.map((warning, index) => <p key={index} className="mt-3 text-sm text-warn" role="status">{warning}</p>)}
       {sources && <div className="mt-5 border-t border-sage/30 pt-4">

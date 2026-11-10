@@ -319,6 +319,7 @@ function Wizard({ qType, qPlan }) {
         (document.querySelector('[data-type]') as HTMLElement)?.focus();
         return false;
       }
+      setTypeError(false);
     }
     if (n === 2) {
       if (val('r-name').length < 3 || !/\s/.test(val('r-name'))) fail('r-name', 'Enter your first and last name.');
