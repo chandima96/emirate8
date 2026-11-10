@@ -30,6 +30,15 @@ const databasePoolMax =
 export default buildConfig({
   admin: {
     user: Users.slug,
+    components: {
+      views: {
+        // Replace Payload's client-only logout redirect with a server sign-out
+        // that also clears stale or invalid Payload auth cookies.
+        logout: {
+          Component: '@/components/payload/LogoutRedirect#LogoutRedirect',
+        },
+      },
+    },
     importMap: {
       baseDir: path.resolve(dirname),
     },
