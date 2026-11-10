@@ -1,5 +1,6 @@
 import * as migration_20261026_000002_listing_fields from './20261026_000002_listing_fields';
 import * as migration_20261027_135539_upgrade_payload_3_90_security_fields from './20261027_135539_upgrade_payload_3_90_security_fields';
+import * as migration_20261110_000000_repair_missing_session_tables from './20261110_000000_repair_missing_session_tables';
 import * as migration_20261020_012245_init from './20261020_012245_init';
 import * as migration_20261020_024011 from './20261020_024011';
 import * as migration_20261020_025344 from './20261020_025344';
@@ -74,5 +75,10 @@ export const migrations = [
     up: migration_20261027_135539_upgrade_payload_3_90_security_fields.up,
     down: migration_20261027_135539_upgrade_payload_3_90_security_fields.down,
     name: '20261027_135539_upgrade_payload_3_90_security_fields'
+  },
+  {
+    up: migration_20261110_000000_repair_missing_session_tables.up,
+    down: migration_20261110_000000_repair_missing_session_tables.down,
+    name: '20261110_000000_repair_missing_session_tables'
   },
 ];
