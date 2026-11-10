@@ -30,6 +30,10 @@ npm run dev          # http://localhost:3000
 
 Set `DATABASE_URI` and `PAYLOAD_SECRET` in `.env` before starting. Configure `S3_BUCKET`, `S3_ENDPOINT`, and S3 credentials for Payload media uploads. The listing editor currently saves resized images with listing data in Supabase Postgres. Review generated migrations before applying them to a database with existing data.
 
+Payload schema push is disabled by default, so starting the development server will not introspect or alter a remote database. Apply schema changes with `npm run migrate`; set `PAYLOAD_DB_PUSH=true` only when intentionally using Payload's automatic schema push with a disposable development database.
+
+For Vercel deployments using Supabase, set `DATABASE_URI` to the Transaction pooler connection string (port `6543`) and keep `DATABASE_POOL_MAX` at `2` or higher. Payload holds one client for connection recovery, so a pool size of `1` cannot run queries.
+
 Forms use Next.js Server Actions in `src/app/actions.ts` for authentication, account changes, enquiries, and waitlist signups. Server Actions and the existing API routes share server-only services in `src/lib/server`, including validation, member authorization, and Payload authentication cookies. Data reads, media uploads, cache revalidation, and background workspace autosave retain HTTP endpoints. The API routes remain available for existing consumers.
 
 Run `npm run storage:check` to verify S3 access. Run `npm run media:sync` to upload missing bundled photographs, verify their public URLs, and link existing properties and saved workspace listings to the uploaded Media records. The import preserves existing media IDs and does not push database schema changes.

@@ -60,7 +60,7 @@ export function AgencyCard({ agency: a }) {
         </h3>
         <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
           <Icon name="geo-alt" className="h-3.5 w-3.5" />
-          {a.areas.join(' · ')}
+          {(a.areas || []).join(' · ') || a.location || 'United Arab Emirates'}
         </p>
         <p className="mt-3 border-t border-mist pt-3 text-[13px] text-muted">
           <b className="font-semibold text-ink">{a.brokers.length}</b> broker{a.brokers.length === 1 ? '' : 's'} on

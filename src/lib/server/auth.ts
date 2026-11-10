@@ -16,7 +16,13 @@ function safeMember(user: Record<string, any>) {
     mobile: user.mobile || '',
     type: user.accountType,
     credentialStatus: user.credentialStatus || 'pending',
-    plan: user.plan || (user.accountType === 'agency' ? 'agency-bronze' : user.accountType === 'developer' ? 'developer-bronze' : 'broker-bronze'),
+    plan:
+      user.plan ||
+      (user.accountType === 'agency'
+        ? 'agency-bronze'
+        : user.accountType === 'developer'
+          ? 'developer-bronze'
+          : 'broker-bronze'),
     adminCreated: user.adminCreated === true,
     adminAccess: user.adminAccess === true,
     mustChangePassword: user.mustChangePassword === true,
@@ -25,11 +31,13 @@ function safeMember(user: Record<string, any>) {
 }
 
 function agencySlug(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || `agency-${Date.now().toString(36)}`;
+  return (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || `agency-${Date.now().toString(36)}`
+  );
 }
 
 export async function authenticate(body: unknown, requestHeaders: Headers) {
@@ -88,11 +96,22 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
 
   if (body.action === 'first-login-password') {
     const { user: authenticatedUser } = await payload.auth({ headers: requestHeaders });
-    if (!authenticatedUser || authenticatedUser.collection !== 'members') return result({ error: 'Authentication required.' }, { status: 401 });
-    const member: any = await payload.findByID({ collection: 'members', id: authenticatedUser.id, overrideAccess: true });
+    if (!authenticatedUser || authenticatedUser.collection !== 'members')
+      return result({ error: 'Authentication required.' }, { status: 401 });
+    const member: any = await payload.findByID({
+      collection: 'members',
+      id: authenticatedUser.id,
+      overrideAccess: true,
+    });
     if (!member.mustChangePassword) return result({ error: 'A password change is not required.' }, { status: 400 });
-    if (typeof body.password !== 'string' || body.password.length < 8) return result({ error: 'Use a password with at least 8 characters.' }, { status: 400 });
-    await payload.update({ collection: 'members', id: member.id, overrideAccess: true, data: { password: body.password, mustChangePassword: false } as any });
+    if (typeof body.password !== 'string' || body.password.length < 8)
+      return result({ error: 'Use a password with at least 8 characters.' }, { status: 400 });
+    await payload.update({
+      collection: 'members',
+      id: member.id,
+      overrideAccess: true,
+      data: { password: body.password, mustChangePassword: false } as any,
+    });
     return result({ ok: true });
   }
 
@@ -148,6 +167,30 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
   }
 
   try {
+    if (body.action === 'check-registration-email' || body.action === 'register') {
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      const validEmail =
+        /^(?!.*\.\.)[\w!#$%&'*+/=?^`{|}~-](?:[\w!#$%&'*+/=?^`{|}~.-]*[\w!#$%&'*+/=?^`{|}~-])?@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i.test(
+          email,
+        );
+      if (!validEmail) {
+        return result({ error: 'Enter a valid email address.', field: 'email' }, { status: 400 });
+      }
+      const existingMember = await payload.find({
+        collection: 'members',
+        where: { email: { equals: email } },
+        limit: 1,
+        overrideAccess: true,
+      });
+      if (existingMember.docs.length) {
+        return result(
+          { error: 'An account with this email already exists. Sign in or use a different email.', field: 'email' },
+          { status: 409 },
+        );
+      }
+      if (body.action === 'check-registration-email') return result({ ok: true });
+    }
+
     if (body.action === 'register') {
       if (
         typeof body.email !== 'string' ||
@@ -163,7 +206,12 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
         const credentials = profile.credentials && typeof profile.credentials === 'object' ? profile.credentials : {};
         const name = String(credentials.agencyName || body.name).trim();
         let slug = agencySlug(name);
-        const existingAgency = await payload.find({ collection: 'agencies', where: { slug: { equals: slug } }, limit: 1, overrideAccess: true });
+        const existingAgency = await payload.find({
+          collection: 'agencies',
+          where: { slug: { equals: slug } },
+          limit: 1,
+          overrideAccess: true,
+        });
         if (existingAgency.docs[0]) slug = `${slug}-${Date.now().toString(36)}`;
         const agency = await payload.create({
           collection: 'agencies',
@@ -181,7 +229,14 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
         profile = { ...profile, agency: { agencyId: agency.id, agencyRole: 'agency_admin', name, slug } };
       }
 
-      const defaultPlan = body.accountType === 'agency' ? 'agency-bronze' : body.accountType === 'developer' ? 'developer-bronze' : body.accountType === 'broker' ? 'broker-bronze' : 'starter';
+      const defaultPlan =
+        body.accountType === 'agency'
+          ? 'agency-bronze'
+          : body.accountType === 'developer'
+            ? 'developer-bronze'
+            : body.accountType === 'broker'
+              ? 'broker-bronze'
+              : 'starter';
       const accountPlan = PLAN_CATALOG[body.plan]?.roleAudience === body.accountType ? body.plan : defaultPlan;
       await payload.create({
         collection: 'members',
@@ -223,7 +278,8 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
     if (!member?.email) {
       return result({ error: 'We could not find an account with that email or mobile number.' }, { status: 401 });
     }
-    if (member.isSuspended === true) return result({ error: 'This account has been suspended. Contact an administrator.' }, { status: 403 });
+    if (member.isSuspended === true)
+      return result({ error: 'This account has been suspended. Contact an administrator.' }, { status: 403 });
 
     const loggedIn = await payload.login({
       collection: 'members',
@@ -241,8 +297,28 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
     });
     return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Authentication failed.';
-    const status = /duplicate|already exists/i.test(message) ? 409 : 401;
-    return result({ error: status === 409 ? 'An account with this email already exists.' : message }, { status });
+    const failure = error as {
+      name?: string;
+      message?: string;
+      data?: { errors?: Array<{ path?: string; label?: string }> };
+    };
+    const message = failure.message || 'Authentication failed.';
+    const duplicate = /duplicate|already exists/i.test(message);
+    const invalidFields = failure.data?.errors || [];
+    const invalidEmail =
+      invalidFields.some((field) => String(field.path || field.label || '').toLowerCase() === 'email') ||
+      /field is invalid:\s*email/i.test(message);
+    const status = duplicate ? 409 : failure.name === 'ValidationError' ? 400 : 401;
+    return result(
+      {
+        error: duplicate
+          ? 'An account with this email already exists.'
+          : invalidEmail
+            ? 'Enter a valid email address.'
+            : message,
+        ...(invalidEmail ? { field: 'email' } : {}),
+      },
+      { status },
+    );
   }
 }

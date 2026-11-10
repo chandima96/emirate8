@@ -44,7 +44,9 @@ export function digits(value) {
 }
 
 export const RX = {
-  email: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
+  // Keep client registration checks aligned with Payload's email validator.
+  email:
+    /^(?!.*\.\.)[\w!#$%&'*+/=?^`{|}~-](?:[\w!#$%&'*+/=?^`{|}~.-]*[\w!#$%&'*+/=?^`{|}~-])?@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/i,
   uaeMobile: /^(?:971|0)?5[024568]\d{7}$/,
 };
 

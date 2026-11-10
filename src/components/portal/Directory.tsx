@@ -34,7 +34,7 @@ export function Directory({ heroImage }) {
   const t = q.toLowerCase();
   const all = ready
     ? (view === 'agents' ? brokers() : agencies())
-        .filter((x) => !t || (by === 'name' ? x.name : x.areas.join(' ')).toLowerCase().indexOf(t) > -1)
+        .filter((x) => !t || (by === 'name' ? x.name : `${(x.areas || []).join(' ')} ${x.location || ''}`).toLowerCase().indexOf(t) > -1)
         .sort((a, b) => a.name.localeCompare(b.name))
     : [];
   const shown = all.slice(0, limit);

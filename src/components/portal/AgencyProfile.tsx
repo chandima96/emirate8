@@ -22,7 +22,10 @@ export function AgencyProfile({ id, initialAgency = null, initialMembers = [], i
   const liveMembers = a ? a.brokers.map(broker).filter(Boolean) : [];
   const liveListings = a ? a.brokers.flatMap((bid) => listingsFor(bid).filter(isPublic)) : [];
   const members = liveMembers.length ? liveMembers : initialMembers;
-  const listings = liveListings.length ? liveListings : initialListings;
+  const listings = [...liveListings, ...initialListings].filter(
+    (listing, index, all) =>
+      all.findIndex((item) => String(item.slug || item.id) === String(listing.slug || listing.id)) === index,
+  );
 
   if (ready && !a)
     return (

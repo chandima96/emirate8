@@ -23,6 +23,9 @@ import { AgencyInvitations } from './src/collections/AgencyInvitations';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
+const configuredPoolMax = Number(process.env.DATABASE_POOL_MAX);
+const databasePoolMax =
+  Number.isFinite(configuredPoolMax) && configuredPoolMax >= 2 ? Math.floor(configuredPoolMax) : 2;
 
 export default buildConfig({
   admin: {
@@ -56,12 +59,15 @@ export default buildConfig({
 
   // ── PostgreSQL on Supabase ─────────────────────────────────
   db: postgresAdapter({
+    // Schema push introspects and mutates the connected database in development.
+    // Keep it opt-in so local `next dev` cannot push changes to a remote database.
+    push: process.env.NODE_ENV === 'development' && process.env.PAYLOAD_DB_PUSH === 'true',
     pool: {
       connectionString: process.env.DATABASE_URI || '',
-      // Supabase session poolers have a relatively small per-session client cap.
-      // Keep each Next.js process pool modest so parallel workspace/API requests
-      // do not exhaust the shared pooler limit.
-      max: process.env.DATABASE_POOL_MAX ? Number(process.env.DATABASE_POOL_MAX) : 3,
+      connectionTimeoutMillis: 15000,
+      // Payload keeps a client checked out for connection recovery, so leave at
+      // least one additional client available for queries in each process.
+      max: databasePoolMax,
       ssl:
         process.env.DATABASE_SSL === 'false'
           ? false

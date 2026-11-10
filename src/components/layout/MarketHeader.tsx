@@ -82,7 +82,7 @@ function AccountMenu({ user, role }) {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sage text-xs font-semibold text-ink">
-          {initialsOf(user.name)}
+          {user.type === 'agency' ? <Icon name="building" className="h-4 w-4" /> : initialsOf(user.name)}
         </span>
         <Icon name="chevron-down" className="hidden h-3.5 w-3.5 text-muted sm:inline-flex" />
       </button>
