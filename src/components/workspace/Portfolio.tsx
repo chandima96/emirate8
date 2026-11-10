@@ -27,6 +27,7 @@ import { RX, clone, cx, digits, fileToDataURL, initialsOf, slugify } from '@/lib
 import { absUrl, copyText, share } from '@/lib/share';
 import { routes } from '@/lib/routes';
 import { SectionNav, useHashTabs } from './shared';
+import { ProfileAutofill } from './ProfileAutofill';
 
 /* Profile — public portfolio management (old profile.html + portfolio.js).
  * Edits are kept as a draft (user.portfolioDraft) until “Publish changes”, so brokers can preview first.
@@ -45,9 +46,10 @@ const COVERS = [
   .map((n) => IMG + n + '.webp')
   .concat(['dubai-skyline', 'marina-night', 'downtown-boulevard'].map((n) => PIMG + n + '.webp'));
 
-const TABS = ['appearance', 'professional', 'contact', 'listings', 'visibility'];
+const TABS = ['appearance', 'autofill', 'professional', 'contact', 'listings', 'visibility'];
 const NAV = [
   ['appearance', 'image', 'Portfolio appearance'],
+  ['autofill', 'stars', 'AI profile autofill'],
   ['professional', 'person-vcard', 'Professional information'],
   ['contact', 'telephone', 'Public contact details'],
   ['listings', 'buildings', 'Portfolio listings'],
@@ -287,6 +289,20 @@ export function Portfolio() {
     next.credentials.push({ label: '', value: '', verified: false });
     focusLastCred.current = true;
     saveDraft(next);
+  };
+  const applyAutofill = (suggestions: Record<string, any>, selected: string[]) => {
+    const next = clone(D);
+    for (const key of selected) {
+      const value = suggestions[key];
+      if (key === 'agencyName') setPath(next, 'agency.name', value);
+      else if (key === 'agencyWebsite') setPath(next, 'agency.website', value);
+      else if (key === 'credentials') next.credentials = [...(next.credentials || []), ...value];
+      else next[key] = value;
+    }
+    if (selected.includes('languages')) setLists((current) => ({ ...current, languages: (next.languages || []).join(', ') }));
+    if (selected.includes('specialties')) setLists((current) => ({ ...current, specialties: (next.specialties || []).join(', ') }));
+    saveDraft(next);
+    toast('Selected suggestions added to your unpublished draft.');
   };
   const onImage = (key, max, q) => async (e) => {
     const f = e.target.files[0];
@@ -541,8 +557,13 @@ export function Portfolio() {
 
           {/* 2 PROFESSIONAL */}
           <section className="card p-5 sm:p-7" hidden={tab !== 'professional'}>
-            <h2 className="h3">{agencyAccount ? 'Agency information' : 'Professional information'}</h2>
-            <p className="mt-1 text-[13px] text-muted">{agencyAccount ? 'Tell buyers what your agency does and where your team works.' : 'Shown in your portfolio header, About section and sidebar.'}</p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="h3">{agencyAccount ? 'Agency information' : 'Professional information'}</h2>
+                <p className="mt-1 text-[13px] text-muted">{agencyAccount ? 'Tell buyers what your agency does and where your team works.' : 'Shown in your portfolio header, About section and sidebar.'}</p>
+              </div>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => go('autofill')}><Icon name="stars" />AI autofill</button>
+            </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <Field id="pf-name" label={agencyAccount ? 'Agency name' : 'Display name'} error={err.displayName}>
                 <input
@@ -722,12 +743,24 @@ export function Portfolio() {
             </div>}
           </section>
 
+          {/* AI AUTOFILL */}
+          <section className="card p-5 sm:p-7" hidden={tab !== 'autofill'}>
+            <h2 className="h3">AI profile autofill</h2>
+            <p className="mt-1 mb-5 text-[13px] text-muted">Use a public profile page or a document to find new portfolio details and review suggested changes.</p>
+            <ProfileAutofill profile={D} onApply={applyAutofill} />
+          </section>
+
           {/* 3 CONTACT */}
           <section className="card p-5 sm:p-7" hidden={tab !== 'contact'}>
-            <h2 className="h3">{agencyAccount ? 'Agency contact details' : 'Public contact details'}</h2>
-            <p className="mt-1 text-[13px] text-muted">
-              {agencyAccount ? 'Use contact details for your office. Your personal account email and mobile stay private.' : 'Use business contact details. Your personal email and mobile in Account are never shown publicly.'}
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="h3">{agencyAccount ? 'Agency contact details' : 'Public contact details'}</h2>
+                <p className="mt-1 text-[13px] text-muted">
+                  {agencyAccount ? 'Use contact details for your office. Your personal account email and mobile stay private.' : 'Use business contact details. Your personal email and mobile in Account are never shown publicly.'}
+                </p>
+              </div>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => go('autofill')}><Icon name="stars" />AI autofill</button>
+            </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <Field id="pf-email" label="Public business email" error={err.publicEmail}>
                 <input
@@ -891,7 +924,11 @@ export function Portfolio() {
                       <tr key={l.id}>
                         <td>
                           <Link className="flex items-center gap-3" href={routes.listing(l.id)}>
-                            <img src={photoOf(l)} alt="" className="h-10 w-14 shrink-0 rounded object-cover" />
+                            {photoOf(l) ? (
+                              <img src={photoOf(l)} alt="" className="h-10 w-14 shrink-0 rounded object-cover" />
+                            ) : (
+                              <span className="h-10 w-14 shrink-0 rounded bg-mist" aria-hidden="true" />
+                            )}
                             <span className="min-w-0">
                               <span className="block max-w-[260px] truncate font-semibold text-ink">
                                 {l.title || 'Untitled'}
