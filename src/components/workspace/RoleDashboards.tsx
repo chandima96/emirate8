@@ -6,12 +6,33 @@ import { useSession } from '@/components/providers/SessionProvider';
 import { Icon } from '@/components/ui/Icon';
 import { PropertyCard } from '@/components/property/PropertyCard';
 import { notificationPropertyHref } from '@/lib/notificationLinks';
+import { routes } from '@/lib/routes';
 import { useRouter } from 'next/navigation';
 
 async function loadWorkspace(query = '') {
   const response = await fetch(`/api/role-workspace${query}`, { credentials: 'same-origin', cache: 'no-store' });
   if (!response.ok) throw new Error('Could not load workspace data.');
   return response.json();
+}
+
+function DashboardPropertyCard({ property, user }) {
+  const isPublic = property.status === 'published' && property.display?.visible !== false && Boolean(property.slug);
+  const isOwner = String(property.ownerMemberId || '') === String(user?.id || '');
+  const status = property.status || 'draft';
+  const statusLabel = property.display?.visible === false && status === 'published'
+    ? 'Hidden'
+    : status === 'pending'
+      ? 'Pending review'
+      : status.charAt(0).toUpperCase() + status.slice(1);
+  const targetHref = isPublic ? undefined : isOwner ? routes.listing(property.id) : null;
+  return <PropertyCard
+    listing={property}
+    agent={false}
+    showFavorite={false}
+    targetHref={targetHref}
+    linkDisabled={!isPublic && !isOwner}
+    tag={!isPublic ? statusLabel : undefined}
+  />;
 }
 
 export function DeveloperDashboard() {
@@ -73,6 +94,16 @@ export function DeveloperDashboard() {
             Add Property
           </Link>
           {message && <p className="mt-3 text-sm text-muted">{message}</p>}
+      </section>
+      <section>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="h3">Recent properties</h2>
+          <Link href="/listings" className="arrow-link text-xs">View all<Icon name="arrow-right" /></Link>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {properties.slice(0, 6).map((property) => <DashboardPropertyCard key={property.id} property={property} user={user} />)}
+          {!properties.length && <p className="text-sm text-muted">No properties yet.</p>}
+        </div>
       </section>
       <section>
         <div className="flex items-center justify-between">
@@ -244,7 +275,7 @@ export function AgencyDashboard() {
                 </div>
               ))
             : (data?.properties || []).slice(0, 6).map((property) => (
-                <PropertyCard listing={property} agent={false} key={property.id} />
+                <DashboardPropertyCard property={property} user={user} key={property.id} />
               ))}
           {!loading && !(data?.properties || []).length && <p className="text-sm text-muted">No properties yet.</p>}
         </div>

@@ -9,16 +9,18 @@ import { brokerUrl, listingUrl, photoOf } from '@/lib/store';
 import { cx } from '@/lib/utils';
 
 /** Vertical property card — search results, carousels, similar properties and the editor card preview. */
-export function PropertyCard({ listing: l, preview = false, agent = true, tag = undefined, className = undefined }) {
+export function PropertyCard({ listing: l, preview = false, agent = true, tag = undefined, className = undefined, targetHref = undefined, linkDisabled = false, showFavorite = true }) {
   const b = l.broker || {};
-  const url = preview ? '#' : listingUrl(l);
+  const url = preview ? '#' : targetHref === undefined ? listingUrl(l) : targetHref;
+  const canNavigate = !linkDisabled && Boolean(url);
   const n = (l.images || []).length;
   const photo = photoOf(l);
   const cover = (l.photos || []).find((p) => p.src === l.featured) || {};
-  const A = preview ? 'a' : Link;
+  const A = preview ? 'a' : canNavigate ? Link : 'span';
+  const linkProps = preview ? { href: '#' } : canNavigate ? { href: url } : {};
   return (
     <article className={cx('pcard relative', className)}>
-      <A href={url} className="relative block aspect-[4/3] overflow-hidden bg-mist" tabIndex={-1} aria-hidden="true">
+      <A {...linkProps} className="relative block aspect-[4/3] overflow-hidden bg-mist" tabIndex={-1} aria-hidden="true">
         {photo ? (
           <img
             src={photo}
@@ -45,11 +47,11 @@ export function PropertyCard({ listing: l, preview = false, agent = true, tag = 
         )}
       </A>
       <ListingBadges listing={l} extra={tag} />
-      <FavButton listing={l} preview={preview} />
+      {showFavorite && <FavButton listing={l} preview={preview} />}
       <div className="flex flex-1 flex-col p-4">
         <Price listing={l} className="font-display text-[19px] font-semibold tracking-[-0.02em] text-ink" />
         <h3 className="mt-1 text-[14px] leading-snug font-semibold text-ink">
-          <A href={url} className="line-clamp-1 hover:underline">
+          <A {...linkProps} className="line-clamp-1 hover:underline">
             {l.title || 'Untitled listing'}
           </A>
         </h3>
