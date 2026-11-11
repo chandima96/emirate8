@@ -20,7 +20,23 @@ async function agencyListingState(payload: any, memberId: number, value: any) {
   const agencyId = member.profile?.agency?.agencyId || member.profile?.agencyId;
   if (!agencyId) return { error: 'Your agency profile is missing its agency record.' };
 
-  const assignments = value.listings.filter((listing: any) => listing?.primaryBroker).map((listing: any) => String(listing.primaryBroker));
+  const ownedResult = await payload.find({
+    collection: 'properties',
+    where: { 'appData.ownerMemberId': { equals: memberId } },
+    pagination: false,
+    depth: 0,
+    overrideAccess: true,
+  });
+  const existingByListingId = new Map((ownedResult.docs as any[]).map((doc) => [String(doc.appData?.id), doc]));
+  const relationId = (value: any) => String(value && typeof value === 'object' && 'id' in value ? value.id : value || '');
+
+  const assignments = value.listings
+    .filter((listing: any) => {
+      if (!listing?.primaryBroker) return false;
+      const existing: any = existingByListingId.get(String(listing.id || ''));
+      return !existing || relationId(existing.ownerAgency) === String(agencyId);
+    })
+    .map((listing: any) => String(listing.primaryBroker));
   if (assignments.length) {
     const [team, brokers] = await Promise.all([
       payload.find({ collection: 'members', where: { or: [{ 'profile.agency.agencyId': { equals: agencyId } }, { 'profile.agencyId': { equals: agencyId } }] }, limit: 500, depth: 0, overrideAccess: true }),
@@ -41,7 +57,26 @@ async function agencyListingState(payload: any, memberId: number, value: any) {
   return {
     value: {
       ...value,
-      listings: value.listings.map((listing: any) => ({ ...listing, ownerType: 'agency', ownerAgency: agencyId })),
+      listings: value.listings.map((listing: any) => {
+        const existing: any = existingByListingId.get(String(listing?.id || ''));
+        const existingAgency = relationId(existing?.ownerAgency);
+        if (existing && existingAgency !== String(agencyId)) {
+          // A broker who joins an agency keeps the listings they already owned.
+          // Only a newly created agency listing or one already owned by this agency
+          // can receive agency ownership or a team assignment.
+          return {
+            ...listing,
+            ownerType: existing.ownerType,
+            ownerAgency: existing.ownerAgency,
+            ownerDeveloper: existing.ownerDeveloper,
+            primaryBroker: existing.primaryBroker,
+            ownerDirect: existing.ownerDirect,
+            claimable: existing.claimable,
+            claimPolicy: existing.claimPolicy,
+          };
+        }
+        return { ...listing, ownerType: 'agency', ownerAgency: agencyId };
+      }),
     },
   };
 }

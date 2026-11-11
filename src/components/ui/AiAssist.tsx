@@ -17,28 +17,33 @@ export function AiBanner({ kind, open, onStart, onManual, controls }: {
 }) {
   const listing = kind === 'listing';
   return (
-    <section className="relative isolate grid overflow-hidden rounded-lg border border-[#b8dfff] bg-gradient-to-br from-[#f4f9ff] via-white to-[#f2edff] shadow-[0_10px_28px_rgba(89,111,188,0.12)] sm:grid-cols-[minmax(0,1fr)_220px]" aria-label="AI assistant">
-      <div className="relative z-10 p-5 sm:p-7">
+    <section className="relative isolate grid min-h-[290px] overflow-hidden rounded-md border border-[#b8dfff] bg-gradient-to-br from-[#f8fbff] via-[#f1f7ff] to-[#f2edff] shadow-[0_10px_28px_rgba(89,111,188,0.12)] sm:grid-cols-[minmax(0,1fr)_420px]" aria-label="AI assistant">
+      <div className="relative z-10 self-center p-5 sm:px-8 sm:py-7">
         <div className="mb-3 flex flex-wrap gap-2">
           {listing && <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f3ff] px-2.5 py-1 text-xs font-semibold text-[#3846ae]"><Icon name="lightning-charge-fill" />New feature</span>}
-          <span className="inline-flex items-center gap-1 rounded-full border border-[#c6b7ff] bg-white/80 px-2.5 py-1 text-xs font-semibold text-[#5142c6]"><Icon name="stars" />AI-powered</span>
+          <span className="inline-flex items-center gap-1 rounded border border-[#d7a9ff] bg-[#fffaff]/80 px-2.5 py-1 text-xs font-semibold text-[#5142c6]"><Icon name="stars" className="text-[#6f7bff]" />AI-powered</span>
         </div>
-        <h2 className="max-w-2xl text-xl font-semibold tracking-tight text-ink sm:text-2xl">{listing ? 'Turn property documents into a listing' : 'Build your profile faster with AI'}</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{listing
+        <h2 className="max-w-2xl text-[24px] font-semibold leading-tight tracking-tight text-ink sm:text-[26px]">{listing ? 'Turn property documents into a listing' : 'Build your profile faster with AI'}</h2>
+        <p className="mt-2 max-w-[560px] text-sm leading-6 text-[#66727a]">{listing
           ? 'Upload property documents and let AI prepare listing details. Review, adjust, and complete your listing before publishing.'
           : 'Add your information or upload existing documents, and let AI prepare your profile. Review and edit every detail before saving.'}</p>
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2.5">
           <button className="btn btn-lg btn-dark" type="button" aria-expanded={open} aria-controls={open ? controls : undefined} onClick={onStart}><Icon name="stars" />{listing ? 'Prepare listing with AI' : 'Fill my profile with AI'}</button>
           <button className="btn btn-lg btn-outline" type="button" onClick={onManual}>{listing ? 'Enter details manually' : 'Continue manually'}<Icon name="arrow-right" /></button>
         </div>
         <p className="mt-4 flex items-start gap-2 text-xs text-muted"><Icon name="shield-check" className="mt-0.5 shrink-0 text-[#6256d9]" />{listing ? 'Review every suggestion before saving or publishing.' : 'Nothing is published until you review and save your changes.'}</p>
       </div>
-      <div aria-hidden="true" className="relative hidden min-h-48 items-center justify-center overflow-hidden sm:flex">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#e8faff]/70 via-[#e7eaff]/80 to-[#f5e5ff]/80" />
-        <div className="absolute h-40 w-40 rounded-full bg-gradient-to-br from-[#44d9ed] via-[#7868f3] to-[#d78af5] opacity-80 blur-2xl" />
-        <div className="relative grid h-28 w-28 place-items-center rounded-full border border-white/80 bg-[radial-gradient(ellipse_at_32%_24%,#ffffff_0%,#d8cfff_18%,#a58af4_40%,#36c9e4_72%,#8c99ef_100%)] shadow-[0_14px_34px_rgba(73,89,185,0.38)] after:absolute after:inset-[7px] after:rounded-full after:border after:border-white/30">
-          <Icon name="stars" className="relative z-10 text-3xl text-white drop-shadow" />
+      <div aria-hidden="true" className="relative hidden min-h-[290px] items-center justify-center overflow-hidden sm:flex">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_55%_50%,rgba(157,196,255,0.32),transparent_62%),linear-gradient(135deg,rgba(226,247,255,0.32),rgba(228,224,255,0.68))]" />
+        <div className="absolute left-1/2 top-1/2 h-32 w-[300px] -translate-x-1/2 -translate-y-1/2 -rotate-[14deg] rounded-[50%] border border-[#9acbff]/35" />
+        <div className="absolute left-1/2 top-1/2 h-24 w-[290px] -translate-x-1/2 -translate-y-1/2 rotate-[10deg] rounded-[50%] border border-[#c5a5ff]/25" />
+        <div className="absolute h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(89,174,255,0.40),rgba(139,111,255,0.22)_48%,transparent_72%)] blur-xl" />
+        <div className="relative h-[172px] w-[172px] rounded-full border border-white/60 bg-[radial-gradient(ellipse_at_34%_22%,#ffffff_0%,rgba(255,255,255,0.82)_9%,transparent_25%),radial-gradient(ellipse_at_25%_75%,#22d3ee_0%,transparent_46%),radial-gradient(ellipse_at_80%_30%,#c084fc_0%,transparent_52%),linear-gradient(135deg,#93c5fd,#6366f1_58%,#c084fc)] shadow-[0_18px_38px_rgba(62,94,202,0.34),inset_-8px_-12px_24px_rgba(49,54,160,0.22),inset_8px_8px_22px_rgba(255,255,255,0.56)]">
+          <span className="absolute left-[18%] top-[10%] h-10 w-[68px] -rotate-[18deg] rounded-[50%] bg-white/70 blur-md" />
+          <Icon name="stars" className="absolute right-[20%] top-[22%] text-sm text-white/80 drop-shadow" />
         </div>
+        <Icon name="stars" className="absolute left-[20%] top-[25%] text-xs text-[#8daaff]" />
+        <Icon name="stars" className="absolute right-[15%] bottom-[22%] text-sm text-[#b58cff]" />
         {listing && <div className="absolute right-8 top-8 grid h-16 w-12 gap-1 rounded-md border border-[#d9d8ff] bg-white p-2 shadow-lg"><i className="h-1 rounded bg-[#c7c5ff]" /><i className="h-1 rounded bg-[#e1e5eb]" /><i className="h-1 rounded bg-[#e1e5eb]" /><i className="h-1 rounded bg-[#e4e2ff]" /></div>}
       </div>
     </section>

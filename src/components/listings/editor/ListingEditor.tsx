@@ -47,8 +47,10 @@ function initialState(id, q) {
       L.claimable = true;
     }
   } else if (owner?.type === 'agency') {
-    L.ownerType = 'agency';
-    L.ownerAgency = owner.agency?.agencyId || owner.agencyId || L.ownerAgency || '';
+    if (!existing) {
+      L.ownerType = 'agency';
+      L.ownerAgency = owner.agency?.agencyId || owner.agencyId || L.ownerAgency || '';
+    }
   }
   if (existing && existing.sample) L.authorised = true;
   const purpose = q.get('purpose');
@@ -56,7 +58,8 @@ function initialState(id, q) {
     L.purpose = purpose;
     L.editor.d.purpose = purpose;
   }
-  const step = Math.min(STEPS, Math.max(1, +q.get('step') || 1));
+  const stepCount = owner?.type === 'agency' ? STEPS + 1 : STEPS;
+  const step = Math.min(stepCount, Math.max(1, +q.get('step') || 1));
   let note = null;
   if (existing) {
     note =
@@ -96,7 +99,7 @@ function fixFeatured(l) {
   return l;
 }
 
-/** The 8-step listing editor for ready and off-plan listings (create: /listings/new, edit: /listings/[id]/edit). */
+/** Listing editor with an agency-only team assignment step before review. */
 export function ListingEditor({ id = undefined }) {
   useStoreVersion();
   const q = useSearchParams();
@@ -132,6 +135,11 @@ export function ListingEditor({ id = undefined }) {
   const user = currentUser();
   const isDeveloper = user?.type === 'developer' || user?.type === 'owner';
   const isAgency = user?.type === 'agency';
+  const totalSteps = STEPS + (isAgency ? 1 : 0);
+  const reviewStep = totalSteps;
+  const stepNames = isAgency ? [...NAMES.slice(0, 7), 'Team member', NAMES[7]] : NAMES;
+  const schemaStep = (uiStep: number) => (isAgency && uiStep === reviewStep ? STEPS : uiStep);
+  const stepErrors = (uiStep: number) => isAgency && uiStep === 8 ? [] : validateEditorStep(schemaStep(uiStep), L, user);
   const verified = user.credentialStatus === 'verified';
   const [developerBrokers, setDeveloperBrokers] = useState([]);
   const [agencyBrokers, setAgencyBrokers] = useState<any[]>([]);
@@ -195,7 +203,7 @@ export function ListingEditor({ id = undefined }) {
     }, 40);
   }
   function check(n) {
-    const bad = [...validateEditorStep(n, Lref.current, user)];
+    const bad = [...(isAgency && n === 8 ? [] : validateEditorStep(schemaStep(n), Lref.current, user))];
     setErrors((e) => {
       const next = { ...e };
       Object.keys(next).forEach((k) => delete next[k]);
@@ -233,8 +241,22 @@ export function ListingEditor({ id = undefined }) {
         obj.claimable = false;
       }
     } else if (isAgency) {
-      obj.ownerType = 'agency';
-      obj.ownerAgency = user.agency?.agencyId || user.agencyId || obj.ownerAgency || '';
+      const agencyId = user.agency?.agencyId || user.agencyId || '';
+      const previous = savedRef.current;
+      const alreadyAgencyOwned = previous && Boolean(agencyId) && String(previous.ownerAgency || '') === String(agencyId);
+      if (!previous || alreadyAgencyOwned) {
+        obj.ownerType = 'agency';
+        obj.ownerAgency = agencyId || obj.ownerAgency || '';
+      } else {
+        // Joining an agency must not transfer a broker's existing listings.
+        obj.ownerType = previous.ownerType;
+        obj.ownerAgency = previous.ownerAgency;
+        obj.ownerDeveloper = previous.ownerDeveloper;
+        obj.primaryBroker = previous.primaryBroker;
+        obj.ownerDirect = previous.ownerDirect;
+        obj.claimable = previous.claimable;
+        obj.claimPolicy = previous.claimPolicy;
+      }
     }
     if (status) obj.status = status;
     else if (!savedRef.current) obj.status = 'draft';
@@ -320,10 +342,10 @@ export function ListingEditor({ id = undefined }) {
 
   async function publish() {
     if (savingRef.current) return;
-    for (let n = 1; n <= 8; n++) {
+    for (let n = 1; n <= totalSteps; n++) {
       if (!check(n)) {
         go(n, false);
-        toast('Complete step ' + n + ' (' + NAMES[n - 1] + ') before publishing.', { icon: 'exclamation-circle' });
+        toast('Complete step ' + n + ' (' + stepNames[n - 1] + ') before publishing.', { icon: 'exclamation-circle' });
         setPreviewOpen(false);
         return;
       }
@@ -331,14 +353,14 @@ export function ListingEditor({ id = undefined }) {
     const cur = Lref.current;
     const r = editorReadiness(cur, currentUser());
     if (!r.complete) {
-      go(STEPS, true);
+      go(reviewStep, true);
       toast('Complete the checklist before publishing.', { icon: 'exclamation-circle' });
       setPreviewOpen(false);
       return;
     }
     if (!cur.authorised) {
       setPreviewOpen(false);
-      go(8, false);
+      go(reviewStep, false);
       setErrors((e) => ({ ...e, decl2: 'Confirm you are authorised to market this property.' }));
       focusEl('designer-decl2');
       return;
@@ -422,7 +444,7 @@ export function ListingEditor({ id = undefined }) {
 
   /* ---------- preview ---------- */
   const previewListing = useCallback(() => buildPreview(Lref.current), []);
-  const reviewCard = useMemo(() => (step === STEPS ? buildPreview(L) : null), [step, L]);
+  const reviewCard = useMemo(() => (step === reviewStep ? buildPreview(L) : null), [step, L, reviewStep]);
   const ready = editorReadiness(L, user);
 
   const ed = {
@@ -479,10 +501,31 @@ export function ListingEditor({ id = undefined }) {
 
   const status = STATUS[L.status] || STATUS.draft;
   const crumb = saved ? saved.title || 'Untitled listing' : 'New listing';
+  const currentAgencyId = String(user.agency?.agencyId || user.agencyId || '');
+  const savedAgencyId = String(saved?.ownerAgency && typeof saved.ownerAgency === 'object' ? saved.ownerAgency.id : saved?.ownerAgency || '');
+  const canAssignTeamMember = !saved || (!!currentAgencyId && savedAgencyId === currentAgencyId);
 
-  const sections = NAMES.map((_, i) => (
-    <DesignerStep key={i + 1} ed={ed} step={i + 1} preview={reviewCard} ready={ready} />
-  ));
+  const sections = stepNames.map((_, i) => {
+    const uiStep = i + 1;
+    if (isAgency && uiStep === 8) return (
+      <div key={uiStep}>
+        <h2 className="h3" tabIndex={-1}>Assign a team member</h2>
+        <p className="mt-1 text-[13px] text-muted">Choose which broker in your agency will handle this listing. Existing broker listings stay under their original owner.</p>
+        <div className="mt-6 max-w-xl">
+          {!canAssignTeamMember && <p className="mb-4 rounded-md border border-sage/30 bg-sage-soft/40 p-3 text-sm text-sage-ink">This listing already belongs to your broker account. Its ownership and broker assignment will stay unchanged.</p>}
+          <label className="field" htmlFor="agency-listing-broker"><span className="label">Assigned broker <span className="opt">(optional)</span></span>
+            <select id="agency-listing-broker" className="select" value={L.primaryBroker || ''} disabled={!canAssignTeamMember} onChange={(event) => setField('primaryBroker', event.target.value)}>
+              <option value="">Keep this listing unassigned</option>
+              {agencyBrokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name} · {broker.email}</option>)}
+            </select>
+          </label>
+          {!agencyBrokers.length && <p className="mt-3 rounded-md border border-line bg-mist p-3 text-sm text-muted">No broker team members yet. Invite a broker by email to assign listings to them.</p>}
+          <Link href="/agency-team" className="btn btn-outline btn-sm mt-4"><Icon name="people" />Invite or manage team members</Link>
+        </div>
+      </div>
+    );
+    return <DesignerStep key={uiStep} ed={ed} step={schemaStep(uiStep)} preview={reviewCard} ready={ready} />;
+  });
 
   return (
     <AiReviewContext.Provider value={aiStates}>
@@ -531,7 +574,7 @@ export function ListingEditor({ id = undefined }) {
           className="no-scrollbar flex gap-1 overflow-x-auto lg:sticky lg:top-24 lg:flex-col lg:gap-0.5 lg:self-start"
           aria-label="Listing steps"
         >
-          {NAMES.map((name, i) => {
+          {stepNames.map((name, i) => {
             const k = i + 1;
             return (
               <li key={k}>
@@ -540,7 +583,7 @@ export function ListingEditor({ id = undefined }) {
                   className={cx(
                     'wz-step flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13px] whitespace-nowrap',
                     k === step && 'is-current',
-                    k !== step && validateEditorStep(k, L, user).length === 0 && 'is-done',
+                    k !== step && stepErrors(k).length === 0 && 'is-done',
                   )}
                   aria-current={k === step ? 'step' : undefined}
                   disabled={saving}
@@ -551,14 +594,7 @@ export function ListingEditor({ id = undefined }) {
                   }}
                 >
                   <span className="step-dot">{k}</span>
-                  {stepLabel[k] ||
-                    {
-                      1: 'Classification',
-                      5: 'Marketing',
-                      6: 'Photos & media',
-                      7: 'Permit & display',
-                      8: 'Review & publish',
-                    }[k]}
+                  {stepLabel[k] || name}
                 </button>
               </li>
             );
@@ -571,7 +607,7 @@ export function ListingEditor({ id = undefined }) {
           onSubmit={async (e) => {
             e.preventDefault();
             if (savingRef.current) return;
-            if (step < STEPS && check(step)) {
+            if (step < totalSteps && check(step)) {
               if (!(await autosave())) return;
               go(step + 1, true);
             }
@@ -601,10 +637,10 @@ export function ListingEditor({ id = undefined }) {
               </button>
             )}
             <span className="text-xs text-muted">
-              Step {step} of {STEPS} · {NAMES[step - 1]}
+              Step {step} of {totalSteps} · {stepNames[step - 1]}
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
-              {step === STEPS ? (
+              {step === reviewStep ? (
                 <>
                   <button type="button" className="btn btn-outline" onClick={() => setPreviewOpen(true)}>
                     <Icon name="eye" />

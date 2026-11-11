@@ -4,6 +4,7 @@ import { TYPES } from '@/config/reference';
 import { im } from '@/config/images';
 import { fileToDataURL, uid } from '@/lib/utils';
 
+// The standard flow has eight steps; agency editors insert team assignment before review.
 export const STEPS = 8;
 export const MAX_PHOTOS = 30;
 export const NAMES = [
