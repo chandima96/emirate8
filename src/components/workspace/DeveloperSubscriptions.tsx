@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { PropertyCard } from '@/components/property/PropertyCard';
-import { SelectButton, useSelectToggle } from './network/NetworkBits';
+import { NetworkCard, useSelectToggle } from './network/NetworkBits';
 import { useStoreVersion } from '@/hooks/useStore';
 
 async function loadDeveloperNetwork() {
@@ -145,12 +144,7 @@ export function DeveloperNetwork() {
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {properties.map((property) => (
-            <div className="card overflow-hidden" key={property.id}>
-              <PropertyCard listing={property} tag={property.developerName} className="rounded-none border-0 shadow-none" />
-              <div className="border-t border-line p-3">
-                <SelectButton n={property} small onToggle={toggle} />
-              </div>
-            </div>
+            <NetworkCard key={property.id} n={property} onToggle={toggle} developer />
           ))}
           {!properties.length && (
             <div className="col-span-full rounded-lg border border-dashed border-line bg-white p-10 text-center">

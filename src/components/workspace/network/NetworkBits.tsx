@@ -5,14 +5,14 @@ import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
-import { deselect, fmtNumber, fmtPrice, fmtSpecs, isSelected, log, network, select } from '@/lib/store';
+import { deselect, fmtNumber, fmtPrice, fmtSpecs, isSelected, listingUrl, log, network, select } from '@/lib/store';
 import { copyText } from '@/lib/share';
 import { cx } from '@/lib/utils';
 
 /* Shared broker-network renderers (old network.js: permitBadge, specLine, selectBtn, card, contact modal). */
 
 export const netUrl = (id) => '/network/' + encodeURIComponent(id);
-export const agencyOf = (n) => n.broker.agencyName || 'Independent broker';
+export const agencyOf = (n) => n.broker?.agencyName || (n.developerName ? 'Developer' : 'Independent broker');
 
 export function PermitBadge({ n }) {
   return n.permitStatus === 'verified' ? (
@@ -41,14 +41,15 @@ export function SpecLine({ n }) {
 export function useSelectToggle() {
   const { toast } = useFeedback();
   return useCallback(
-    (id) => {
+    (id, listing = undefined) => {
       if (isSelected(id)) {
         deselect(id);
         toast('Removed from Selected Properties.', { icon: 'bookmark-dash' });
         return;
       }
-      const r = select(id);
+      const r = select(id, listing);
       if (!r.added) {
+        if (!r.blocked) return;
         toast(
           <>
             Your plan’s {fmtNumber(r.limit)} selection slots are full.{' '}
@@ -81,7 +82,7 @@ export function SelectButton({ n, small = undefined, className = undefined, onTo
       type="button"
       className={cx('btn', small && 'btn-sm', className, on ? 'btn-dark' : 'btn-outline')}
       aria-pressed={on}
-      onClick={() => onToggle(n.id)}
+      onClick={() => onToggle(n.id, n)}
     >
       <Icon name={on ? 'bookmark-check-fill' : 'bookmark'} />
       {on ? 'Selected' : 'Select'}
@@ -89,13 +90,15 @@ export function SelectButton({ n, small = undefined, className = undefined, onTo
   );
 }
 
-export function NetworkCard({ n, bulk = undefined, bulkChecked = undefined, onBulk = undefined, onContact, onToggle }) {
+export function NetworkCard({ n, bulk = undefined, bulkChecked = undefined, onBulk = undefined, onContact, onToggle, developer = false }) {
   const selected = isSelected(n.id);
+  const href = developer ? listingUrl(n) : netUrl(n.id);
+  const contactName = n.broker?.name || n.developerName || 'Developer';
   return (
     <article className="card group flex flex-col overflow-hidden">
       <div className="relative aspect-[4/3] overflow-hidden bg-mist">
-        <Link href={netUrl(n.id)} tabIndex={-1} aria-hidden="true">
-          <img src={n.images[0]} alt="" className="img-cover zoom-img" loading="lazy" />
+        <Link href={href} tabIndex={-1} aria-hidden="true">
+          <img src={n.images?.[0] || n.featured || ''} alt="" className="img-cover zoom-img" loading="lazy" />
         </Link>
         {bulk && (
           <label className="absolute top-3 left-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded bg-white/95 shadow-card">
@@ -120,37 +123,37 @@ export function NetworkCard({ n, bulk = undefined, bulkChecked = undefined, onBu
           {n.completion === 'offplan' && <span className="badge badge-sage">Off-plan</span>}
         </div>
         <h3 className="mt-1 text-[14px] leading-snug font-semibold text-ink">
-          <Link href={netUrl(n.id)} className="hover:underline">
+          <Link href={href} className="hover:underline">
             {n.title}
           </Link>
         </h3>
         <p className="mt-1 flex items-center gap-1 text-xs text-muted">
           <Icon name="geo-alt" className="h-3.5 w-3.5" />
-          {n.area}, {n.emirate}
+          {[n.area, n.emirate].filter(Boolean).join(', ')}
         </p>
         <p className="mt-2 text-xs text-text">
           <SpecLine n={n} />
         </p>
         <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
           <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-ink">{n.broker.name}</p>
-            <p className="truncate text-2xs text-muted">{agencyOf(n)}</p>
+            <p className="truncate text-xs font-semibold text-ink">{contactName}</p>
+            <p className="truncate text-2xs text-muted">{developer ? 'Developer' : agencyOf(n)}</p>
           </div>
           <PermitBadge n={n} />
         </div>
         <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
           <SelectButton n={n} small onToggle={onToggle} />
-          <Link href={netUrl(n.id)} className="btn btn-ghost btn-sm">
+          <Link href={href} className="btn btn-ghost btn-sm">
             Details
           </Link>
-          <button
+          {!developer && <button
             type="button"
             className="btn btn-ghost btn-sm h-8 w-8 px-0"
             onClick={() => onContact(n.id)}
-            aria-label={'Contact ' + n.broker.name}
+            aria-label={'Contact ' + contactName}
           >
             <Icon name="chat-square-text" />
-          </button>
+          </button>}
         </div>
       </div>
     </article>

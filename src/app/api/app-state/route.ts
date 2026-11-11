@@ -102,6 +102,13 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Invalid workspace key.' }, { status: 403 });
   }
 
+  const existing = await context.payload.find({
+    collection: 'member-state',
+    where: { and: [{ member: { equals: context.user.id } }, { key: { equals: body.key } }] },
+    limit: 1,
+    overrideAccess: true,
+  });
+
   let value = body.value;
   if (body.key === `data:${context.user.id}`) {
     const member: any = await context.payload.findByID({ collection: 'members', id: context.user.id, depth: 0, overrideAccess: true });
@@ -119,8 +126,11 @@ export async function PUT(request: Request) {
   }
 
   let savedListings: { id: string; slug: string }[] | undefined;
-  // Save the canonical properties before acknowledging a workspace save.
-  if (body.key === `data:${context.user.id}`) {
+  // Selection, note, and activity changes share the workspace state record.
+  // Only synchronize canonical properties when the listing payload changed.
+  const previousState: any = existing.docs[0]?.state;
+  const listingsChanged = JSON.stringify(previousState?.listings || []) !== JSON.stringify((value as any)?.listings || []);
+  if (body.key === `data:${context.user.id}` && listingsChanged) {
     try {
       savedListings = await syncMemberProperties(context.payload, Number(context.user.id), value);
     } catch (error) {
@@ -129,15 +139,6 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: message }, { status: 500 });
     }
   }
-
-  const existing = await context.payload.find({
-    collection: 'member-state',
-    where: {
-      and: [{ member: { equals: context.user.id } }, { key: { equals: body.key } }],
-    },
-    limit: 1,
-    overrideAccess: true,
-  });
 
   if (existing.docs[0]) {
     await context.payload.update({

@@ -51,7 +51,7 @@ export function setAuthenticated(value: boolean) {
   }
 }
 
-function persist(key: string, value: unknown, remove = false) {
+function persist(key: string, value: unknown, remove = false, delay = 120) {
   if (!authenticated || key === 'users' || key === 'session' || key === 'version') return;
   const existing = pending.get(key);
   if (existing) clearTimeout(existing);
@@ -102,12 +102,19 @@ function persist(key: string, value: unknown, remove = false) {
         saving.delete(save);
         if (saveQueues.get(key) === save) saveQueues.delete(key);
       });
-    }, 120),
+    }, delay),
   );
 }
 
 export function write(key: string, value: unknown) {
   persist(key, value);
+  cache(key, value);
+  return true;
+}
+
+/** Persist user actions such as selections without the normal debounce window. */
+export function writeImmediate(key: string, value: unknown) {
+  persist(key, value, false, 0);
   cache(key, value);
   return true;
 }

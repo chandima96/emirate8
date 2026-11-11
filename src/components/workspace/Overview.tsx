@@ -8,8 +8,7 @@ import { counts, currentUser, data, fmtPrice, inbox, network, plan, relTime } fr
 import { STATUS } from '@/config/reference';
 import { routes } from '@/lib/routes';
 import { bi, credText, trialLeft } from './shared';
-import { ContactModal, NetworkCard, SelectButton, useSelectToggle } from './network/NetworkBits';
-import { PropertyCard } from '@/components/property/PropertyCard';
+import { ContactModal, NetworkCard, useSelectToggle } from './network/NetworkBits';
 
 function greeting() {
   const h = new Date().getHours();
@@ -308,10 +307,7 @@ export function Overview() {
             <NetworkCard key={n.id} n={n} onToggle={toggle} onContact={setContactId} />
           ))}
           {opportunityTab === 'developers' && developerProperties.slice(0, 3).map((property) => (
-            <div className="card overflow-hidden" key={property.id}>
-              <PropertyCard listing={property} tag={property.developerName} className="rounded-none border-0 shadow-none" />
-              <div className="border-t border-line p-3"><SelectButton n={property} small onToggle={toggle} /></div>
-            </div>
+            <NetworkCard key={property.id} n={property} onToggle={toggle} developer />
           ))}
           {opportunityTab === 'brokers' && net.length === 0 && <p className="col-span-full py-6 text-center text-sm text-muted">No published broker properties are available right now.</p>}
           {opportunityTab === 'developers' && developerPropertiesLoading && <p className="col-span-full py-6 text-center text-sm text-muted">Loading developer properties…</p>}

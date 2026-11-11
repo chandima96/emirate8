@@ -11,6 +11,7 @@ export const notifyDeveloperSubscribers: CollectionAfterChangeHook = async ({ do
   const developerId = doc.ownerDeveloper || doc.appData?.ownerMemberId;
   if (!developerId || doc.status !== 'published' || doc.display?.visible === false) return doc;
 
+  try {
   const firstPublication = previousDoc?.status !== 'published';
   const subscriptions = await req.payload.find({
     collection: 'developer-subscriptions',
@@ -62,4 +63,10 @@ export const notifyDeveloperSubscribers: CollectionAfterChangeHook = async ({ do
     });
   }
   return doc;
+  } catch (error) {
+    // Notification fan-out must not roll back a property save when the
+    // subscriptions or notifications tables are temporarily unavailable.
+    console.error('[property-notifications] Could not notify developer subscribers:', error);
+    return doc;
+  }
 };

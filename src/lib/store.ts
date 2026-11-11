@@ -10,7 +10,7 @@ import {
  * Payload Server Actions and read endpoints, is the source of truth. This module keeps an in-memory
  * view for reactive client rendering; it does not persist records locally.
  */
-import { read, write, clearAll, hydrate, cache, setAuthenticated, flushWrites, getVersion } from './storage';
+import { read, write, writeImmediate, clearAll, hydrate, cache, setAuthenticated, flushWrites, getVersion } from './storage';
 import { uid, daysFromNow, slugify, clone } from './utils';
 import { PLANS, STATUS, LEGACY_STATUS, USD_PEG } from '@/config/reference';
 import { planIdForAudience } from '@/config/plans';
@@ -482,6 +482,8 @@ export function data(user = undefined) {
     d = { listings: [], selected: [], activity: [] };
     write('data:' + user.id, d);
   }
+  const savedSelection = read('selected:' + user.id, null);
+  if (Array.isArray(savedSelection)) d.selected = savedSelection;
   d.listings.forEach(normalize);
   return d;
 }
@@ -497,9 +499,14 @@ function strip(d) {
   });
   return copy;
 }
-export function saveData(d, user = undefined) {
+export function saveData(d, user = undefined, immediate = false) {
   user = user || currentUser();
-  if (user) return write('data:' + user.id, strip(d));
+  if (user) return (immediate ? writeImmediate : write)('data:' + user.id, strip(d));
+  return false;
+}
+function saveSelection(d, user = undefined) {
+  user = user || currentUser();
+  if (user) return writeImmediate('selected:' + user.id, d.selected || []);
   return false;
 }
 export function log(text, icon) {
@@ -507,7 +514,7 @@ export function log(text, icon) {
   if (!d) return;
   d.activity.unshift({ at: new Date().toISOString(), icon: icon || 'dot', text: text });
   d.activity = d.activity.slice(0, 40);
-  saveData(d);
+  saveData(d, undefined, true);
 }
 
 export function plan(user = undefined) {
@@ -713,7 +720,7 @@ export function network(id = undefined) {
     return (
       NETWORK.filter(function (n) {
         return n.id === id;
-      })[0] || null
+      })[0] || (data()?.selected || []).find(function (item) { return item.id === id && item.listing; })?.listing || null
     );
   return NETWORK.slice();
 }
@@ -755,7 +762,7 @@ export function isSelected(id) {
     })
   );
 }
-export function select(ids) {
+export function select(ids, candidate = undefined) {
   var d = data(),
     p = plan();
   if (!d) return { ok: false, added: 0 };
@@ -769,23 +776,16 @@ export function select(ids) {
       })
     )
       return;
-    var n = network(id);
+    var n = network(id) || (candidate && String(candidate.id) === String(id) ? candidate : null);
     if (!n || !n.available) return;
     if (p.selections && d.selected.length >= p.selections) {
       blocked++;
       return;
     }
-    d.selected.push({ id: id, note: '', addedAt: new Date().toISOString() });
+    d.selected.push({ id: id, note: '', addedAt: new Date().toISOString(), ...(candidate && String(candidate.id) === String(id) ? { listing: candidate } : {}) });
     added++;
   });
-  saveData(d);
-  if (added)
-    log(
-      added === 1
-        ? 'Selected “' + network(ids[0]).title + '” from the broker network'
-        : 'Selected ' + added + ' properties from the broker network',
-      'bookmark',
-    );
+  if (added) saveSelection(d);
   return { ok: blocked === 0, added: added, blocked: blocked, used: d.selected.length, limit: p.selections };
 }
 export function deselect(ids) {
@@ -796,7 +796,7 @@ export function deselect(ids) {
   d.selected = d.selected.filter(function (s) {
     return ids.indexOf(s.id) === -1;
   });
-  saveData(d);
+  saveSelection(d);
   return before - d.selected.length;
 }
 export function setNote(id, note) {
@@ -808,7 +808,7 @@ export function setNote(id, note) {
       s.updatedAt = new Date().toISOString();
     }
   });
-  saveData(d);
+  saveSelection(d);
 }
 
 /* Own listings */

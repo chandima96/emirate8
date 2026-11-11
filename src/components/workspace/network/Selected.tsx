@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
-import { counts, data, deselect, fmtNumber, fmtPrice, log, network, plan, relTime, setNote } from '@/lib/store';
+import { counts, data, deselect, fmtNumber, fmtPrice, network, plan, relTime, setNote } from '@/lib/store';
 import { cx } from '@/lib/utils';
 import { ContactModal, SpecLine, agencyOf, netUrl } from './NetworkBits';
 
@@ -84,7 +84,7 @@ export function Selected() {
       if (f.purpose !== 'all' && n.purpose !== f.purpose) return false;
       if (
         f.search &&
-        (n.title + ' ' + n.area + ' ' + n.broker.name + ' ' + agencyOf(n) + ' ' + s.note)
+        (n.title + ' ' + n.area + ' ' + (n.broker?.name || n.developerName || 'Developer') + ' ' + agencyOf(n) + ' ' + s.note)
           .toLowerCase()
           .indexOf(f.search.toLowerCase()) === -1
       )
@@ -107,7 +107,6 @@ export function Selected() {
     });
     if (!ok) return;
     deselect(n.id);
-    log('Removed “' + n.title + '” from Selected Properties', 'bookmark-dash');
     toast('Removed from Selected Properties.', { icon: 'bookmark-dash' });
   };
   const resetFilters = () => {
@@ -258,7 +257,7 @@ export function Selected() {
                       {fmtPrice(n)}
                     </span>
                     <span className="text-muted">
-                      Source: <span className="font-semibold text-ink">{n.broker.name}</span>, {agencyOf(n)}
+                      Source: <span className="font-semibold text-ink">{n.broker?.name || n.developerName || 'Developer'}</span>, {agencyOf(n)}
                     </span>
                     <span className="text-muted">Selected {relTime(s.addedAt).toLowerCase()}</span>
                   </div>
