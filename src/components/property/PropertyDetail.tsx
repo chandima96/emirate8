@@ -24,28 +24,29 @@ import { isClosed } from './detail/shared';
  */
 export function PropertyDetail({ listing: l, preview = false }) {
   if (!l) return null;
+  const hasAssignedBroker = Boolean(l.broker && (l.broker.id || l.broker.name));
   return (
     <div>
       <PropertyHeader listing={l} preview={preview} />
       <Gallery listing={l} preview={preview} />
       <Characteristics listing={l} />
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12">
+      <div className={`mt-8 grid gap-8 ${hasAssignedBroker ? 'lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12' : ''}`}>
         <div className="min-w-0">
           <Description listing={l} />
           <Highlights listing={l} />
           <PaymentPlan listing={l} />
           <Features listing={l} />
         </div>
-        <ContactSidebar listing={l} preview={preview} />
+        {hasAssignedBroker && <ContactSidebar listing={l} preview={preview} />}
       </div>
       <Details listing={l} />
       <DeveloperOwnerCard listing={l} preview={preview} />
       <DemoMap listing={l} preview={preview} />
       <CommunityInsights listing={l} preview={preview} />
-      <ListedBy listing={l} preview={preview} />
+      {hasAssignedBroker && <ListedBy listing={l} preview={preview} />}
       <Calculators listing={l} />
       {!preview && <Similar listing={l} />}
-      {!preview && !isClosed(l) && <MobileCta listing={l} />}
+      {!preview && hasAssignedBroker && !isClosed(l) && <MobileCta listing={l} />}
     </div>
   );
 }
