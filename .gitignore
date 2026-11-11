@@ -18,6 +18,7 @@
 
 # Logs and test artifacts
 *.log
+/UI_Changes/
 /coverage/
 /.nyc_output/
 /playwright-report/

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
+import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState } from '@/components/ui/AiAssist';
+import { ProfileAutofill } from '@/components/workspace/ProfileAutofill';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
 import { STATUS } from '@/config/reference';
@@ -111,6 +113,12 @@ export function ListingEditor({ id = undefined }) {
   const savingRef = useRef(false);
   const editRevision = useRef(0);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
+  const openAi = () => {
+    setAiOpen(true);
+    setTimeout(() => document.getElementById('listing-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
+  };
   const Lref = useRef(L);
   const dirtyRef = useRef(false);
   const stepRef = useRef(step);
@@ -434,6 +442,41 @@ export function ListingEditor({ id = undefined }) {
     agencyBrokers,
   };
 
+  const applyAiSuggestions = (suggestions: Record<string, any>, selected: string[]) => {
+    const next = clone(Lref.current);
+    const data = { ...next.editor.d };
+    const changes = { ...aiChanges };
+    for (const key of selected) {
+      if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
+      changes[key] = { before: changes[key]?.before ?? data[key], applied: suggestions[key] };
+      data[key] = suggestions[key];
+    }
+    ed.set('editor.d', data);
+    setAiChanges(changes);
+    setAiOpen(false);
+    const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
+    const firstStep = Math.min(...selected.map((key) => stepFor[key] || 1));
+    go(firstStep, true);
+    toast('Selected suggestions added to your listing draft.');
+  };
+  const undoAiChanges = () => {
+    const next = clone(Lref.current);
+    const data = { ...next.editor.d };
+    for (const [key, change] of Object.entries(aiChanges)) {
+      if (JSON.stringify(data[key]) === JSON.stringify(change.applied)) data[key] = change.before;
+    }
+    ed.set('editor.d', data);
+    setAiChanges({});
+    toast('AI changes undone. Your later edits have been kept.');
+  };
+  const aiStates: Record<string, AiFieldState> = {};
+  let aiFilled = 0, aiEdited = 0;
+  for (const [key, change] of Object.entries(aiChanges)) {
+    const state = JSON.stringify(L.editor.d[key]) === JSON.stringify(change.applied) ? 'filled' : 'edited';
+    if (state === 'filled') aiFilled++; else aiEdited++;
+    aiStates[key === 'communityId' ? 'designer-community' : 'designer-' + key] = state;
+  }
+
   const status = STATUS[L.status] || STATUS.draft;
   const crumb = saved ? saved.title || 'Untitled listing' : 'New listing';
 
@@ -442,6 +485,7 @@ export function ListingEditor({ id = undefined }) {
   ));
 
   return (
+    <AiReviewContext.Provider value={aiStates}>
     <div className="listing-editor mx-auto max-w-[1320px] px-4 pb-16 sm:px-6 lg:px-12">
       <nav className="mb-3 text-xs text-muted" aria-label="Breadcrumb">
         <Link href="/listings" className="hover:text-ink">
@@ -474,6 +518,12 @@ export function ListingEditor({ id = undefined }) {
             Save draft
           </button>
         </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <AiBanner kind="listing" open={aiOpen} controls="listing-ai-intake" onStart={openAi} onManual={() => { setAiOpen(false); go(1, true); }} />
+        {aiOpen && <ProfileAutofill id="listing-ai-intake" kind="listing" profile={L.editor.d} onApply={applyAiSuggestions} onClose={() => setAiOpen(false)} />}
+        {Object.keys(aiChanges).length > 0 && <AiNotice filled={aiFilled} edited={aiEdited} onUndo={undoAiChanges} />}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
@@ -586,5 +636,6 @@ export function ListingEditor({ id = undefined }) {
         onPublish={publish}
       />
     </div>
+    </AiReviewContext.Provider>
   );
 }

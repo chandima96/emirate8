@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
-import { Field, invalidProps } from '@/components/ui/Field';
+import { invalidProps } from '@/components/ui/Field';
+import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState } from '@/components/ui/AiAssist';
 import { Avatar } from '@/components/broker/Avatar';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -49,7 +50,6 @@ const COVERS = [
 const TABS = ['appearance', 'autofill', 'professional', 'contact', 'listings', 'visibility'];
 const NAV = [
   ['appearance', 'image', 'Portfolio appearance'],
-  ['autofill', 'stars', 'AI profile autofill'],
   ['professional', 'person-vcard', 'Professional information'],
   ['contact', 'telephone', 'Public contact details'],
   ['listings', 'buildings', 'Portfolio listings'],
@@ -148,6 +148,15 @@ export function Portfolio() {
   const [D, setD] = useState(initDraft);
   const [lists, setLists] = useState(() => listText(D));
   const [err, setErr] = useState<Record<string, string>>({});
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
+  const openAi = () => {
+    setAiOpen(true);
+    setTimeout(() => { document.getElementById('profile-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+  };
+  useEffect(() => {
+    if (tab === 'autofill') { setAiOpen(true); go('professional'); }
+  }, [tab, go]);
   const [showCovers, setShowCovers] = useState(false);
   const [pv, setPv] = useState({ open: false, vp: 'desktop', t: 0 });
   const focusLastCred = useRef(false);
@@ -242,6 +251,7 @@ export function Portfolio() {
     setD(next);
     setLists(listText(next));
     setErr({});
+    setAiChanges({});
     toast('Changes discarded.');
   };
 
@@ -292,18 +302,44 @@ export function Portfolio() {
   };
   const applyAutofill = (suggestions: Record<string, any>, selected: string[]) => {
     const next = clone(D);
+    const changes = { ...aiChanges };
     for (const key of selected) {
       const value = suggestions[key];
+      const path = key === 'agencyName' ? 'agency.name' : key === 'agencyWebsite' ? 'agency.website' : key;
+      const before = changes[path]?.before ?? getPath(D, path);
       if (key === 'agencyName') setPath(next, 'agency.name', value);
       else if (key === 'agencyWebsite') setPath(next, 'agency.website', value);
       else if (key === 'credentials') next.credentials = [...(next.credentials || []), ...value];
       else next[key] = value;
+      changes[path] = { before, applied: getPath(next, path) };
     }
     if (selected.includes('languages')) setLists((current) => ({ ...current, languages: (next.languages || []).join(', ') }));
     if (selected.includes('specialties')) setLists((current) => ({ ...current, specialties: (next.specialties || []).join(', ') }));
     saveDraft(next);
+    setAiChanges(changes);
+    setAiOpen(false);
+    go('professional');
     toast('Selected suggestions added to your unpublished draft.');
   };
+  const undoAutofill = () => {
+    const next = clone(D);
+    for (const [path, change] of Object.entries(aiChanges)) {
+      if (JSON.stringify(getPath(next, path)) === JSON.stringify(change.applied)) setPath(next, path, change.before);
+    }
+    saveDraft(next);
+    setLists(listText(next));
+    setAiChanges({});
+    toast('AI changes undone. Your later edits have been kept.');
+  };
+  const aiIds = { displayName: 'pf-name', title: 'pf-title', headline: 'pf-headline', intro: 'pf-intro', bio: 'pf-bio', experience: 'pf-exp', languages: 'pf-lang', specialties: 'pf-spec', publicEmail: 'pf-email', publicPhone: 'pf-phone', whatsapp: 'pf-wa', 'agency.name': 'pf-agency', 'agency.website': 'pf-agencyweb' };
+  const aiStates: Record<string, AiFieldState> = {};
+  let aiFilled = 0, aiEdited = 0;
+  for (const [path, change] of Object.entries(aiChanges)) {
+    const status = JSON.stringify(getPath(D, path)) === JSON.stringify(change.applied) ? 'filled' : 'edited';
+    if (status === 'filled') aiFilled++; else aiEdited++;
+    if (aiIds[path]) aiStates[aiIds[path]] = status;
+  }
+  if (Object.keys(aiChanges).length && !D.displayName?.trim()) aiStates['pf-name'] = 'missing';
   const onImage = (key, max, q) => async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -368,6 +404,7 @@ export function Portfolio() {
   );
 
   return (
+    <AiReviewContext.Provider value={aiStates}>
     <div className="mx-auto max-w-[1160px]">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -429,10 +466,17 @@ export function Portfolio() {
         </div>
       </div>
 
+      <AiBanner kind="profile" open={aiOpen} controls="profile-ai-intake" onStart={openAi} onManual={() => {
+        setAiOpen(false); go('professional');
+        setTimeout(() => document.getElementById('pf-name')?.focus({ preventScroll: false }), 30);
+      }} />
+      {aiOpen && <ProfileAutofill profile={D} onApply={applyAutofill} onClose={() => setAiOpen(false)} />}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <SectionNav label={agencyAccount ? 'Agency portfolio sections' : 'Profile sections'} items={sectionNav} current={tab} onSelect={go} />
 
         <div className="min-w-0">
+          {Object.keys(aiChanges).length > 0 && <AiNotice filled={aiFilled} edited={aiEdited} missing={D.displayName?.trim() ? 0 : 1} onUndo={undoAutofill} />}
           {/* 1 APPEARANCE */}
           <section className="card p-5 sm:p-7" hidden={tab !== 'appearance'}>
             <h2 className="h3">{agencyAccount ? 'Agency branding' : 'Portfolio appearance'}</h2>
@@ -562,7 +606,7 @@ export function Portfolio() {
                 <h2 className="h3">{agencyAccount ? 'Agency information' : 'Professional information'}</h2>
                 <p className="mt-1 text-[13px] text-muted">{agencyAccount ? 'Tell buyers what your agency does and where your team works.' : 'Shown in your portfolio header, About section and sidebar.'}</p>
               </div>
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => go('autofill')}><Icon name="stars" />AI autofill</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={openAi}><Icon name="stars" />AI autofill</button>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <Field id="pf-name" label={agencyAccount ? 'Agency name' : 'Display name'} error={err.displayName}>
@@ -743,13 +787,6 @@ export function Portfolio() {
             </div>}
           </section>
 
-          {/* AI AUTOFILL */}
-          <section className="card p-5 sm:p-7" hidden={tab !== 'autofill'}>
-            <h2 className="h3">AI profile autofill</h2>
-            <p className="mt-1 mb-5 text-[13px] text-muted">Use a public profile page or a document to find new portfolio details and review suggested changes.</p>
-            <ProfileAutofill profile={D} onApply={applyAutofill} />
-          </section>
-
           {/* 3 CONTACT */}
           <section className="card p-5 sm:p-7" hidden={tab !== 'contact'}>
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -759,7 +796,7 @@ export function Portfolio() {
                   {agencyAccount ? 'Use contact details for your office. Your personal account email and mobile stay private.' : 'Use business contact details. Your personal email and mobile in Account are never shown publicly.'}
                 </p>
               </div>
-              <button type="button" className="btn btn-outline btn-sm" onClick={() => go('autofill')}><Icon name="stars" />AI autofill</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={openAi}><Icon name="stars" />AI autofill</button>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <Field id="pf-email" label="Public business email" error={err.publicEmail}>
@@ -1099,5 +1136,6 @@ export function Portfolio() {
         </div>
       </Modal>
     </div>
+    </AiReviewContext.Provider>
   );
 }

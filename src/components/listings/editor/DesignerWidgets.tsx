@@ -2,7 +2,8 @@
 
 import { focusListingField } from './EditorSection';
 import { useState } from 'react';
-import { Field, invalidProps } from '@/components/ui/Field';
+import { AiField as Field } from '@/components/ui/AiAssist';
+import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { AREAS, EMIRATES } from '@/config/reference';
 import { currentUser } from '@/lib/store';

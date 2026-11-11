@@ -1,6 +1,7 @@
 'use client';
 
-import { Field, invalidProps } from '@/components/ui/Field';
+import { AiField as Field } from '@/components/ui/AiAssist';
+import { invalidProps } from '@/components/ui/Field';
 import { listingSchema as S } from './designer-schema';
 
 export function DesignerField({ ed, fieldKey }: { ed: any; fieldKey: string }) {
