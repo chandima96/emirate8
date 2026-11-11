@@ -6,6 +6,8 @@ import { Icon } from './Icon';
 import { cx } from '@/lib/utils';
 import { mediaDisplayURL } from '@/lib/mediaURL';
 
+//Test
+
 /**
  * Fullscreen photo viewer with keyboard (←/→/Esc), swipe and thumbnails.
  * `items` = [{ src, caption }]; render with `open` and `start`, close via `onClose`.
