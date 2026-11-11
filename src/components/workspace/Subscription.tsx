@@ -46,7 +46,7 @@ export function Subscription() {
       body:
         'Your demo trial continues on the ' +
         np.name +
-        ' plan. Pricing is still to be confirmed and nothing is charged.',
+        ' plan. The current advertised rate will be saved for this plan. No payment is collected in this demo.',
       ok: 'Switch plan',
     });
     if (!ok) return;
@@ -75,12 +75,12 @@ export function Subscription() {
 
   const featureNames = [...new Set(availablePlans.flatMap((item) => item.features || []))];
   const comparisonRows = [
+    { label: 'Monthly price', values: availablePlans.map((item) => item.price == null ? 'To be confirmed' : `AED ${item.price.toLocaleString()}`) },
     { label: 'Best for', values: availablePlans.map((item) => item.audience || roleAudience) },
     { label: 'User seats', values: availablePlans.map((item) => item.seats == null ? 'Flexible' : fmtNumber(item.seats)) },
     { label: 'Active listings', values: availablePlans.map((item) => item.listings == null ? 'Flexible' : fmtNumber(item.listings)) },
     { label: 'Network selections', values: availablePlans.map((item) => item.selections == null ? 'Flexible' : fmtNumber(item.selections)) },
     ...featureNames.map((feature) => ({ label: feature, values: availablePlans.map((item) => (item.features || []).includes(feature)) })),
-    { label: 'Price', values: availablePlans.map(() => 'To be confirmed') },
   ];
 
   return (
@@ -92,7 +92,7 @@ export function Subscription() {
       <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warn/30 bg-warn-soft px-4 py-3 text-xs leading-[1.55] text-warn">
         <Icon name="info-circle" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <p>
-          <span className="font-semibold">Billing is not enabled.</span> Plan prices are still to be confirmed and no
+          <span className="font-semibold">Billing is not enabled.</span> Your agreed rate is shown below and no
           payments are processed. Plan changes are saved to your account.
         </p>
       </div>
@@ -110,7 +110,7 @@ export function Subscription() {
           <dl className="mt-5 space-y-2 border-t border-white/15 pt-4 text-[13px]">
             <div className="flex justify-between">
               <dt className="text-[#A9B4B1]">Price</dt>
-              <dd className="text-white">To be confirmed</dd>
+              <dd className="text-white">{p.price == null ? 'To be confirmed' : `AED ${p.price.toLocaleString()} / month`}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-[#A9B4B1]">Trial ends</dt>

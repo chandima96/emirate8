@@ -112,6 +112,7 @@ export type PublicListing = {
 };
 
 export type PublicPlan = {
+  price?: number | null;
   id: string;
   name: string;
   roleAudience?: 'broker' | 'agency' | 'developer' | 'buyer' | 'platform';
