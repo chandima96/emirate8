@@ -525,17 +525,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     }),
 
     /* ---------- 2 Location ---------- */
-    F('subcommunity', 'Subcommunity', 'select', {
-      when: function (c, d) {
-        return !!d.communityId && E08.LocationCatalogService.subs(d.communityId).length > 0;
-      },
-      opts: function (c, d) {
-        return E08.LocationCatalogService.subs(d.communityId).map(function (x) {
-          return O(x, x);
-        });
-      },
-      help: 'Where applicable.',
-    }),
+    F('subcommunity', 'Subcommunity', 'text', { max: 120, help: 'Where applicable.' }),
     F('propName', 'Proposed building / project name', 'text', {
       req: true,
       max: 80,

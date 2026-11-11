@@ -1,8 +1,8 @@
 'use client';
 
 import { focusListingField } from './EditorSection';
-import { useState } from 'react';
-import { AiField as Field } from '@/components/ui/AiAssist';
+import { useContext, useState } from 'react';
+import { AiField as Field, AiReviewContext } from '@/components/ui/AiAssist';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { AREAS, EMIRATES } from '@/config/reference';
@@ -12,7 +12,7 @@ import { listingSchema as S } from './designer-schema';
 import { editorState, validateEditorStep } from './designer-model';
 
 const U = S.util;
-function coordinatesFromMapLink(value) {
+export function coordinatesFromMapLink(value) {
   const text = String(value || '').trim();
   if (!text) return null;
   const valid = (lat, lng) => {
@@ -112,6 +112,7 @@ export function LocationWidget({ ed, kind }) {
           <input
             id="designer-subcommunity"
             className="input"
+            maxLength={120}
             value={d.subcommunity || ''}
             onChange={(e) => set('subcommunity', e.target.value)}
           />
@@ -148,9 +149,9 @@ export function LocationWidget({ ed, kind }) {
     );
   if (kind === 'map')
     return <div className="mb-4 space-y-2">
-      <Field id="designer-map-location" label="Google Maps location">
+      <Field id="designer-mapLocation" label="Google Maps location">
         <input
-          id="designer-map-location"
+          id="designer-mapLocation"
           className="input"
           type="text"
           inputMode="url"
@@ -173,6 +174,7 @@ export function LocationWidget({ ed, kind }) {
 
 export function AmenitiesWidget({ ed }) {
   const [query, setQuery] = useState('');
+  const aiReview = useContext(AiReviewContext);
   const amen = ed.L.editor.amen || {},
     off = S.ctxOf(ed.L.editor.d).off;
   const change = (id, next) => ed.set('editor.amen', { ...amen, [id]: next });
@@ -220,6 +222,7 @@ export function AmenitiesWidget({ ed }) {
                         }
                       />
                       <span>{label}</span>
+                      {aiReview?.states?.['amenity-' + id] === 'filled' && <span className="rounded bg-[#ecebff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338a8]">AI-filled</span>}
                     </label>
                     {amen[id]?.selected && (
                       <div className="mt-1 flex flex-wrap gap-2 pl-6">
