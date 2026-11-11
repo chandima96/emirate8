@@ -9,14 +9,19 @@ export function publicListing(source) {
   delete l.unit;
   delete l.brokerRef;
   delete l.ownerMemberId;
+  if (!l.mapLocation && typeof source.appData?.mapLocation === 'string') l.mapLocation = source.appData.mapLocation;
   if (l.permit) l.permit = { number: l.permit.number, expiry: l.permit.expiry };
   if (l.appData) l.appData = publicListing(l.appData);
-  if (!d) return l;
+  if (!d) {
+    delete l.mapLocation;
+    return l;
+  }
   if (d.locPrecision === 'approximate') {
     delete l.building;
     delete l.community;
     delete l.address;
     delete l.coordinates;
+    delete l.mapLocation;
     if (l.offplan) l.offplan = { ...l.offplan, project: '' };
   }
   if (d.floorDisplay !== 'exact') {

@@ -122,7 +122,16 @@ export function DemoMap({ listing: l, preview }) {
   const c = COMMUNITIES[l.area];
   const [cat, setCat] = useState(CATS[0][0]);
   const active = CATS.find((k) => k[0] === cat) || CATS[0];
-  const gmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((l.area || '') + ', Dubai')}`;
+  const coordinates = l.coordinates && l.locPrecision !== 'approximate' ? l.coordinates : null;
+  const mapQuery = coordinates ? `${coordinates.lat},${coordinates.lng}` : (l.area || '') + ', Dubai';
+  const sharedMap = (() => {
+    try {
+      const url = new URL(l.mapLocation || '');
+      const host = url.hostname.toLowerCase();
+      return url.protocol === 'https:' && (['google.com', 'maps.google.com', 'maps.app.goo.gl', 'goo.gl'].includes(host) || host.endsWith('.google.com')) ? url.toString() : '';
+    } catch { return ''; }
+  })();
+  const gmaps = l.locPrecision !== 'approximate' && sharedMap ? sharedMap : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
 
   return (
     <section id="location" className="mt-12 scroll-mt-24" aria-labelledby="h-loc">

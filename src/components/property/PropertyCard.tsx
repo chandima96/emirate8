@@ -16,11 +16,14 @@ export function PropertyCard({ listing: l, preview = false, agent = true, tag = 
   const n = (l.images || []).length;
   const photo = photoOf(l);
   const cover = (l.photos || []).find((p) => p.src === l.featured) || {};
-  const A = preview ? 'a' : canNavigate ? Link : 'span';
-  const linkProps = preview ? { href: '#' } : canNavigate ? { href: url } : {};
+  const cardLink = ({ href = url, className, children, ...props }: any) => {
+    if (preview) return <a href="#" className={className} {...props}>{children}</a>;
+    if (canNavigate) return <Link href={href || url} className={className} {...props}>{children}</Link>;
+    return <span className={className} {...props}>{children}</span>;
+  };
   return (
     <article className={cx('pcard relative', className)}>
-      <A {...linkProps} className="relative block aspect-[4/3] overflow-hidden bg-mist" tabIndex={-1} aria-hidden="true">
+      {cardLink({ className: 'relative block aspect-[4/3] overflow-hidden bg-mist', tabIndex: -1, 'aria-hidden': 'true', children: <>
         {photo ? (
           <img
             src={photo}
@@ -45,15 +48,13 @@ export function PropertyCard({ listing: l, preview = false, agent = true, tag = 
             {n}
           </span>
         )}
-      </A>
+      </> })}
       <ListingBadges listing={l} extra={tag} />
       {showFavorite && <FavButton listing={l} preview={preview} />}
       <div className="flex flex-1 flex-col p-4">
         <Price listing={l} className="font-display text-[19px] font-semibold tracking-[-0.02em] text-ink" />
         <h3 className="mt-1 text-[14px] leading-snug font-semibold text-ink">
-          <A {...linkProps} className="line-clamp-1 hover:underline">
-            {l.title || 'Untitled listing'}
-          </A>
+          {cardLink({ className: 'line-clamp-1 hover:underline', children: l.title || 'Untitled listing' })}
         </h3>
         <ListingSpecs listing={l} className="mt-2 text-[13px] text-text" />
         <p className="mt-2 flex items-center gap-1.5 truncate text-[13px] text-muted">
@@ -66,9 +67,7 @@ export function PropertyCard({ listing: l, preview = false, agent = true, tag = 
               <Avatar person={b} size={26} />
               <span className="text-xs text-muted">
                 Listed by{' '}
-                <A className="font-semibold text-ink hover:underline" href={preview ? '#' : brokerUrl(b)}>
-                  {b.name}
-                </A>
+                {cardLink({ className: 'font-semibold text-ink hover:underline', href: brokerUrl(b), children: b.name })}
               </span>
             </span>
           </div>

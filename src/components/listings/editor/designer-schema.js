@@ -1295,7 +1295,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           fields: ['developer', 'unitNo', 'floorNo', 'street'],
           note: 'Your unit number and private verification details will not appear publicly.',
         },
-        { id: 'loc-map', title: 'Map location', kind: 'map', fields: ['lat', 'lng'] },
+        { id: 'loc-map', title: 'Map location', kind: 'map', fields: [] },
         { id: 'loc-pub', title: 'Public location', fields: ['locPrecision'] },
       ],
     },
@@ -1835,6 +1835,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     return {
       areaUnit: 'sqft',
       locPrecision: 'building',
+      mapLocation: '',
       floorDisplay: 'band',
       proposing: false,
       coordsAuto: false,

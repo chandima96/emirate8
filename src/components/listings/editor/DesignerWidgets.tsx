@@ -12,6 +12,36 @@ import { listingSchema as S } from './designer-schema';
 import { editorState, validateEditorStep } from './designer-model';
 
 const U = S.util;
+function coordinatesFromMapLink(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const valid = (lat, lng) => {
+    const latitude = Number(lat), longitude = Number(lng);
+    return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+      ? { lat: String(latitude), lng: String(longitude) }
+      : null;
+  };
+  let match = text.match(/@(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/)
+    || text.match(/!3d(-?\d{1,2}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/)
+    || text.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (match) return valid(match[1], match[2]);
+  try {
+    const url = new URL(text);
+    for (const key of ['q', 'query', 'll', 'center']) {
+      const coords = url.searchParams.get(key)?.match(/(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/);
+      if (coords) return valid(coords[1], coords[2]);
+    }
+  } catch { /* User may still be pasting a partially entered link. */ }
+  return null;
+}
+function isGoogleMapLink(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && ['google.com', 'maps.google.com', 'maps.app.goo.gl', 'goo.gl'].includes(url.hostname.toLowerCase()) ||
+      (url.protocol === 'https:' && url.hostname.toLowerCase().endsWith('.google.com'));
+  } catch { return false; }
+}
+
 export function WidgetError({ ed, name }) {
   return ed.errors[name] ? (
     <p className="err mt-2" role="alert" id={'designer-' + name + '-err'}>
@@ -117,35 +147,27 @@ export function LocationWidget({ ed, kind }) {
       </div>
     );
   if (kind === 'map')
-    return (
-      <p className="mb-4 text-xs text-muted">
-        Enter coordinates to locate the property.{' '}
-        {U.parseDec(d.lat) != null &&
-          U.parseDec(d.lng) != null &&
-          U.parseDec(d.lat) >= -90 &&
-          U.parseDec(d.lat) <= 90 &&
-          U.parseDec(d.lng) >= -180 &&
-          U.parseDec(d.lng) <= 180 && (
-            <a
-              className="underline"
-              target="_blank"
-              rel="noreferrer"
-              href={
-                'https://www.openstreetmap.org/?mlat=' +
-                encodeURIComponent(d.lat) +
-                '&mlon=' +
-                encodeURIComponent(d.lng) +
-                '#map=17/' +
-                encodeURIComponent(d.lat) +
-                '/' +
-                encodeURIComponent(d.lng)
-              }
-            >
-              Check this location on OpenStreetMap
-            </a>
-          )}
-      </p>
-    );
+    return <div className="mb-4 space-y-2">
+      <Field id="designer-map-location" label="Google Maps location">
+        <input
+          id="designer-map-location"
+          className="input"
+          type="text"
+          inputMode="url"
+          autoComplete="off"
+          placeholder="Paste a Google Maps share link"
+          value={d.mapLocation || ''}
+          onChange={(event) => {
+            const mapLocation = event.target.value;
+            const coordinates = coordinatesFromMapLink(mapLocation);
+            ed.set('editor.d', { ...d, mapLocation, lat: coordinates?.lat || '', lng: coordinates?.lng || '' });
+          }}
+        />
+      </Field>
+      <p className="text-xs text-muted">Paste a Google Maps link with a dropped pin. The pin coordinates are saved automatically.</p>
+      {d.lat && d.lng && <p className="text-xs text-sage-ink"><Icon name="geo-alt" className="mr-1" />Map pin added</p>}
+      {d.mapLocation && <a className="inline-flex items-center gap-1 text-xs font-medium text-[#3157a5] underline underline-offset-2" href={isGoogleMapLink(d.mapLocation) ? d.mapLocation : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.mapLocation)}`} target="_blank" rel="noreferrer"><Icon name="box-arrow-up-right" />Open location in Google Maps</a>}
+    </div>;
   return null;
 }
 
