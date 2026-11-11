@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
-import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState } from '@/components/ui/AiAssist';
+import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
 import { ProfileAutofill } from '@/components/workspace/ProfileAutofill';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -118,6 +118,7 @@ export function ListingEditor({ id = undefined }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
   const openAi = () => {
     setAiOpen(true);
     setTimeout(() => document.getElementById('listing-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
@@ -464,22 +465,43 @@ export function ListingEditor({ id = undefined }) {
     agencyBrokers,
   };
 
-  const applyAiSuggestions = (suggestions: Record<string, any>, selected: string[]) => {
+  const applyAiSuggestions = (suggestions: Record<string, any>, selected: string[], candidates?: Record<string, { value: any; sources: string[] }[]>) => {
     const next = clone(Lref.current);
     const data = { ...next.editor.d };
     const changes = { ...aiChanges };
+    const pending: Record<string, AiSuggestion> = {};
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
+      const current = data[key];
+      const empty = current == null || current === '' || (Array.isArray(current) && !current.length);
+      const options = candidates?.[key] || [];
+      if (options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(suggestions[key]))) {
+        const id = key === 'communityId' ? 'designer-community' : 'designer-' + key;
+        pending[id] = { value: suggestions[key], sources: options[0]?.sources || [], options };
+        continue;
+      }
+      if (!empty) continue;
       changes[key] = { before: changes[key]?.before ?? data[key], applied: suggestions[key] };
       data[key] = suggestions[key];
     }
     ed.set('editor.d', data);
     setAiChanges(changes);
+    setAiSuggestions((current) => ({ ...current, ...pending }));
     setAiOpen(false);
     const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
-    const firstStep = Math.min(...selected.map((key) => stepFor[key] || 1));
+    const firstStep = selected.length ? Math.min(...selected.map((key) => stepFor[key] || 1)) : 1;
     go(firstStep, true);
-    toast('Selected suggestions added to your listing draft.');
+    toast('AI suggestions are ready in the listing fields.');
+  };
+  const applyAiSuggestion = (id: string, value?: any) => {
+    const suggestion = aiSuggestions[id]; if (!suggestion) return;
+    const key = id === 'designer-community' ? 'communityId' : id.replace(/^designer-/, '');
+    const next = clone(Lref.current); const data = { ...next.editor.d };
+    const applied = value === undefined ? suggestion.value : value;
+    const change = aiChanges[key];
+    const changes = { ...aiChanges, [key]: { before: change?.before ?? data[key], applied } };
+    data[key] = applied; ed.set('editor.d', data); setAiChanges(changes);
+    setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; });
   };
   const undoAiChanges = () => {
     const next = clone(Lref.current);
@@ -489,6 +511,7 @@ export function ListingEditor({ id = undefined }) {
     }
     ed.set('editor.d', data);
     setAiChanges({});
+    setAiSuggestions({});
     toast('AI changes undone. Your later edits have been kept.');
   };
   const aiStates: Record<string, AiFieldState> = {};
@@ -498,6 +521,8 @@ export function ListingEditor({ id = undefined }) {
     if (state === 'filled') aiFilled++; else aiEdited++;
     aiStates[key === 'communityId' ? 'designer-community' : 'designer-' + key] = state;
   }
+  for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
+  const aiReview = { states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
 
   const status = STATUS[L.status] || STATUS.draft;
   const crumb = saved ? saved.title || 'Untitled listing' : 'New listing';
@@ -528,7 +553,7 @@ export function ListingEditor({ id = undefined }) {
   });
 
   return (
-    <AiReviewContext.Provider value={aiStates}>
+    <AiReviewContext.Provider value={aiReview}>
     <div className="listing-editor mx-auto max-w-[1320px] px-4 pb-16 sm:px-6 lg:px-12">
       <nav className="mb-3 text-xs text-muted" aria-label="Breadcrumb">
         <Link href="/listings" className="hover:text-ink">
@@ -566,7 +591,7 @@ export function ListingEditor({ id = undefined }) {
       <div className="mt-6 space-y-4">
         <AiBanner kind="listing" open={aiOpen} controls="listing-ai-intake" onStart={openAi} onManual={() => { setAiOpen(false); go(1, true); }} />
         {aiOpen && <ProfileAutofill id="listing-ai-intake" kind="listing" profile={L.editor.d} onApply={applyAiSuggestions} onClose={() => setAiOpen(false)} />}
-        {Object.keys(aiChanges).length > 0 && <AiNotice filled={aiFilled} edited={aiEdited} onUndo={undoAiChanges} />}
+        {(Object.keys(aiChanges).length > 0 || Object.keys(aiSuggestions).length > 0) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">

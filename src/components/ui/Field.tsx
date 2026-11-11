@@ -22,25 +22,30 @@ export function Field({
   className?: string;
   children: ReactNode;
   labelAside?: ReactNode;
-  aiState?: 'filled' | 'edited' | 'missing';
+  aiState?: 'filled' | 'edited' | 'missing' | 'suggestion';
 }) {
+  const aiBadge = aiState && <span className={cx('inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold', aiState === 'filled' && 'bg-[#ecebff] text-[#4338a8]', aiState === 'suggestion' && 'bg-[#ecebff] text-[#4338a8]', aiState === 'edited' && 'bg-mist text-ink', aiState === 'missing' && 'bg-warn-soft text-warn')}><Icon name={aiState === 'filled' || aiState === 'suggestion' ? 'stars' : aiState === 'edited' ? 'pencil' : 'exclamation-circle'} />{aiState === 'filled' ? 'AI-filled' : aiState === 'suggestion' ? 'AI suggestion' : aiState === 'edited' ? 'Edited' : 'Needs your input'}</span>;
   return (
     <div className={cx(
       'field',
       aiState && 'data-[ai=filled]:[&_input]:border-[#c6c5f5] data-[ai=filled]:[&_input]:bg-[#f5f6ff] data-[ai=filled]:[&_select]:border-[#c6c5f5] data-[ai=filled]:[&_select]:bg-[#f5f6ff] data-[ai=filled]:[&_textarea]:border-[#c6c5f5] data-[ai=filled]:[&_textarea]:bg-[#f5f6ff]',
+      aiState === 'suggestion' && '[&_input]:border-[#b9c4ff] [&_input]:bg-[#f7f8ff] [&_select]:border-[#b9c4ff] [&_select]:bg-[#f7f8ff] [&_textarea]:border-[#b9c4ff] [&_textarea]:bg-[#f7f8ff]',
       aiState === 'missing' && '[&_input]:border-dashed [&_input]:border-[#d3ae64] [&_select]:border-dashed [&_select]:border-[#d3ae64] [&_textarea]:border-dashed [&_textarea]:border-[#d3ae64]',
       error && 'invalid',
       className,
     )} data-ai={aiState}>
       {label &&
         (labelAside || aiState ? (
-          <div className="flex justify-between gap-2">
-            <label className="label" htmlFor={id}>
-              {label}
-              {optional && <span className="opt"> ({optional})</span>}
-            </label>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-2">
+              <label className="label" htmlFor={id}>
+                {label}
+                {optional && <span className="opt"> ({optional})</span>}
+              </label>
+              {aiState === 'suggestion' && aiBadge}
+            </div>
             <span className="inline-flex flex-wrap items-center gap-1">
-              {aiState && <span className={cx('inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold', aiState === 'filled' && 'bg-[#ecebff] text-[#4338a8]', aiState === 'edited' && 'bg-mist text-ink', aiState === 'missing' && 'bg-warn-soft text-warn')}><Icon name={aiState === 'filled' ? 'stars' : aiState === 'edited' ? 'pencil' : 'exclamation-circle'} />{aiState === 'filled' ? 'AI-filled' : aiState === 'edited' ? 'Edited' : 'Needs your input'}</span>}
+              {aiState !== 'suggestion' && aiBadge}
               {labelAside}
             </span>
           </div>

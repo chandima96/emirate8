@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { invalidProps } from '@/components/ui/Field';
-import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState } from '@/components/ui/AiAssist';
+import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
 import { Avatar } from '@/components/broker/Avatar';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -150,6 +150,7 @@ export function Portfolio() {
   const [err, setErr] = useState<Record<string, string>>({});
   const [aiOpen, setAiOpen] = useState(false);
   const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
   const openAi = () => {
     setAiOpen(true);
     setTimeout(() => { document.getElementById('profile-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
@@ -300,13 +301,23 @@ export function Portfolio() {
     focusLastCred.current = true;
     saveDraft(next);
   };
-  const applyAutofill = (suggestions: Record<string, any>, selected: string[]) => {
+  const applyAutofill = (suggestions: Record<string, any>, selected: string[], candidates?: Record<string, { value: any; sources: string[] }[]>) => {
     const next = clone(D);
     const changes = { ...aiChanges };
+    const pending: Record<string, AiSuggestion> = {};
+    const ids: Record<string, string> = { displayName: 'pf-name', title: 'pf-title', headline: 'pf-headline', intro: 'pf-intro', bio: 'pf-bio', experience: 'pf-exp', languages: 'pf-lang', specialties: 'pf-spec', publicEmail: 'pf-email', publicPhone: 'pf-phone', whatsapp: 'pf-wa', agencyName: 'pf-agency', agencyWebsite: 'pf-agencyweb' };
     for (const key of selected) {
       const value = suggestions[key];
       const path = key === 'agencyName' ? 'agency.name' : key === 'agencyWebsite' ? 'agency.website' : key;
-      const before = changes[path]?.before ?? getPath(D, path);
+      const current = getPath(D, path);
+      const empty = current == null || current === '' || (Array.isArray(current) && !current.length);
+      const options = candidates?.[key] || [];
+      if ((options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(value))) && ids[key]) {
+        pending[ids[key]] = { value, sources: options[0]?.sources || [], options };
+        continue;
+      }
+      if (!empty) continue;
+      const before = changes[path]?.before ?? current;
       if (key === 'agencyName') setPath(next, 'agency.name', value);
       else if (key === 'agencyWebsite') setPath(next, 'agency.website', value);
       else if (key === 'credentials') next.credentials = [...(next.credentials || []), ...value];
@@ -317,9 +328,24 @@ export function Portfolio() {
     if (selected.includes('specialties')) setLists((current) => ({ ...current, specialties: (next.specialties || []).join(', ') }));
     saveDraft(next);
     setAiChanges(changes);
+    setAiSuggestions((current) => ({ ...current, ...pending }));
     setAiOpen(false);
     go('professional');
-    toast('Selected suggestions added to your unpublished draft.');
+    toast('AI suggestions are ready in your profile fields.');
+  };
+  const applyAiSuggestion = (id: string, value?: any) => {
+    const suggestion = aiSuggestions[id];
+    if (!suggestion) return;
+    const ids: Record<string, string> = { displayName: 'pf-name', title: 'pf-title', headline: 'pf-headline', intro: 'pf-intro', bio: 'pf-bio', experience: 'pf-exp', languages: 'pf-lang', specialties: 'pf-spec', publicEmail: 'pf-email', publicPhone: 'pf-phone', whatsapp: 'pf-wa', agencyName: 'pf-agency', agencyWebsite: 'pf-agencyweb' };
+    const key = Object.keys(ids).find((path) => ids[path] === id);
+    if (!key) return;
+    const path = key === 'agencyName' ? 'agency.name' : key === 'agencyWebsite' ? 'agency.website' : key;
+    const applied = value === undefined ? suggestion.value : value;
+    const next = clone(D); setPath(next, path, applied);
+    setAiChanges((current) => ({ ...current, [path]: { before: current[path]?.before ?? getPath(D, path), applied } }));
+    saveDraft(next);
+    if (key === 'languages' || key === 'specialties') setLists((current) => ({ ...current, [key]: (applied || []).join(', ') }));
+    setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; });
   };
   const undoAutofill = () => {
     const next = clone(D);
@@ -329,6 +355,7 @@ export function Portfolio() {
     saveDraft(next);
     setLists(listText(next));
     setAiChanges({});
+    setAiSuggestions({});
     toast('AI changes undone. Your later edits have been kept.');
   };
   const aiIds = { displayName: 'pf-name', title: 'pf-title', headline: 'pf-headline', intro: 'pf-intro', bio: 'pf-bio', experience: 'pf-exp', languages: 'pf-lang', specialties: 'pf-spec', publicEmail: 'pf-email', publicPhone: 'pf-phone', whatsapp: 'pf-wa', 'agency.name': 'pf-agency', 'agency.website': 'pf-agencyweb' };
@@ -340,6 +367,8 @@ export function Portfolio() {
     if (aiIds[path]) aiStates[aiIds[path]] = status;
   }
   if (Object.keys(aiChanges).length && !D.displayName?.trim()) aiStates['pf-name'] = 'missing';
+  for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
+  const aiReview = { states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
   const onImage = (key, max, q) => async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -404,7 +433,7 @@ export function Portfolio() {
   );
 
   return (
-    <AiReviewContext.Provider value={aiStates}>
+    <AiReviewContext.Provider value={aiReview}>
     <div className="mx-auto max-w-[1160px]">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -476,7 +505,7 @@ export function Portfolio() {
         <SectionNav label={agencyAccount ? 'Agency portfolio sections' : 'Profile sections'} items={sectionNav} current={tab} onSelect={go} />
 
         <div className="min-w-0">
-          {Object.keys(aiChanges).length > 0 && <AiNotice filled={aiFilled} edited={aiEdited} missing={D.displayName?.trim() ? 0 : 1} onUndo={undoAutofill} />}
+          {(Object.keys(aiChanges).length > 0 || Object.keys(aiSuggestions).length > 0) && <AiNotice filled={aiFilled} edited={aiEdited} missing={D.displayName?.trim() ? 0 : 1} review={Object.keys(aiSuggestions).length} onUndo={undoAutofill} />}
           {/* 1 APPEARANCE */}
           <section className="card p-5 sm:p-7" hidden={tab !== 'appearance'}>
             <h2 className="h3">{agencyAccount ? 'Agency branding' : 'Portfolio appearance'}</h2>

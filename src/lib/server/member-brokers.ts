@@ -37,7 +37,9 @@ function profileData(member: any) {
     stats: { listingCount: 0, soldCount: 0, yearsExperience: 0, rating: 0, reviewCount: 0 },
     verified: member.credentialStatus === 'verified',
     featured: false,
-    type: isAgency ? 'agency' : member.accountType === 'buyer' || member.accountType === 'owner' ? 'buyer' : 'broker',
+    // The brokers collection only accepts `broker` and `buyer`; agency accounts
+    // are represented as broker directory entries with agency branding.
+    type: member.accountType === 'buyer' || member.accountType === 'owner' ? 'buyer' : 'broker',
   };
 }
 

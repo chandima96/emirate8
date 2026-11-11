@@ -50,7 +50,9 @@ function normalizeBroker(raw: any) {
 }
 
 export async function generateMetadata({ params }) {
-  const broker = await getBroker(decodeSlug((await params).slug));
+  const slug = decodeSlug((await params).slug);
+  if (slug === 'me') return { title: 'My portfolio preview | Emirate08', robots: { index: false, follow: false } };
+  const broker = await getBroker(slug);
   if (!broker) return { title: 'Broker not found', robots: { index: false, follow: false } };
   const publicBroker = normalizeBroker(broker);
   return {
@@ -63,6 +65,15 @@ export async function generateMetadata({ params }) {
 
 export default async function BrokerPage({ params }) {
   const slug = decodeSlug((await params).slug);
+  // `me` is resolved from the signed-in browser session. It may have no public
+  // CMS broker document yet, and draft previews must work before publication.
+  if (slug === 'me') {
+    return (
+      <Suspense fallback={loading}>
+        <BrokerPortfolio />
+      </Suspense>
+    );
+  }
   const broker = await getBroker(slug);
   if (!broker) notFound();
 

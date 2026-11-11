@@ -1,23 +1,56 @@
 'use client';
 
-import { createContext, useContext, type ComponentProps } from 'react';
+import { createContext, useContext, useEffect, useRef, type ComponentProps } from 'react';
 import { Icon } from './Icon';
 import { Field } from './Field';
 
-export type AiFieldState = 'filled' | 'edited' | 'missing';
-export const AiReviewContext = createContext<Record<string, AiFieldState>>({});
+export type AiFieldState = 'filled' | 'edited' | 'missing' | 'suggestion';
+export type AiSuggestion = { value: any; sources?: string[]; options?: { value: any; sources: string[] }[] };
+export type AiReviewValue = { states: Record<string, AiFieldState>; suggestions: Record<string, AiSuggestion>; use: (id: string) => void; keep: (id: string) => void; select: (id: string, value: any) => void };
+export const AiReviewContext = createContext<AiReviewValue>({ states: {}, suggestions: {}, use: () => {}, keep: () => {}, select: () => {} });
 
 export function AiField(props: ComponentProps<typeof Field>) {
-  const states = useContext(AiReviewContext);
-  return <Field {...props} aiState={states[props.id || '']} />;
+  const contextValue = useContext(AiReviewContext);
+  // Keep fields resilient to a stale provider value during Next.js Fast Refresh.
+  const review: AiReviewValue = contextValue && typeof contextValue === 'object' && 'states' in contextValue
+    ? contextValue
+    : { states: contextValue as unknown as Record<string, AiFieldState>, suggestions: {}, use: () => {}, keep: () => {}, select: () => {} };
+  const id = props.id || '';
+  const suggestion = review.suggestions?.[id];
+  const state = suggestion ? 'suggestion' : review.states[id];
+  const valueText = (value: any) => Array.isArray(value) ? value.map((item) => typeof item === 'object' && item ? [item.label, item.value].filter(Boolean).join(': ') : item).join(', ') : value && typeof value === 'object' ? Object.entries(value).map(([key, item]) => `${key}: ${item}`).join(', ') : String(value ?? '');
+  const activeValue = suggestion?.value;
+  return <Field {...props} aiState={state}>
+    {props.children}
+    {suggestion && <div className="mt-2 rounded-md border border-[#c6c5f5] bg-[#f5f6ff] p-3 text-xs text-[#344078]">
+      <p><Icon name="stars" className="mr-1 text-[#5142c6]" />AI suggestion: <span className="font-semibold">{valueText(activeValue)}</span></p>
+      {suggestion.options && suggestion.options.length > 1 && <select className="select mt-2" aria-label="Choose an AI suggestion" value={suggestion.options.findIndex((option) => JSON.stringify(option.value) === JSON.stringify(activeValue))} onChange={(event) => review.select(id, suggestion.options![Number(event.target.value)].value)}>{suggestion.options.map((option, index) => <option key={index} value={index}>{valueText(option.value)} — {option.sources.join(', ')}</option>)}</select>}
+      {suggestion.sources?.length ? <p className="mt-1 text-muted">From {suggestion.sources.join(', ')}</p> : null}
+      <div className="mt-2 flex gap-2"><button type="button" className="btn btn-dark btn-sm" onClick={() => review.use(id)}>Use suggestion</button><button type="button" className="btn btn-ghost btn-sm" onClick={() => review.keep(id)}>Keep mine</button></div>
+    </div>}
+  </Field>;
 }
 
 export function AiBanner({ kind, open, onStart, onManual, controls }: {
   kind: 'listing' | 'profile'; open: boolean; onStart: () => void; onManual: () => void; controls: string;
 }) {
   const listing = kind === 'listing';
+  const orbHighlightRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const highlight = orbHighlightRef.current;
+    if (!highlight || listing || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const animation = highlight.animate(
+      [
+        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 0.88 },
+        { transform: 'translate3d(34px, 13px, 0) scale(0.9)', opacity: 0.62 },
+        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 0.88 },
+      ],
+      { duration: 14000, iterations: Infinity, easing: 'ease-in-out' },
+    );
+    return () => animation.cancel();
+  }, [listing]);
   return (
-    <section className="relative isolate grid min-h-[290px] overflow-hidden rounded-md border border-[#b8dfff] bg-gradient-to-br from-[#f8fbff] via-[#f1f7ff] to-[#f2edff] shadow-[0_10px_28px_rgba(89,111,188,0.12)] sm:grid-cols-[minmax(0,1fr)_420px]" aria-label="AI assistant">
+    <section className="relative isolate mt-[20px] grid min-h-[290px] overflow-hidden rounded-md border border-[#b8dfff] bg-[radial-gradient(ellipse_at_82%_30%,rgba(94,185,255,0.27),transparent_34%),radial-gradient(ellipse_at_98%_88%,rgba(187,137,255,0.24),transparent_38%),radial-gradient(ellipse_at_4%_100%,rgba(109,224,232,0.13),transparent_42%),linear-gradient(118deg,#ffffff_0%,#f4f9ff_48%,#f7f2ff_100%)] shadow-[0_10px_32px_rgba(89,111,188,0.16)] sm:grid-cols-[minmax(0,1fr)_420px]" aria-label="AI assistant">
       <div className="relative z-10 self-center p-5 sm:px-8 sm:py-7">
         <div className="mb-3 flex flex-wrap gap-2">
           {listing && <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f3ff] px-2.5 py-1 text-xs font-semibold text-[#3846ae]"><Icon name="lightning-charge-fill" />New feature</span>}
@@ -35,12 +68,15 @@ export function AiBanner({ kind, open, onStart, onManual, controls }: {
       </div>
       <div aria-hidden="true" className="relative hidden min-h-[290px] items-center justify-center overflow-hidden sm:flex">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_55%_50%,rgba(157,196,255,0.32),transparent_62%),linear-gradient(135deg,rgba(226,247,255,0.32),rgba(228,224,255,0.68))]" />
-        <div className="absolute left-1/2 top-1/2 h-32 w-[300px] -translate-x-1/2 -translate-y-1/2 -rotate-[14deg] rounded-[50%] border border-[#9acbff]/35" />
-        <div className="absolute left-1/2 top-1/2 h-24 w-[290px] -translate-x-1/2 -translate-y-1/2 rotate-[10deg] rounded-[50%] border border-[#c5a5ff]/25" />
-        <div className="absolute h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(89,174,255,0.40),rgba(139,111,255,0.22)_48%,transparent_72%)] blur-xl" />
-        <div className="relative h-[172px] w-[172px] rounded-full border border-white/60 bg-[radial-gradient(ellipse_at_34%_22%,#ffffff_0%,rgba(255,255,255,0.82)_9%,transparent_25%),radial-gradient(ellipse_at_25%_75%,#22d3ee_0%,transparent_46%),radial-gradient(ellipse_at_80%_30%,#c084fc_0%,transparent_52%),linear-gradient(135deg,#93c5fd,#6366f1_58%,#c084fc)] shadow-[0_18px_38px_rgba(62,94,202,0.34),inset_-8px_-12px_24px_rgba(49,54,160,0.22),inset_8px_8px_22px_rgba(255,255,255,0.56)]">
-          <span className="absolute left-[18%] top-[10%] h-10 w-[68px] -rotate-[18deg] rounded-[50%] bg-white/70 blur-md" />
-          <Icon name="stars" className="absolute right-[20%] top-[22%] text-sm text-white/80 drop-shadow" />
+        <div className="absolute left-1/2 top-1/2 h-32 w-[300px] -translate-x-1/2 -translate-y-1/2 -rotate-[14deg] rounded-[50%] border border-[#9acbff]/45 motion-safe:animate-[spin_36s_linear_infinite]" />
+        <div className="absolute left-1/2 top-1/2 h-24 w-[290px] -translate-x-1/2 -translate-y-1/2 rotate-[10deg] rounded-[50%] border border-[#c5a5ff]/35 motion-safe:animate-[spin_48s_linear_infinite_reverse]" />
+        <div className="absolute h-48 w-48 rounded-full bg-[radial-gradient(circle,rgba(89,174,255,0.46),rgba(139,111,255,0.28)_48%,transparent_72%)] blur-xl motion-safe:animate-pulse" />
+        <div className="relative h-[172px] w-[172px] overflow-hidden rounded-full border border-white/70 bg-[radial-gradient(ellipse_at_31%_18%,rgba(255,255,255,0.72)_0%,rgba(255,255,255,0.3)_11%,transparent_25%),radial-gradient(ellipse_at_21%_73%,rgba(58,222,239,0.96)_0%,transparent_40%),radial-gradient(ellipse_at_79%_29%,rgba(184,112,255,0.95)_0%,transparent_46%),radial-gradient(ellipse_at_57%_58%,rgba(91,119,222,0.92)_0%,transparent_64%),linear-gradient(145deg,#8ebcff_0%,#5865c9_55%,#62c9e2_100%)] shadow-[0_22px_46px_rgba(54,87,190,0.38),inset_-12px_-16px_24px_rgba(35,47,126,0.4),inset_8px_8px_20px_rgba(255,255,255,0.5)]">
+          <span ref={orbHighlightRef} className="absolute left-[17%] top-[8%] h-[46px] w-[82px] -rotate-[18deg] rounded-[50%] bg-gradient-to-br from-white/95 via-white/70 to-white/5 blur-[2px] shadow-[0_2px_12px_rgba(255,255,255,0.5)]" />
+          <span className="absolute left-[24%] top-[10%] h-4 w-10 -rotate-[18deg] rounded-full bg-white/75 blur-md" />
+          <span className="absolute -left-[8%] top-[56%] h-20 w-20 rounded-full bg-cyan-200/25 blur-2xl" />
+          <span className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-[#17256c]/25" />
+          <span className="absolute inset-[3px] rounded-full border border-white/25 shadow-[inset_0_2px_5px_rgba(255,255,255,0.55)]" />
         </div>
         <Icon name="stars" className="absolute left-[20%] top-[25%] text-xs text-[#8daaff]" />
         <Icon name="stars" className="absolute right-[15%] bottom-[22%] text-sm text-[#b58cff]" />
@@ -76,19 +112,37 @@ export function AiDocumentInput({ files, onChange, disabled = false, onError }: 
   </div>;
 }
 
-export function AiProgress({ title, detail, onCancel }: { title: string; detail: string; onCancel: () => void }) {
-  return <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md border border-[#c6c5f5] bg-[#f4f6ff] px-4 py-3">
+export function AiProgress({ title, detail, onCancel, kind = 'profile' }: { title: string; detail: string; onCancel: () => void; kind?: 'profile' | 'listing' }) {
+  if (kind === 'listing') return <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md border border-[#c6c5f5] bg-[#f4f6ff] px-4 py-3">
     <span className="grid h-8 w-8 shrink-0 animate-pulse place-items-center rounded-full bg-gradient-to-br from-[#38c9e8] to-[#6154d9] text-white"><Icon name="stars" /></span>
     <div className="min-w-0 flex-1" role="status" aria-live="polite"><b className="block text-sm text-[#252c69]">{title}</b><small className="text-xs text-muted">{detail}</small></div>
     <button className="btn btn-outline btn-sm" type="button" onClick={onCancel}>Cancel</button>
   </div>;
+  return <div className="relative isolate mt-5 flex min-h-[60px] flex-wrap items-center gap-3 overflow-hidden rounded-md border border-[#c6c5f5] bg-gradient-to-r from-[#f7fbff] via-[#f4f3ff] to-[#fbf5ff] px-4 py-2.5" role="status" aria-live="polite">
+    <div className="relative z-10 flex min-w-0 flex-1 items-center gap-3">
+      <div aria-hidden="true" className="relative grid h-10 w-10 shrink-0 place-items-center">
+        <span className="absolute inset-0 rounded-full border border-[#aaa4ff]/60 motion-safe:animate-[spin_5s_linear_infinite]" />
+        <span className="absolute inset-1 rounded-full border border-dashed border-[#62c8ec]/70 motion-safe:animate-[spin_7s_linear_infinite_reverse]" />
+        <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-[#46d2e8] via-[#7a82f7] to-[#bd72e9] text-white shadow-[0_5px_18px_rgba(104,105,221,0.35)] motion-safe:animate-pulse"><Icon name="stars" /></span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <b className="block text-sm leading-5 text-[#252c69]">{title}</b>
+        <small className="block text-xs leading-4 text-muted">{detail}</small>
+        <div aria-hidden="true" className="mt-1 h-1 max-w-sm overflow-hidden rounded-full bg-[#dddafa]"><span className="block h-full w-2/5 rounded-full bg-gradient-to-r from-[#36cce4] via-[#6d75ec] to-[#bd76ed] motion-safe:animate-[pulse_1.6s_ease-in-out_infinite]" /></div>
+      </div>
+    </div>
+    <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-12 -z-0 h-36 w-36 rounded-full bg-[radial-gradient(circle,rgba(116,168,255,0.24),rgba(194,128,255,0.16)_48%,transparent_72%)] blur-md" />
+    <button className="relative z-10 btn btn-outline btn-sm" type="button" onClick={onCancel}>Cancel</button>
+  </div>;
 }
 
-export function AiNotice({ filled, edited, missing = 0, onUndo }: { filled: number; edited: number; missing?: number; onUndo: () => void }) {
-  return <div className="mb-5 flex flex-wrap items-start gap-3 rounded-md border border-[#c6c5f5] border-l-4 border-l-[#6959dc] bg-[#f5f6ff] p-4" role="status">
-    <Icon name="stars" className="mt-0.5 text-[#5142c6]" /><div className="min-w-0 flex-1"><b className="block text-sm text-[#252c69]">AI has prepared these details. Please review them before continuing.</b>
-      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted"><span><Icon name="stars" /> {filled} AI-filled</span><span><Icon name="pencil" /> {edited} edited</span>{missing > 0 && <span className="text-warn"><Icon name="exclamation-circle" /> {missing} need your input</span>}</div>
+export function AiNotice({ filled, edited, missing = 0, review = 0, onUndo }: { filled: number; edited: number; missing?: number; review?: number; onUndo: () => void }) {
+  return <div className="relative isolate mb-5 flex flex-wrap items-center gap-3 overflow-hidden rounded-xl border border-[#d8d5ff] bg-[radial-gradient(ellipse_at_100%_0%,rgba(185,169,255,0.2),transparent_38%),linear-gradient(115deg,#ffffff_0%,#f7f8ff_58%,#f5f1ff_100%)] p-4 shadow-[0_8px_24px_rgba(75,68,164,0.08)] sm:gap-4 sm:p-5" role="status">
+    <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#38cde4] via-[#7177ec] to-[#b26de2] text-white shadow-[0_6px_16px_rgba(104,105,221,0.28)]"><Icon name="stars" className="text-base" /></span>
+    <div className="relative z-10 min-w-0 flex-1"><b className="block text-sm text-[#252c69]">AI has prepared these details. Please review them before continuing.</b>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]"><span className="inline-flex items-center gap-1 rounded-full border border-[#e1e0fa] bg-white/80 px-2.5 py-1 font-medium text-[#5142a7]"><Icon name="stars" />{filled} AI-filled</span><span className="inline-flex items-center gap-1 rounded-full border border-line bg-white/80 px-2.5 py-1 font-medium text-muted"><Icon name="pencil" />{edited} edited</span>{missing + review > 0 && <span className="inline-flex items-center gap-1 rounded-full border border-[#f0d7a8] bg-[#fffaf0] px-2.5 py-1 font-medium text-warn"><Icon name="exclamation-circle" />{missing + review} need your input</span>}</div>
     </div>
-    <button type="button" className="btn btn-ghost btn-sm" onClick={onUndo}><Icon name="arrow-counterclockwise" />Undo AI changes</button>
+    <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 -z-0 h-36 w-36 rounded-full bg-[radial-gradient(circle,rgba(141,132,255,0.17),transparent_68%)] blur-lg" />
+    <button type="button" className="relative z-10 btn btn-ghost btn-sm" onClick={onUndo}><Icon name="arrow-counterclockwise" />Undo AI changes</button>
   </div>;
 }
