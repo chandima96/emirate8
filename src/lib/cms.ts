@@ -56,32 +56,28 @@ export const getProperties = nextCache(
   { tags: ['cms'], revalidate: REVALIDATE },
 );
 
-/** Fetch a single property by slug. */
-export const getProperty = nextCache(
-  async (slug: string) => {
-    try {
-      const payload = await getPayloadClient();
-      const { docs } = await payload.find({
-        collection: 'properties',
-        where: {
-          and: [
-            { slug: { equals: slug } },
-            { status: { equals: 'published' } },
-            { 'display.visible': { not_equals: false } },
-          ],
-        },
-        limit: 1,
-        depth: 2,
-      });
-      return docs[0] ? publicListing(docs[0]) : null;
-    } catch (err) {
-      console.error('[cms] getProperty error:', err);
-      return null;
-    }
-  },
-  ['cms-property'],
-  { tags: ['cms'], revalidate: REVALIDATE },
-);
+/** Fetch a single property by slug without caching misses during publish/visibility changes. */
+export async function getProperty(slug: string) {
+  try {
+    const payload = await getPayloadClient();
+    const { docs } = await payload.find({
+      collection: 'properties',
+      where: {
+        and: [
+          { slug: { equals: slug } },
+          { status: { equals: 'published' } },
+          { 'display.visible': { not_equals: false } },
+        ],
+      },
+      limit: 1,
+      depth: 2,
+    });
+    return docs[0] ? publicListing(docs[0]) : null;
+  } catch (err) {
+    console.error('[cms] getProperty error:', err);
+    return null;
+  }
+}
 
 // ── Brokers ───────────────────────────────────────────────────────────────────
 
