@@ -235,9 +235,9 @@ async function seed() {
       photo: mediaID(broker.photo),
       appData: { ...broker, id: broker.id || key },
     };
-    const doc = found.docs[0]
-      ? await payload.update({ collection: 'brokers', id: found.docs[0].id, data, overrideAccess: true })
-      : await payload.create({ collection: 'brokers', data, overrideAccess: true });
+    const doc: any = found.docs[0]
+      ? await payload.update({ collection: 'brokers', id: found.docs[0].id, data: data as any, overrideAccess: true })
+      : await payload.create({ collection: 'brokers', data: data as any, overrideAccess: true });
     brokerIDs.set(key, doc.id);
   }
 

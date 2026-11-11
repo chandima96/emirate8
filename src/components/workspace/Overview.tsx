@@ -307,7 +307,7 @@ export function Overview() {
             <NetworkCard key={n.id} n={n} onToggle={toggle} onContact={setContactId} />
           ))}
           {opportunityTab === 'developers' && developerProperties.slice(0, 3).map((property) => (
-            <NetworkCard key={property.id} n={property} onToggle={toggle} developer />
+            <NetworkCard key={property.id} n={property} onToggle={toggle} onContact={() => {}} developer />
           ))}
           {opportunityTab === 'brokers' && net.length === 0 && <p className="col-span-full py-6 text-center text-sm text-muted">No published broker properties are available right now.</p>}
           {opportunityTab === 'developers' && developerPropertiesLoading && <p className="col-span-full py-6 text-center text-sm text-muted">Loading developer properties…</p>}

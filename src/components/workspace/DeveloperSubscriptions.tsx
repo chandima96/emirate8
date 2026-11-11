@@ -144,7 +144,7 @@ export function DeveloperNetwork() {
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {properties.map((property) => (
-            <NetworkCard key={property.id} n={property} onToggle={toggle} developer />
+            <NetworkCard key={property.id} n={property} onToggle={toggle} onContact={() => {}} developer />
           ))}
           {!properties.length && (
             <div className="col-span-full rounded-lg border border-dashed border-line bg-white p-10 text-center">

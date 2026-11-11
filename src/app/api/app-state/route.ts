@@ -144,13 +144,13 @@ export async function PUT(request: Request) {
     await context.payload.update({
       collection: 'member-state',
       id: existing.docs[0].id,
-      data: { state: value },
+      data: { state: value as any },
       overrideAccess: true,
     });
   } else {
     await context.payload.create({
       collection: 'member-state',
-      data: { member: context.user.id, key: body.key, state: value },
+      data: { member: context.user.id, key: body.key, state: value as any },
       overrideAccess: true,
     });
   }
