@@ -1,5 +1,7 @@
 'use client';
 
+import { coordinatesFromMapLink } from './DesignerWidgets';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -118,6 +120,7 @@ export function ListingEditor({ id = undefined }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
+  const [aiAmenChanges, setAiAmenChanges] = useState<Record<string, { before: any; applied: any }>>({});
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
   const openAi = () => {
     setAiOpen(true);
@@ -469,13 +472,25 @@ export function ListingEditor({ id = undefined }) {
     const next = clone(Lref.current);
     const data = { ...next.editor.d };
     const changes = { ...aiChanges };
+    const amenities = { ...(next.editor.amen || {}) };
+    const amenChanges = { ...aiAmenChanges };
     const pending: Record<string, AiSuggestion> = {};
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
+      if (key === 'amenities') {
+        const ids = (candidates?.amenities || [{ value: suggestions.amenities }]).flatMap((candidate) => Array.isArray(candidate.value) ? candidate.value : []);
+        for (const id of ids) {
+          if (typeof id !== 'string' || Object.prototype.hasOwnProperty.call(amenities, id)) continue;
+          const applied = { selected: true, status: data.devStatus === 'offplan' ? 'planned' : 'existing', charge: 'unknown' };
+          amenChanges[id] = { before: undefined, applied };
+          amenities[id] = applied;
+        }
+        continue;
+      }
       const current = data[key];
       const empty = current == null || current === '' || (Array.isArray(current) && !current.length);
       const options = candidates?.[key] || [];
-      if (options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(suggestions[key]))) {
+      if (options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(suggestions[key])) || (key === 'mapLocation' && empty && (data.lat || data.lng))) {
         const id = key === 'communityId' ? 'designer-community' : 'designer-' + key;
         pending[id] = { value: suggestions[key], sources: options[0]?.sources || [], options };
         continue;
@@ -483,12 +498,22 @@ export function ListingEditor({ id = undefined }) {
       if (!empty) continue;
       changes[key] = { before: changes[key]?.before ?? data[key], applied: suggestions[key] };
       data[key] = suggestions[key];
+      if (key === 'mapLocation') {
+        const coordinates = coordinatesFromMapLink(suggestions[key]);
+        for (const coordinate of ['lat', 'lng']) {
+          const applied = coordinates?.[coordinate] || '';
+          changes[coordinate] = { before: changes[coordinate]?.before ?? data[coordinate], applied };
+          data[coordinate] = applied;
+        }
+      }
     }
     ed.set('editor.d', data);
+    ed.set('editor.amen', amenities);
+    setAiAmenChanges(amenChanges);
     setAiChanges(changes);
     setAiSuggestions((current) => ({ ...current, ...pending }));
     setAiOpen(false);
-    const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
+    const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, subcommunity: 2, mapLocation: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, floorBand: 3, amenities: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, possession: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
     const firstStep = selected.length ? Math.min(...selected.map((key) => stepFor[key] || 1)) : 1;
     go(firstStep, true);
     toast('AI suggestions are ready in the listing fields.');
@@ -500,7 +525,16 @@ export function ListingEditor({ id = undefined }) {
     const applied = value === undefined ? suggestion.value : value;
     const change = aiChanges[key];
     const changes = { ...aiChanges, [key]: { before: change?.before ?? data[key], applied } };
-    data[key] = applied; ed.set('editor.d', data); setAiChanges(changes);
+    data[key] = applied;
+    if (key === 'mapLocation') {
+      const coordinates = coordinatesFromMapLink(applied);
+      for (const coordinate of ['lat', 'lng']) {
+        const value = coordinates?.[coordinate] || '';
+        changes[coordinate] = { before: changes[coordinate]?.before ?? data[coordinate], applied: value };
+        data[coordinate] = value;
+      }
+    }
+    ed.set('editor.d', data); setAiChanges(changes);
     setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; });
   };
   const undoAiChanges = () => {
@@ -510,6 +544,14 @@ export function ListingEditor({ id = undefined }) {
       if (JSON.stringify(data[key]) === JSON.stringify(change.applied)) data[key] = change.before;
     }
     ed.set('editor.d', data);
+    const amenities = { ...(next.editor.amen || {}) };
+    for (const [id, change] of Object.entries(aiAmenChanges)) {
+      if (JSON.stringify(amenities[id]) === JSON.stringify(change.applied)) {
+        if (change.before === undefined) delete amenities[id]; else amenities[id] = change.before;
+      }
+    }
+    ed.set('editor.amen', amenities);
+    setAiAmenChanges({});
     setAiChanges({});
     setAiSuggestions({});
     toast('AI changes undone. Your later edits have been kept.');
@@ -520,6 +562,11 @@ export function ListingEditor({ id = undefined }) {
     const state = JSON.stringify(L.editor.d[key]) === JSON.stringify(change.applied) ? 'filled' : 'edited';
     if (state === 'filled') aiFilled++; else aiEdited++;
     aiStates[key === 'communityId' ? 'designer-community' : 'designer-' + key] = state;
+  }
+  for (const [id, change] of Object.entries(aiAmenChanges)) {
+    const state = JSON.stringify(L.editor.amen?.[id]) === JSON.stringify(change.applied) ? 'filled' : 'edited';
+    if (state === 'filled') aiFilled++; else aiEdited++;
+    aiStates['amenity-' + id] = state;
   }
   for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
   const aiReview = { states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
@@ -591,7 +638,7 @@ export function ListingEditor({ id = undefined }) {
       <div className="mt-6 space-y-4">
         <AiBanner kind="listing" open={aiOpen} controls="listing-ai-intake" onStart={openAi} onManual={() => { setAiOpen(false); go(1, true); }} />
         {aiOpen && <ProfileAutofill id="listing-ai-intake" kind="listing" profile={L.editor.d} onApply={applyAiSuggestions} onClose={() => setAiOpen(false)} />}
-        {(Object.keys(aiChanges).length > 0 || Object.keys(aiSuggestions).length > 0) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
+        {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
@@ -608,7 +655,7 @@ export function ListingEditor({ id = undefined }) {
                   className={cx(
                     'wz-step flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13px] whitespace-nowrap',
                     k === step && 'is-current',
-                    k !== step && stepErrors(k).length === 0 && 'is-done',
+                    k !== step && (isAgency && k === 8 ? k < step : stepErrors(k).length === 0) && 'is-done',
                   )}
                   aria-current={k === step ? 'step' : undefined}
                   disabled={saving}

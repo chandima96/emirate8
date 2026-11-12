@@ -128,7 +128,7 @@ export function DesignerStep({ ed, step, preview, ready }) {
             )}
             {section.kind === 'review' && <ReviewSummary ed={ed} />}
             <div className="grid gap-4 sm:grid-cols-2">
-              {(section.fields || []).map((key) => (
+              {(section.fields || []).filter((key) => !(section.kind === 'community' && key === 'subcommunity')).map((key) => (
                 <DesignerField key={key} ed={ed} fieldKey={key} />
               ))}
             </div>
