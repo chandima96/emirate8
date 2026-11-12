@@ -615,6 +615,7 @@ export function ListingEditor({ id = undefined }) {
                   onClick={async () => {
                     if (k > step && !check(step)) return;
                     if (k > step && !(await autosave())) return;
+                    if (k !== step) setErrors({});
                     go(k, true);
                   }}
                 >
@@ -638,25 +639,40 @@ export function ListingEditor({ id = undefined }) {
             }
           }}
         >
-          {Object.keys(errors).length > 0 && (
-            <div className="mb-5 rounded-lg border border-danger/30 bg-danger-soft p-4" role="alert">
-              <p className="text-sm font-semibold text-danger">Please check these fields</p>
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-danger">
-                {Object.entries(errors).map(([key, message]) => (
-                  <li key={key}>{message}</li>
-                ))}
-              </ul>
-            </div>
-          )}
           {sections.map((s, i) => (
             <section key={i} data-step={i + 1} hidden={step !== i + 1}>
               {s}
             </section>
           ))}
 
-          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+          {Object.keys(errors).length > 0 && (
+            <button
+              type="button"
+              className="mt-8 flex w-full items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-left text-sm font-medium text-danger"
+              onClick={() => {
+                const first = document.querySelector(
+                  '[data-step="' + step + '"] .field.invalid, [data-step="' + step + '"] .err:not(:empty)',
+                );
+                const target = first?.querySelector('input, select, textarea, button') || first;
+                if (target) {
+                  const id = (target as HTMLElement).id;
+                  if (id) focusListingField(id);
+                  else target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+              }}
+            >
+              <Icon name="exclamation-circle" />
+              <span className="flex-1">
+                {Object.keys(errors).length === 1
+                  ? '1 field in this step needs attention.'
+                  : Object.keys(errors).length + ' fields in this step need attention.'}
+              </span>
+              <span className="text-xs underline">Show me</span>
+            </button>
+          )}
+          <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5', Object.keys(errors).length > 0 ? 'mt-4' : 'mt-8')}>
             {step > 1 && (
-              <button type="button" className="btn btn-ghost" onClick={() => go(step - 1, true)}>
+              <button type="button" className="btn btn-ghost" onClick={() => { setErrors({}); go(step - 1, true); }}>
                 <Icon name="arrow-left" />
                 Back
               </button>
