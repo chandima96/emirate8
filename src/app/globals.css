@@ -1134,3 +1134,105 @@ html.is-embed .mkt-shell {
     animation: none;
   }
 }
+
+/* ---------- Listing editor: inline, step-wise validation ---------- */
+/* Every rendered error message in the editor is visible next to its field or widget. */
+.listing-editor-panel .err:not(:empty) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  border-left: 3px solid var(--color-danger);
+  border-radius: 6px;
+  background: var(--color-danger-soft);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--color-danger);
+  animation: fieldErrIn 0.28s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.listing-editor-panel .field.invalid .input,
+.listing-editor-panel .field.invalid .select,
+.listing-editor-panel .field.invalid .textarea {
+  box-shadow: 0 0 0 3px rgb(162 59 50 / 0.14);
+}
+.listing-editor-panel .field.invalid {
+  animation: fieldShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+.listing-editor-panel .field.invalid > .label,
+.listing-editor-panel .field.invalid .label {
+  color: var(--color-danger);
+}
+
+@keyframes fieldErrIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fieldShake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+
+/* ---------- AI review notice: draw attention once it appears ---------- */
+.ai-notice {
+  animation: aiNoticeIn 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) both, aiNoticeGlow 2.2s 0.6s ease-in-out 3;
+}
+.ai-notice::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.75) 50%, transparent 65%);
+  transform: translateX(-100%);
+  animation: aiNoticeShine 2.6s 0.5s ease-in-out 3;
+}
+.ai-notice-icon {
+  animation: aiNoticeFloat 2.4s ease-in-out infinite;
+}
+
+@keyframes aiNoticeIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes aiNoticeGlow {
+  0%, 100% { box-shadow: 0 8px 24px rgb(75 68 164 / 0.1), 0 0 0 0 rgb(113 119 236 / 0); }
+  50% { box-shadow: 0 12px 34px rgb(75 68 164 / 0.22), 0 0 0 6px rgb(113 119 236 / 0.18); }
+}
+@keyframes aiNoticeShine {
+  0% { transform: translateX(-100%); }
+  60%, 100% { transform: translateX(100%); }
+}
+@keyframes aiNoticeFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .listing-editor-panel .err:not(:empty),
+  .listing-editor-panel .field.invalid,
+  .ai-notice,
+  .ai-notice::after,
+  .ai-notice-icon {
+    animation: none;
+  }
+}
+
+/* ---------- AI-filled answers: same light blue as AI-filled inputs and selects ---------- */
+.field[data-ai='filled'] .choice,
+.field[data-ai='filled'] .tog-chip {
+  border-color: #c6c5f5;
+  background-color: #f5f6ff;
+}
+.field[data-ai='filled'] .choice[aria-checked='true'] {
+  border-color: #8f87e8;
+  box-shadow: inset 0 0 0 1px #8f87e8;
+}
+.field[data-ai='filled'] .tog-chip[aria-pressed='true'] {
+  border-color: #8f87e8;
+  background-color: #e4e2ff;
+  color: #2f2a8a;
+}

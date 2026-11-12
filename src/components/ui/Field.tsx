@@ -36,18 +36,15 @@ export function Field({
     )} data-ai={aiState}>
       {label &&
         (labelAside || aiState ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-x-2">
-              <label className="label" htmlFor={id}>
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <label className="label !mb-0" htmlFor={id}>
                 {label}
                 {optional && <span className="opt"> ({optional})</span>}
               </label>
-              {aiState === 'suggestion' && aiBadge}
+              {aiBadge}
             </div>
-            <span className="inline-flex flex-wrap items-center gap-1">
-              {aiState !== 'suggestion' && aiBadge}
-              {labelAside}
-            </span>
+            {labelAside && <span className="inline-flex flex-wrap items-center gap-1">{labelAside}</span>}
           </div>
         ) : (
           <label className="label" htmlFor={id}>

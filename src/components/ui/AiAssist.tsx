@@ -137,12 +137,24 @@ export function AiProgress({ title, detail, onCancel, kind = 'profile' }: { titl
 }
 
 export function AiNotice({ filled, edited, missing = 0, review = 0, onUndo }: { filled: number; edited: number; missing?: number; review?: number; onUndo: () => void }) {
-  return <div className="relative isolate mb-5 flex flex-wrap items-center gap-3 overflow-hidden rounded-xl border border-[#d8d5ff] bg-[radial-gradient(ellipse_at_100%_0%,rgba(185,169,255,0.2),transparent_38%),linear-gradient(115deg,#ffffff_0%,#f7f8ff_58%,#f5f1ff_100%)] p-4 shadow-[0_8px_24px_rgba(75,68,164,0.08)] sm:gap-4 sm:p-5" role="status">
-    <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#38cde4] via-[#7177ec] to-[#b26de2] text-white shadow-[0_6px_16px_rgba(104,105,221,0.28)]"><Icon name="stars" className="text-base" /></span>
-    <div className="relative z-10 min-w-0 flex-1"><b className="block text-sm text-[#252c69]">AI has prepared these details. Please review them before continuing.</b>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]"><span className="inline-flex items-center gap-1 rounded-full border border-[#e1e0fa] bg-white/80 px-2.5 py-1 font-medium text-[#5142a7]"><Icon name="stars" />{filled} AI-filled</span><span className="inline-flex items-center gap-1 rounded-full border border-line bg-white/80 px-2.5 py-1 font-medium text-muted"><Icon name="pencil" />{edited} edited</span>{missing + review > 0 && <span className="inline-flex items-center gap-1 rounded-full border border-[#f0d7a8] bg-[#fffaf0] px-2.5 py-1 font-medium text-warn"><Icon name="exclamation-circle" />{missing + review} need your input</span>}</div>
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight) {
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    }
+  }, []);
+  return <div ref={ref} className="ai-notice relative isolate mb-6 flex flex-wrap items-center gap-4 overflow-hidden rounded-xl border-2 border-[#c9c4ff] bg-[radial-gradient(ellipse_at_100%_0%,rgba(185,169,255,0.28),transparent_42%),radial-gradient(ellipse_at_0%_100%,rgba(70,210,232,0.14),transparent_40%),linear-gradient(115deg,#ffffff_0%,#f5f6ff_58%,#f3eeff_100%)] p-5 sm:gap-5 sm:p-6" role="status">
+    <span aria-hidden="true" className="ai-notice-icon relative z-10 grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#38cde4] via-[#7177ec] to-[#b26de2] text-white shadow-[0_8px_22px_rgba(104,105,221,0.38)]"><Icon name="stars" className="text-2xl" /></span>
+    <div className="relative z-10 min-w-0 flex-1">
+      <b className="block text-lg font-semibold leading-snug tracking-tight text-[#252c69] sm:text-xl">AI has prepared these details.</b>
+      <p className="mt-0.5 text-sm text-[#4a5288] sm:text-[15px]">Please review them before continuing.</p>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="inline-flex items-center gap-1.5 rounded-full border border-[#d8d5fb] bg-white/90 px-3 py-1.5 font-semibold text-[#5142a7]"><Icon name="stars" />{filled} AI-filled</span><span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 font-semibold text-muted"><Icon name="pencil" />{edited} edited</span>{missing + review > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#f0d7a8] bg-[#fffaf0] px-3 py-1.5 font-semibold text-warn"><Icon name="exclamation-circle" />{missing + review} need your input</span>}</div>
     </div>
-    <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 -z-0 h-36 w-36 rounded-full bg-[radial-gradient(circle,rgba(141,132,255,0.17),transparent_68%)] blur-lg" />
+    <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 -z-0 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(141,132,255,0.24),transparent_68%)] blur-lg" />
     <button type="button" className="relative z-10 btn btn-ghost btn-sm" onClick={onUndo}><Icon name="arrow-counterclockwise" />Undo AI changes</button>
   </div>;
 }

@@ -13,6 +13,7 @@ import {
   fmtDate,
   fmtNumber,
   fmtPrice,
+  fmtSize,
   isPublic,
   listing as getListing,
   listingUrl,
@@ -22,6 +23,7 @@ import {
 import { routes } from '@/lib/routes';
 import { ActionsMenu } from './ActionsMenu';
 import { Paragraphs, StatusBadge, VisBadge } from './bits';
+import { bedsLabel } from '@/components/property/ListingBits';
 import { useListingActions } from './useListingActions';
 
 const NOTE = {
@@ -75,8 +77,8 @@ export function ListingDetail() {
   const facts = [
     ['Price', l.price ? fmtPrice(l) : '—'],
     ['Type', (l.type || '—') + (l.completion === 'offplan' ? ' · off-plan' : '')],
-    ['Bedrooms', l.category === 'commercial' ? '—' : l.beds === 0 || l.beds === '0' ? 'Studio' : l.beds || '—'],
-    ['Size', l.size ? fmtNumber(l.size) + ' sqft' : '—'],
+    ['Bedrooms', l.category === 'commercial' ? '—' : bedsLabel(l) || '—'],
+    ['Size', fmtSize(l) || '—'],
   ];
 
   return (

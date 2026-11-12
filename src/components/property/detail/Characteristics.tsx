@@ -1,6 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
 import { bedsLabel } from '@/components/property/ListingBits';
-import { fmtNumber } from '@/lib/store';
+import { fmtNumber, fmtSize } from '@/lib/store';
 
 /** 03 — key facts grid. Facts without a value are left out. */
 export function Characteristics({ listing: l }) {
@@ -10,8 +10,8 @@ export function Characteristics({ listing: l }) {
     ['house-door', 'Property type', l.type],
     l.category !== 'commercial' ? ['door-closed', 'Bedrooms', bedsLabel(l) || '—'] : null,
     ['droplet', 'Bathrooms', l.baths || '—'],
-    ['bounding-box', 'Built-up area', l.size ? fmtNumber(l.size) + ' sqft' : '—'],
-    l.plot ? ['bounding-box-circles', 'Plot area', fmtNumber(l.plot) + ' sqft'] : null,
+    ['bounding-box', 'Built-up area', fmtSize(l) || '—'],
+    l.plot ? ['bounding-box-circles', 'Plot area', fmtSize(l, 'plot')] : null,
     off ? null : ['lamp', 'Furnishing', l.furnishing],
     l.parking !== '' && l.parking != null
       ? ['car-front', 'Parking', `${l.parking} space${+l.parking === 1 ? '' : 's'}`]
