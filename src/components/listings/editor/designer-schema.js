@@ -2242,6 +2242,33 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       }
     });
 
+    /* ---------- Ranges & multiple choices ---------- */
+    active.forEach(function (key) {
+      var f = E08.FIELDS[key],
+        v = d[key];
+      if (errs[key] || U.isBlank(v)) return;
+      if (f.rangeOk) {
+        var area = f.kind === 'area',
+          maxRaw = area ? v && v.rawMax : d[key + 'Max'];
+        if (U.isBlank(maxRaw)) return;
+        var lo = area ? U.parseDec(String(v.raw)) : U.parseMoney(String(v)),
+          hi = area ? U.parseDec(String(maxRaw)) : U.parseMoney(String(maxRaw));
+        if (hi == null || isNaN(hi)) errs[key] = 'Enter the upper end of the range as a number, or remove the range.';
+        else if (lo != null && !isNaN(lo) && hi <= lo) errs[key] = 'The upper end of the range must be more than the lower end.';
+      }
+      if (f.multiOk && Array.isArray(d[key + 'Multi'])) {
+        var allowed = E08.optsOf(f, c, d).map(function (o) {
+          return o.v;
+        });
+        if (
+          d[key + 'Multi'].some(function (x) {
+            return allowed.indexOf(x) < 0;
+          })
+        )
+          errs[key] = 'One of the selected options is no longer available. Review your choices.';
+      }
+    });
+
     /* ---------- Cross-field rules ---------- */
     function set(k, m) {
       if (on[k] && !errs[k]) errs[k] = m;
@@ -2534,4 +2561,17 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
 
 // This application accepts existing community suggestions and manual building names.
 E08.FIELDS.developer.help = 'Enter the developer name as shown on the property or project documents.';
+
+// Fields that may hold a range (lower value in the field, upper in `<key>Max`, or `rawMax` for areas)
+// and choice fields that may hold several answers (`<key>Multi`, first choice kept in the field itself).
+E08.RANGE_KEYS = ['unitArea', 'builtUpArea', 'plotArea', 'balconyArea', 'askingPrice', 'unitPrice', 'annualRent', 'serviceCharge'];
+E08.MULTI_KEYS = ['bedrooms', 'bathrooms', 'parking', 'floorBand', 'furnishing', 'condition', 'kitchenLayout', 'minTenancy'];
+E08.RANGE_KEYS.forEach(function (k) {
+  E08.FIELDS[k].rangeOk = true;
+});
+E08.MULTI_KEYS.forEach(function (k) {
+  E08.FIELDS[k].multiOk = true;
+});
+// Options that cannot be combined with others when several answers are chosen.
+E08.MULTI_EXCLUDED = ['custom', 'unknown'];
 export const listingSchema = E08;

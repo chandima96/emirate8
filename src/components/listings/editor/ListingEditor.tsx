@@ -29,6 +29,7 @@ import { clone, cx } from '@/lib/utils';
 import { DERIVED, NAMES, STEPS, blankListing, prepare, setIn, tokens } from './model';
 import { flushWrites } from '@/lib/storage';
 import { focusListingField } from './EditorSection';
+import { listingSchema as S } from './designer-schema';
 import { DesignerStep } from './DesignerStep';
 import { hydrateEditor, projectListing, validateEditorStep, editorReadiness } from './designer-model';
 import { publicListing } from '@/lib/publicListing';
@@ -119,9 +120,6 @@ export function ListingEditor({ id = undefined }) {
   const editRevision = useRef(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
-  const [aiAmenChanges, setAiAmenChanges] = useState<Record<string, { before: any; applied: any }>>({});
-  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
   const openAi = () => {
     setAiOpen(true);
     setTimeout(() => document.getElementById('listing-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
@@ -191,10 +189,42 @@ export function ListingEditor({ id = undefined }) {
   );
   const set = (path, v) => {
     update((prev) => setIn(prev, path, v));
-    setErrors({});
   };
 
   const setField = set;
+
+  /* ---------- AI review state ---------- */
+  // Kept in the draft (editor.ai) so AI-filled badges and pending suggestions survive a refresh.
+  type AiChange = { before: any; applied: any };
+  const aiState = L.editor?.ai || {};
+  const aiChanges: Record<string, AiChange> = aiState.changes || {};
+  const aiAmenChanges: Record<string, AiChange> = aiState.amen || {};
+  const aiPlanChange: AiChange | null = aiState.plan || null;
+  const aiSuggestions: Record<string, AiSuggestion> = aiState.suggestions || {};
+  // Which wizard step each AI-fillable answer lives on.
+  const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, subcommunity: 2, mapLocation: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, floorBand: 3, amenities: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, possession: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
+  const stepOf = (key: string) => stepFor[key] || (S.STEP_OF[key.replace(/(Max|Multi)$/, '')] ?? 0) + 1;
+  const patchAi = (field: 'changes' | 'amen' | 'plan' | 'suggestions', next: any) =>
+    update((prev) => {
+      const current = prev.editor?.ai || {};
+      const value = typeof next === 'function' ? next(current[field] || (field === 'plan' ? null : {})) : next;
+      return setIn(prev, 'editor.ai', { ...current, [field]: value });
+    });
+  const setAiChanges = (next: Record<string, AiChange>) => patchAi('changes', next);
+  const setAiAmenChanges = (next: Record<string, AiChange>) => patchAi('amen', next);
+  const setAiPlanChange = (next: AiChange | null) => patchAi('plan', next);
+  const setAiSuggestions = (next: Record<string, AiSuggestion> | ((current: Record<string, AiSuggestion>) => Record<string, AiSuggestion>)) =>
+    patchAi('suggestions', next);
+  // Errors from the last check stay visible until their field is fixed; fixed ones drop out as you edit.
+  const stillFailing = Object.keys(errors).length
+    ? new Map<string, string>(stepErrors(step).map((b) => [b.key, b.msg]))
+    : null;
+  const shownErrors: Record<string, string> = {};
+  for (const key of Object.keys(errors)) {
+    if (key === 'decl2') {
+      if (!L.authorised) shownErrors[key] = errors[key];
+    } else if (stillFailing?.has(key)) shownErrors[key] = stillFailing.get(key);
+  }
   const t = tokens(L);
   const live = L.status === 'published';
   const publishLabel = live ? 'Update published listing' : verified ? 'Publish listing' : 'Submit for review';
@@ -454,7 +484,7 @@ export function ListingEditor({ id = undefined }) {
   const ed = {
     L,
     t,
-    errors,
+    errors: shownErrors,
     set: setField,
     update,
     toast,
@@ -475,8 +505,19 @@ export function ListingEditor({ id = undefined }) {
     const amenities = { ...(next.editor.amen || {}) };
     const amenChanges = { ...aiAmenChanges };
     const pending: Record<string, AiSuggestion> = {};
+    let planChange = aiPlanChange;
+    let milestones = next.editor.milestones;
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
+      if (key === 'milestones') {
+        // Only fill an empty payment plan; an existing schedule is never overwritten.
+        if (!(milestones || []).length && Array.isArray(suggestions.milestones)) {
+          milestones = suggestions.milestones;
+          planChange = { before: next.editor.milestones, applied: milestones };
+        }
+        continue;
+      }
+      if (/(Max|Multi)$/.test(key)) continue;
       if (key === 'amenities') {
         const ids = (candidates?.amenities || [{ value: suggestions.amenities }]).flatMap((candidate) => Array.isArray(candidate.value) ? candidate.value : []);
         for (const id of ids) {
@@ -507,14 +548,27 @@ export function ListingEditor({ id = undefined }) {
         }
       }
     }
+    // Range ends and extra choices follow their main field: they fill only when that field now
+    // holds the AI value, so a field under review is never left half-changed.
+    for (const key of selected.filter((k) => /(Max|Multi)$/.test(k))) {
+      const base = key.replace(/(Max|Multi)$/, '');
+      if (JSON.stringify(data[base]) !== JSON.stringify(suggestions[base])) continue;
+      const current = data[key];
+      if (current != null && current !== '' && !(Array.isArray(current) && !current.length)) continue;
+      changes[key] = { before: changes[key]?.before ?? current, applied: suggestions[key] };
+      data[key] = suggestions[key];
+    }
     ed.set('editor.d', data);
     ed.set('editor.amen', amenities);
+    if (planChange !== aiPlanChange) {
+      ed.set('editor.milestones', milestones);
+      setAiPlanChange(planChange);
+    }
     setAiAmenChanges(amenChanges);
     setAiChanges(changes);
     setAiSuggestions((current) => ({ ...current, ...pending }));
     setAiOpen(false);
-    const stepFor: Record<string, number> = { purpose: 1, category: 1, ptype: 1, devStatus: 1, stage: 1, txn: 1, emirate: 2, communityId: 2, subcommunity: 2, mapLocation: 2, buildingName: 2, developer: 2, street: 2, bedrooms: 3, bathrooms: 3, parking: 3, unitArea: 3, builtUpArea: 3, plotArea: 3, floorBand: 3, amenities: 3, furnishing: 3, condition: 3, occupancy: 3, completionYear: 3, handoverQ: 3, handoverY: 3, tenure: 3, askingPrice: 4, possession: 4, unitPrice: 4, annualRent: 4, serviceCharge: 4, serviceBasis: 4, title: 5, description: 5, locHighlights: 5 };
-    const firstStep = selected.length ? Math.min(...selected.map((key) => stepFor[key] || 1)) : 1;
+    const firstStep = selected.length ? Math.min(...selected.map(stepOf)) : 1;
     go(firstStep, true);
     toast('AI suggestions are ready in the listing fields.');
   };
@@ -551,6 +605,9 @@ export function ListingEditor({ id = undefined }) {
       }
     }
     ed.set('editor.amen', amenities);
+    if (aiPlanChange && JSON.stringify(next.editor.milestones) === JSON.stringify(aiPlanChange.applied))
+      ed.set('editor.milestones', aiPlanChange.before || []);
+    setAiPlanChange(null);
     setAiAmenChanges({});
     setAiChanges({});
     setAiSuggestions({});
@@ -559,6 +616,7 @@ export function ListingEditor({ id = undefined }) {
   const aiStates: Record<string, AiFieldState> = {};
   let aiFilled = 0, aiEdited = 0;
   for (const [key, change] of Object.entries(aiChanges)) {
+    if (/(Max|Multi)$/.test(key)) continue;
     const state = JSON.stringify(L.editor.d[key]) === JSON.stringify(change.applied) ? 'filled' : 'edited';
     if (state === 'filled') aiFilled++; else aiEdited++;
     aiStates[key === 'communityId' ? 'designer-community' : 'designer-' + key] = state;
@@ -568,7 +626,25 @@ export function ListingEditor({ id = undefined }) {
     if (state === 'filled') aiFilled++; else aiEdited++;
     aiStates['amenity-' + id] = state;
   }
+  if (aiPlanChange) {
+    const state = JSON.stringify(L.editor.milestones) === JSON.stringify(aiPlanChange.applied) ? 'filled' : 'edited';
+    if (state === 'filled') aiFilled++; else aiEdited++;
+  }
   for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
+  // Per-step counts for the steps bar: answers still as AI filled them, and AI suggestions awaiting review.
+  const aiFilledByStep: Record<number, number> = {};
+  const aiReviewByStep: Record<number, number> = {};
+  const bump = (counts: Record<number, number>, n: number) => (counts[n] = (counts[n] || 0) + 1);
+  for (const [key, change] of Object.entries(aiChanges)) {
+    if (/(Max|Multi)$/.test(key) || key === 'lat' || key === 'lng') continue;
+    if (JSON.stringify(L.editor.d[key]) === JSON.stringify(change.applied)) bump(aiFilledByStep, stepOf(key));
+  }
+  for (const [id, change] of Object.entries(aiAmenChanges))
+    if (JSON.stringify(L.editor.amen?.[id]) === JSON.stringify(change.applied)) bump(aiFilledByStep, stepOf('amenities'));
+  if (aiPlanChange && JSON.stringify(L.editor.milestones) === JSON.stringify(aiPlanChange.applied))
+    bump(aiFilledByStep, stepOf('milestones'));
+  for (const id of Object.keys(aiSuggestions))
+    bump(aiReviewByStep, stepOf(id === 'designer-community' ? 'communityId' : id.replace(/^designer-/, '')));
   const aiReview = { states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
 
   const status = STATUS[L.status] || STATUS.draft;
@@ -638,7 +714,7 @@ export function ListingEditor({ id = undefined }) {
       <div className="mt-6 space-y-4">
         <AiBanner kind="listing" open={aiOpen} controls="listing-ai-intake" onStart={openAi} onManual={() => { setAiOpen(false); go(1, true); }} />
         {aiOpen && <ProfileAutofill id="listing-ai-intake" kind="listing" profile={L.editor.d} onApply={applyAiSuggestions} onClose={() => setAiOpen(false)} />}
-        {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
+        {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
@@ -668,6 +744,30 @@ export function ListingEditor({ id = undefined }) {
                 >
                   <span className="step-dot">{k}</span>
                   {stepLabel[k] || name}
+                  {(aiFilledByStep[k] > 0 || aiReviewByStep[k] > 0) && (
+                    <span className="ml-auto inline-flex items-center gap-1 pl-2">
+                      {aiFilledByStep[k] > 0 && (
+                        <span
+                          className="inline-flex h-5 items-center gap-0.5 rounded-full bg-[#ecebff] px-1.5 text-[10px] font-semibold text-[#4338a8]"
+                          title={`${aiFilledByStep[k]} field${aiFilledByStep[k] === 1 ? '' : 's'} filled by AI`}
+                        >
+                          <Icon name="stars" aria-hidden="true" />
+                          {aiFilledByStep[k]}
+                          <span className="sr-only"> filled by AI</span>
+                        </span>
+                      )}
+                      {aiReviewByStep[k] > 0 && (
+                        <span
+                          className="inline-flex h-5 items-center gap-0.5 rounded-full bg-warn-soft px-1.5 text-[10px] font-semibold text-warn"
+                          title={`${aiReviewByStep[k]} AI suggestion${aiReviewByStep[k] === 1 ? '' : 's'} to review`}
+                        >
+                          <Icon name="exclamation-circle" aria-hidden="true" />
+                          {aiReviewByStep[k]}
+                          <span className="sr-only"> to review</span>
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </button>
               </li>
             );
@@ -692,7 +792,7 @@ export function ListingEditor({ id = undefined }) {
             </section>
           ))}
 
-          {Object.keys(errors).length > 0 && (
+          {Object.keys(shownErrors).length > 0 && (
             <button
               type="button"
               className="mt-8 flex w-full items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-left text-sm font-medium text-danger"
@@ -710,14 +810,14 @@ export function ListingEditor({ id = undefined }) {
             >
               <Icon name="exclamation-circle" />
               <span className="flex-1">
-                {Object.keys(errors).length === 1
+                {Object.keys(shownErrors).length === 1
                   ? '1 field in this step needs attention.'
-                  : Object.keys(errors).length + ' fields in this step need attention.'}
+                  : Object.keys(shownErrors).length + ' fields in this step need attention.'}
               </span>
               <span className="text-xs underline">Show me</span>
             </button>
           )}
-          <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5', Object.keys(errors).length > 0 ? 'mt-4' : 'mt-8')}>
+          <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5', Object.keys(shownErrors).length > 0 ? 'mt-4' : 'mt-8')}>
             {step > 1 && (
               <button type="button" className="btn btn-ghost" onClick={() => { setErrors({}); go(step - 1, true); }}>
                 <Icon name="arrow-left" />

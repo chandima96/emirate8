@@ -133,7 +133,24 @@ export function projectListing(l) {
   const areaKey = S.basisAreaKey(c);
   const area = U.areaIn(d[areaKey], 'sqft');
   const priceKey = c.rent ? 'annualRent' : c.offInit ? 'unitPrice' : 'askingPrice';
-  const label = (key) => S.optsOf(S.FIELDS[key], c, d).find((o) => o.v === val(key))?.l || '';
+  const multiOf = (key) => (active.has(key) && Array.isArray(d[key + 'Multi']) && d[key + 'Multi'].length > 1 ? d[key + 'Multi'] : null);
+  const label = (key) => {
+    const opts = S.optsOf(S.FIELDS[key], c, d);
+    const chosen = multiOf(key) || [val(key)];
+    return chosen.map((v) => opts.find((o) => o.v === v)?.l).filter(Boolean).join(' / ');
+  };
+  // Upper end of a numeric choice answered with several options (e.g. 1, 2 or 3 bedrooms).
+  const choiceMax = (key) => {
+    const values = (multiOf(key) || []).map((v) => (v === 'studio' ? 0 : decimal(v))).filter((n) => Number.isFinite(n));
+    return values.length > 1 ? Math.max(...values) : '';
+  };
+  const areaMax = (key) => {
+    const v = active.has(key) ? d[key] : null;
+    if (!v || U.isBlank(v.rawMax)) return '';
+    const n = U.areaIn({ raw: v.rawMax, unit: v.unit }, 'sqft');
+    return Number.isFinite(n) ? n : '';
+  };
+  const moneyMax = (key) => (active.has(key) && !U.isBlank(d[key + 'Max']) ? money(d[key + 'Max']) : '');
   const plan = (c.offInit ? st.milestones || [] : []).map((m) => ({
     id: m.id,
     label: m.name,
@@ -182,7 +199,9 @@ export function projectListing(l) {
     floor: decimal(val('floorNo')),
     floorBand: val('floorBand'),
     size: Number.isFinite(area) ? area : '',
+    sizeMax: areaKey ? areaMax(areaKey) : '',
     plot: U.areaIn(val('plotArea'), 'sqft') || '',
+    plotMax: areaMax('plotArea'),
     beds: c.resUnit
       ? d.bedrooms === 'studio'
         ? 0
@@ -190,6 +209,9 @@ export function projectListing(l) {
       : '',
     baths: c.resUnit ? decimal(d.bathrooms === 'custom' ? d.bathroomsCustom : d.bathrooms) : '',
     parking: c.land ? '' : decimal(d.parking === 'custom' ? d.parkingCustom : d.parking),
+    bedsMax: c.resUnit ? choiceMax('bedrooms') : '',
+    bathsMax: c.resUnit ? choiceMax('bathrooms') : '',
+    parkingMax: c.land ? '' : choiceMax('parking'),
     furnishing: label('furnishing'),
     condition: label('condition'),
     occupancy: label('occupancy'),
@@ -202,10 +224,12 @@ export function projectListing(l) {
     title: val('title') || '',
     description: val('description') || '',
     price: money(val(priceKey)),
+    priceMax: moneyMax(priceKey),
     cheques: c.rent ? (d.cheques || []).join(', ') : '',
     deposit: c.rent && d.depositBasis === 'pct' ? decimal(d.deposit) : '',
     availableFrom: c.rent ? (d.availability === 'now' ? 'Immediately' : d.availableFrom || '') : '',
     serviceCharge: val('serviceBasis') === 'per_sqft' ? money(val('serviceCharge')) : '',
+    serviceChargeMax: val('serviceBasis') === 'per_sqft' ? moneyMax('serviceCharge') : '',
     nearbyNote: val('locHighlights') || '',
     brokerRef: d.extRef || '',
     authorised: !!d.decl2,

@@ -1220,3 +1220,19 @@ html.is-embed .mkt-shell {
     animation: none;
   }
 }
+
+/* ---------- AI-filled answers: same light blue as AI-filled inputs and selects ---------- */
+.field[data-ai='filled'] .choice,
+.field[data-ai='filled'] .tog-chip {
+  border-color: #c6c5f5;
+  background-color: #f5f6ff;
+}
+.field[data-ai='filled'] .choice[aria-checked='true'] {
+  border-color: #8f87e8;
+  box-shadow: inset 0 0 0 1px #8f87e8;
+}
+.field[data-ai='filled'] .tog-chip[aria-pressed='true'] {
+  border-color: #8f87e8;
+  background-color: #e4e2ff;
+  color: #2f2a8a;
+}

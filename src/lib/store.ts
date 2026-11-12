@@ -959,9 +959,19 @@ function currency() {
   var u = currentUser();
   return (u && u.prefs && u.prefs.currency) || 'AED';
 }
+function above(max, min) {
+  return Number(max) > Number(min) ? Number(max) : 0;
+}
 export function fmtPrice(item) {
   if (!item || !item.price) return 'Price on request';
-  return 'AED ' + fmtNumber(item.price) + (item.purpose === 'rent' ? ' /year' : '');
+  const max = above(item.priceMax, item.price);
+  return 'AED ' + fmtNumber(item.price) + (max ? ' – ' + fmtNumber(max) : '') + (item.purpose === 'rent' ? ' /year' : '');
+}
+/** "1,200 sqft" or "1,200 – 2,400 sqft" when the listing covers a range of sizes. */
+export function fmtSize(item, key = 'size') {
+  if (!item || !item[key]) return '';
+  const max = above(item[key + 'Max'], item[key]);
+  return fmtNumber(item[key]) + (max ? ' – ' + fmtNumber(max) : '') + ' sqft';
 }
 export function fmtAlt(item) {
   return currency() === 'USD' && item && item.price
@@ -971,10 +981,13 @@ export function fmtAlt(item) {
 export function fmtSpecs(item) {
   var p = [];
   if (item.type) p.push(item.type);
-  if (item.beds === 0 && /Apartment/.test(item.type || '')) p.push('Studio');
-  else if (item.beds) p.push(item.beds + ' bed');
-  if (item.baths) p.push(item.baths + ' bath');
-  if (item.size) p.push(fmtNumber(item.size) + ' sqft');
+  const bedsMax = above(item.bedsMax, item.beds);
+  if (item.beds === 0 && bedsMax) p.push('Studio – ' + bedsMax + ' bed');
+  else if (item.beds === 0 && /Apartment/.test(item.type || '')) p.push('Studio');
+  else if (item.beds) p.push(item.beds + (bedsMax ? '–' + bedsMax : '') + ' bed');
+  const bathsMax = above(item.bathsMax, item.baths);
+  if (item.baths) p.push(item.baths + (bathsMax ? '–' + bathsMax : '') + ' bath');
+  if (item.size) p.push(fmtSize(item));
   return p;
 }
 export function relTime(iso) {
