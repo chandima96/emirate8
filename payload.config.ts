@@ -13,6 +13,7 @@ import { Properties } from './src/collections/Properties';
 import { Brokers } from './src/collections/Brokers';
 import { Agencies } from './src/collections/Agencies';
 import { Plans } from './src/collections/Plans';
+import { MembershipPayments } from './src/collections/MembershipPayments';
 import { Enquiries } from './src/collections/Enquiries';
 import { WaitlistSignups } from './src/collections/WaitlistSignups';
 import { PropertyBrokerClaims } from './src/collections/PropertyBrokerClaims';
@@ -57,6 +58,7 @@ export default buildConfig({
     Brokers,
     Agencies,
     Plans,
+    MembershipPayments,
     Enquiries,
     WaitlistSignups,
     PropertyBrokerClaims,

@@ -8,6 +8,7 @@ function toAppUser(member: Record<string, any>) {
   const profile = member.profile && typeof member.profile === 'object' ? member.profile : {};
   return {
     ...profile,
+    membership: member.membership || null,
     id: member.id,
     name: member.name,
     legalName: profile.legalName || member.name,

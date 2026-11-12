@@ -1,4 +1,5 @@
 import 'server-only';
+import { PLAN_CATALOG, planIdForAudience } from '@/config/plans';
 import configPromise from '@payload-config';
 import { getPayload } from 'payload';
 import { generateExpiredPayloadCookie, generatePayloadCookie } from 'payload/shared';
@@ -179,6 +180,75 @@ export async function adminRequest(body: unknown, headers: Headers) {
   if (body.action === 'session') return result({ user: controlUser(current) });
   if (current.collection === 'users' && current.mustChangePassword === true && body.action !== 'change-password') {
     return result({ error: 'Change your temporary password before accessing the Control Room.' }, { status: 403 });
+  }
+
+  if (['membership-subscribers', 'membership-payments', 'update-subscriber', 'record-membership-payment'].includes(String(body.action))) {
+    if (verifierUser(current)) return result({ error: 'Membership management requires admin access.' }, { status: 403 });
+    if (body.action === 'update-subscriber' || body.action === 'record-membership-payment') {
+      if (!Number.isSafeInteger(Number(body.id)) || Number(body.id) <= 0) return result({ error: 'Choose a valid subscriber.' }, { status: 400 });
+      const matches = await payload.find({ collection: 'members', where: { id: { equals: body.id } }, limit: 1, overrideAccess: true });
+      const member: any = matches.docs[0];
+      if (!member || !['broker', 'agency', 'developer'].includes(member.accountType)) return result({ error: 'Subscriber not found.' }, { status: 404 });
+      if (body.action === 'update-subscriber') {
+        if (!['active', 'pending', 'past_due', 'suspended', 'cancelled'].includes(String(body.status))) return result({ error: 'Invalid membership status.' }, { status: 400 });
+        await payload.update({ collection: 'members', id: member.id, data: { membershipStatus: body.status } as any, overrideAccess: true });
+        return result({ ok: true });
+      }
+      if (!['paid', 'failed', 'pending'].includes(String(body.status)) || typeof body.reference !== 'string' || !body.reference.trim() || body.reference.length > 120 || typeof body.transactionDate !== 'string') return result({ error: 'Provide a reference, date and payment outcome.' }, { status: 400 });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.transactionDate)) return result({ error: 'Choose a valid transaction date.' }, { status: 400 });
+      const date = new Date(`${body.transactionDate}T00:00:00+05:30`);
+      if (!Number.isFinite(date.getTime()) || date.getTime() > Date.now()) return result({ error: 'Choose a valid transaction date that is not in the future.' }, { status: 400 });
+      const price = member.membership?.price;
+      if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) return result({ error: 'This member does not have an agreed price. Confirm their membership rate before recording payments.' }, { status: 400 });
+      try {
+        await payload.create({ collection: 'membership-payments', overrideAccess: true, data: {
+          reference: body.reference.trim(), member: member.id, subscriberName: member.name, subscriberEmail: member.email,
+          plan: member.membership.plan, planName: member.membership.name, amount: price, currency: 'AED', status: body.status,
+          transactionDate: date.toISOString(), recordedBy: String(current.email),
+        } as any });
+      } catch (error) {
+        if ((error as any)?.status === 400 || (error as any)?.code === '23505' || (error as any)?.cause?.code === '23505') return result({ error: 'That payment reference already exists or is invalid.' }, { status: 400 });
+        throw error;
+      }
+      return result({ ok: true });
+    }
+    if (body.action === 'membership-payments') {
+      const payments = await payload.find({ collection: 'membership-payments', pagination: false, sort: '-transactionDate', depth: 0, overrideAccess: true });
+      return result({ payments: payments.docs });
+    }
+    const members = await payload.find({ collection: 'members', where: { accountType: { in: ['broker', 'agency', 'developer'] } }, pagination: false, sort: '-createdAt', overrideAccess: true });
+    return result({ subscribers: members.docs.map((member: any) => {
+      const plan = planIdForAudience(member.plan, member.accountType);
+      return { id: member.id, name: member.name, email: member.email, accountType: member.accountType, plan,
+        planName: member.membership?.name || PLAN_CATALOG[plan]?.name || 'Unassigned', price: member.membership?.price ?? null,
+        status: member.isSuspended ? 'suspended' : member.membershipStatus || 'pending', suspended: Boolean(member.isSuspended), createdAt: member.createdAt };
+    }) });
+  }
+
+  if (body.action === 'membership-plans' || body.action === 'save-membership-plan') {
+    if (verifierUser(current)) return result({ error: 'Membership management requires admin access.' }, { status: 403 });
+    if (body.action === 'save-membership-plan') {
+      const base = PLAN_CATALOG[String(body.slug)];
+      if (!base) return result({ error: 'Choose a valid membership package.' }, { status: 400 });
+      if (body.price !== null && (typeof body.price !== 'number' || !Number.isFinite(body.price) || body.price < 0 || Math.abs(Math.round(body.price * 100) - body.price * 100) > 0.000001)) {
+        return result({ error: 'Enter a valid price with at most two decimal places.' }, { status: 400 });
+      }
+      for (const field of ['seats', 'listings', 'selections']) {
+        if (body[field] !== null && (!Number.isSafeInteger(body[field]) || body[field] < 0)) return result({ error: 'Limits must be non-negative whole numbers or blank for unlimited.' }, { status: 400 });
+      }
+      if (typeof body.audience !== 'string' || typeof body.features !== 'string' || body.features.length > 20000) return result({ error: 'Invalid package details.' }, { status: 400 });
+      const data = { name: base.name, slug: base.id, roleAudience: base.roleAudience, sortOrder: base.sortOrder, price: body.price,
+        seats: body.seats, listings: body.listings, selections: body.selections, audience: body.audience.trim(),
+        features: body.features.split('\n').map((feature: string) => ({ feature: feature.trim() })).filter((item: any) => item.feature), highlighted: base.highlighted || false };
+      const existing = await payload.find({ collection: 'plans', where: { slug: { equals: base.id } }, limit: 1, overrideAccess: true });
+      if (existing.docs[0]) await payload.update({ collection: 'plans', id: existing.docs[0].id, data, overrideAccess: true });
+      else await payload.create({ collection: 'plans', data, overrideAccess: true });
+    }
+    const saved = await payload.find({ collection: 'plans', limit: 100, overrideAccess: true });
+    return result({ plans: Object.values(PLAN_CATALOG).map((base) => {
+      const doc = saved.docs.find((item: any) => item.slug === base.id);
+      return { ...base, ...doc, id: base.id, features: doc ? (doc.features || []).map((item: any) => item.feature).filter(Boolean) : base.features };
+    }) });
   }
 
   if (body.action === 'change-password') {

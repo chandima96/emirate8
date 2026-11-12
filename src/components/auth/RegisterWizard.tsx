@@ -859,7 +859,7 @@ function Wizard({ qType, qPlan }) {
                 <div className="my-5 border-t border-line" />
                 <div className="flex justify-between text-xs text-muted">
                   <span>Amount</span>
-                  <span>Pricing to be confirmed</span>
+                  <span>{selectedPlan?.price == null ? 'Pricing to be confirmed' : `AED ${selectedPlan.price.toLocaleString()} / month`}</span>
                 </div>
                 <div className="mt-3 flex justify-between text-sm font-semibold text-ink">
                   <span>Total</span>
@@ -1284,7 +1284,7 @@ function Wizard({ qType, qPlan }) {
                 <span className="flex-1">
                   <span className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-display text-[16px] font-semibold text-ink">{plans()[p.id].name}</span>
-                    <span className="text-xs font-semibold text-muted">Pricing to be confirmed</span>
+                    <span className="text-xs font-semibold text-muted">{plans()[p.id].price == null ? 'Pricing to be confirmed' : `AED ${plans()[p.id].price.toLocaleString()} / month`}</span>
                   </span>
                   <span className="mt-1 block text-[13px] text-muted">{p.desc}</span>
                 </span>
@@ -1293,7 +1293,7 @@ function Wizard({ qType, qPlan }) {
           </div>
           <p className="mt-3 flex items-center gap-2 text-xs text-muted">
             <i className="bi bi-calendar-event h-3.5 w-3.5 text-ink" aria-hidden="true" />
-            Plan pricing is being finalized. Continue to the demo payment step to complete registration.
+            Your selected rate is saved at registration. Continue to the demo payment step; no payment is collected.
           </p>
           <div className="mt-6 space-y-3 border-t border-line pt-5">
             <div className={cx('field', errors['r-terms'] && 'invalid')}>

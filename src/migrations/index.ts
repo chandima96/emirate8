@@ -1,3 +1,5 @@
+import * as membershipBilling from './20261111_000001_membership_billing';
+import * as membershipPricing from './20261111_000000_membership_pricing';
 import * as migration_20261026_000002_listing_fields from './20261026_000002_listing_fields';
 import * as migration_20261027_135539_upgrade_payload_3_90_security_fields from './20261027_135539_upgrade_payload_3_90_security_fields';
 import * as migration_20261110_000000_repair_missing_session_tables from './20261110_000000_repair_missing_session_tables';
@@ -81,4 +83,6 @@ export const migrations = [
     down: migration_20261110_000000_repair_missing_session_tables.down,
     name: '20261110_000000_repair_missing_session_tables'
   },
+  { up: membershipPricing.up, down: membershipPricing.down, name: '20261111_000000_membership_pricing' },
+  { up: membershipBilling.up, down: membershipBilling.down, name: '20261111_000001_membership_billing' },
 ];

@@ -522,12 +522,13 @@ export function plan(user = undefined) {
   const available = plans();
   const audience = user?.type === 'owner' ? 'developer' : user?.type || 'broker';
   const resolvedId = planIdForAudience(user?.plan, audience as 'broker' | 'agency' | 'developer');
-  return available[resolvedId] || PLANS['broker-bronze'];
+  const current = available[resolvedId] || PLANS['broker-bronze'];
+  return user?.membership?.plan === resolvedId ? { ...current, price: user.membership.price } : current;
 }
 
 export function plans(): Record<string, PublicPlan> {
   const live = getPublicPlans();
-  return Object.keys(live).length ? live : PLANS;
+  return { ...PLANS, ...live };
 }
 
 /* ---------- Public brokers (sample + registered brokers) ---------- */

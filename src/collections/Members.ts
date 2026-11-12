@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload';
+import { PLAN_CATALOG, planIdForAudience } from '@/config/plans';
 
 export const Members: CollectionConfig = {
   slug: 'members',
@@ -23,6 +24,21 @@ export const Members: CollectionConfig = {
   },
   hooks: {
     beforeChange: [
+      async ({ data, originalDoc, req, operation }) => {
+        const audience = data.accountType || originalDoc?.accountType;
+        if (!['broker', 'agency', 'developer'].includes(audience)) return data;
+        const plan = planIdForAudience(data.plan || originalDoc?.plan, audience);
+        if (operation === 'create' || plan !== planIdForAudience(originalDoc?.plan, audience)) {
+          const found = await req.payload.find({ collection: 'plans', where: { slug: { equals: plan } }, limit: 1, overrideAccess: true, req });
+          const current = found.docs[0] || PLAN_CATALOG[plan];
+          data.membership = { plan, name: current.name, price: current.price ?? null, currency: 'AED', interval: 'month', agreedAt: new Date().toISOString() };
+        } else {
+          // The agreed price is server-owned and survives catalogue changes.
+          data.membership = originalDoc?.membership;
+        }
+        data.plan = plan;
+        return data;
+      },
       ({ data, req }) => {
         if (req.user?.collection === 'users' && req.user.role === 'admin') {
           return { ...data, adminCreated: true, adminAccess: true };
@@ -47,6 +63,8 @@ export const Members: CollectionConfig = {
       { label: 'Rejected', value: 'rejected' },
     ] },
     { name: 'plan', type: 'text', defaultValue: 'starter' },
+    { name: 'membershipStatus', type: 'text', defaultValue: 'pending', access: { create: () => false, update: () => false }, admin: { readOnly: true } },
+    { name: 'membership', type: 'json', admin: { readOnly: true, description: 'Agreed membership price, preserved when catalogue prices change.' }, access: { create: () => false, update: () => false } },
     { name: 'mustChangePassword', type: 'checkbox', defaultValue: false, admin: { hidden: true } },
     { name: 'isSuspended', type: 'checkbox', defaultValue: false, admin: { hidden: true } },
     {

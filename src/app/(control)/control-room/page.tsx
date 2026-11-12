@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MembershipManagement } from './membership-management/MembershipManagement';
 import { Wordmark } from '@/components/layout/Wordmark';
 import { Icon } from '@/components/ui/Icon';
 
@@ -164,7 +165,7 @@ export default function ControlRoomPage() {
   const [tableVisible, setTableVisible] = useState(true);
   const tableTransitionTimer = useRef<number | null>(null);
   const [section, setSection] = useState<
-    'overview' | 'verification' | 'property-verification' | 'properties' | 'accounts'
+    'overview' | 'verification' | 'property-verification' | 'properties' | 'accounts' | 'membership'
   >('overview');
   const [newMember, setNewMember] = useState({ name: '', email: '', controlRole: 'subadmin' });
   const [error, setError] = useState('');
@@ -321,6 +322,7 @@ export default function ControlRoomPage() {
           {user.role !== 'verifier' && tab('overview', 'Overview', 'grid-1x2')}
           {tab('verification', 'Verifications', 'person-check')}
           {user.role !== 'verifier' && tab('properties', 'Properties', 'building')}
+          {user.role !== 'verifier' && tab('membership', 'Membership management', 'gem')}
           {user.role !== 'verifier' && tab('accounts', 'Accounts', 'people')}
         </nav>
         {error && (
@@ -336,6 +338,8 @@ export default function ControlRoomPage() {
             {notice}
           </p>
         )}
+
+        {section === 'membership' && user.role !== 'verifier' && <MembershipManagement />}
 
         {section === 'overview' && (
           <>

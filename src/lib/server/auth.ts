@@ -9,6 +9,7 @@ function safeMember(user: Record<string, any>) {
   const profile = user.profile && typeof user.profile === 'object' ? user.profile : {};
   return {
     ...profile,
+    membership: user.membership || null,
     id: user.id,
     name: user.name,
     legalName: profile.legalName || user.name,

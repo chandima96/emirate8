@@ -9,6 +9,9 @@ export const Plans: CollectionConfig = {
   },
   access: {
     read: () => true,
+    create: ({ req: { user } }) => Boolean(user?.collection === 'users' && ['admin', 'subadmin'].includes(user.role)),
+    update: ({ req: { user } }) => Boolean(user?.collection === 'users' && ['admin', 'subadmin'].includes(user.role)),
+    delete: ({ req: { user } }) => Boolean(user?.collection === 'users' && user.role === 'admin'),
   },
   hooks: {
     afterChange: [invalidateCmsCache],
@@ -19,7 +22,7 @@ export const Plans: CollectionConfig = {
     { name: 'slug', type: 'text', required: true, unique: true },
     { name: 'audience', type: 'text', label: 'Tagline / Audience' },
     { name: 'roleAudience', type: 'select', label: 'Account type', options: ['broker', 'agency', 'developer', 'buyer', 'platform'], defaultValue: 'platform' },
-    { name: 'price', type: 'number', label: 'Monthly Price (AED)' },
+    { name: 'price', type: 'number', min: 0, label: 'Monthly Price (AED)' },
     { name: 'seats', type: 'number', label: 'User Seats (null = unlimited)' },
     { name: 'listings', type: 'number', label: 'Active Listings Limit (null = unlimited)' },
     { name: 'selections', type: 'number', label: 'Network Selections Limit' },

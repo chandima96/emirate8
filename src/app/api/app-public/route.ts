@@ -213,6 +213,7 @@ const loadPublicData = unstable_cache(async () => {
     plans: planResult.docs.filter((plan: any) => Boolean(PLAN_CATALOG[plan.slug])).map((plan: any) => ({
         id: plan.slug,
         name: plan.name,
+        price: plan.price ?? null,
         roleAudience: PLAN_CATALOG[plan.slug].roleAudience,
         audience: plan.audience || '',
         seats: plan.seats ?? null,
