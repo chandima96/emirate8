@@ -325,7 +325,8 @@ export function BrokerProfileBuilder() {
   const loadWs = () =>
     fetch('/api/role-workspace?agencyDashboard=1', { credentials: 'same-origin', cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setWs({ loaded: true, team: (d.team || []).filter((m: any) => m.agencyRole === 'agency_broker'), invitations: (d.invitations || []).filter((x: any) => x.status === 'pending'), properties: d.properties || [] }))
+      // A failed request still ends the loading state (the Team section then shows its empty state).
+      .then((d) => setWs(d ? { loaded: true, team: (d.team || []).filter((m: any) => m.agencyRole === 'agency_broker'), invitations: (d.invitations || []).filter((x: any) => x.status === 'pending'), properties: d.properties || [] } : (w) => ({ ...w, loaded: true })))
       .catch(() => setWs((w) => ({ ...w, loaded: true })));
   useEffect(() => {
     if (isA) loadWs();
