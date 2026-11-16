@@ -245,18 +245,49 @@ export function ListingEditor({ id = undefined }) {
   }
 
   /* ---------- navigation ---------- */
+  const formRef = useRef<HTMLFormElement>(null);
   const go = useCallback((n, focus) => {
     setStep(n);
     if (focus)
       setTimeout(() => {
         const h = document.querySelector('[data-step="' + n + '"] h2');
         (h as HTMLElement)?.focus({ preventScroll: true });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Land on the top of the form, below the sticky workspace bar, not on the AI section above it.
+        const form = formRef.current;
+        if (!form) return;
+        const bar = document.querySelector('header')?.getBoundingClientRect().bottom || 0;
+        const top = form.getBoundingClientRect().top + window.scrollY - Math.max(bar, 0) - 16;
+        const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: Math.max(top, 0), behavior: reduce ? 'auto' : 'smooth' });
       }, 30);
   }, []);
 
   /* ---------- saving ---------- */
-  async function persist(status = undefined) {
+  /* One save at a time. Navigation saves run in the background (they don't block the next step);
+   * an explicit save or publish waits for any save already in flight, so nothing is lost. */
+  const inflight = useRef<Promise<any> | null>(null);
+  const saveQueued = useRef(false);
+  async function persist(status = undefined, background = false) {
+    if (inflight.current) {
+      if (background) {
+        saveQueued.current = true;
+        return null;
+      }
+      await inflight.current.catch(() => null);
+    }
+    const run = doPersist(status, background);
+    inflight.current = run;
+    try {
+      return await run;
+    } finally {
+      if (inflight.current === run) inflight.current = null;
+      if (saveQueued.current) {
+        saveQueued.current = false;
+        if (dirtyRef.current) void persist(undefined, true);
+      }
+    }
+  }
+  async function doPersist(status = undefined, background = false) {
     if (savingRef.current) return null;
     const revision = editRevision.current;
     const obj = projectListing(clone(Lref.current));
@@ -303,7 +334,7 @@ export function ListingEditor({ id = undefined }) {
     Lref.current = { ...Lref.current, id: result.id, ref: result.ref, createdAt: result.createdAt };
     setL(Lref.current);
     savingRef.current = true;
-    setSaving(true);
+    if (!background) setSaving(true);
     setNote({ text: 'Saving...' });
     try {
       await flushWrites('data:' + user.id);
@@ -342,13 +373,9 @@ export function ListingEditor({ id = undefined }) {
       setSaving(false);
     }
   }
-  async function autosave() {
-    if (savingRef.current) return false;
-    if (dirtyRef.current || !savedRef.current) {
-      const saved = await persist();
-      return !!saved && !dirtyRef.current;
-    }
-    return true;
+  /** Save after moving to another step — never makes the user wait for the server. */
+  function saveInBackground() {
+    if (dirtyRef.current || !savedRef.current) void persist(undefined, true);
   }
   async function saveDraft() {
     const keep = Lref.current.status === 'pending' ? 'pending' : undefined;
@@ -747,9 +774,9 @@ export function ListingEditor({ id = undefined }) {
                   disabled={saving}
                   onClick={async () => {
                     if (k > step && !check(step)) return;
-                    if (k > step && !(await autosave())) return;
                     if (k !== step) setErrors({});
                     go(k, true);
+                    if (k > step) saveInBackground();
                   }}
                 >
                   <span className="step-dot">{k}</span>
@@ -785,14 +812,14 @@ export function ListingEditor({ id = undefined }) {
         </ol>
 
         <form
-          className="listing-editor-panel card min-w-0 p-5 sm:p-7 lg:p-8"
+          ref={formRef}
+          className="listing-editor-panel card min-w-0 scroll-mt-24 p-5 sm:p-7 lg:p-8"
           noValidate
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            if (savingRef.current) return;
             if (step < totalSteps && check(step)) {
-              if (!(await autosave())) return;
               go(step + 1, true);
+              saveInBackground();
             }
           }}
         >
@@ -850,8 +877,8 @@ export function ListingEditor({ id = undefined }) {
                   </button>
                 </>
               ) : (
-                <button type="submit" className="btn btn-dark" disabled={saving}>
-                  {saving ? 'Saving...' : 'Continue'}
+                <button type="submit" className="btn btn-dark">
+                  Continue
                   <Icon name="arrow-right" />
                 </button>
               )}
