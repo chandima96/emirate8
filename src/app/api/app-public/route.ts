@@ -4,6 +4,7 @@ import { unstable_cache } from 'next/cache';
 import configPromise from '@payload-config';
 import { getPayload } from 'payload';
 import { listingFromProperty } from '@/lib/server/member-properties';
+import { profileExtras } from '@/lib/brokerProfile';
 import { PLAN_CATALOG } from '@/config/plans';
 
 export const revalidate = 0;
@@ -114,6 +115,13 @@ const loadPublicData = unstable_cache(async () => {
       since: member.createdAt,
       sample: false,
       demo: false,
+      ...profileExtras(portfolio),
+      currentAgency:
+        profile.agency?.agencyRole === 'agency_broker' && profile.agency?.name
+          ? { id: profile.agency.agencyId, name: profile.agency.name, slug: profile.agency.slug || '' }
+          : null,
+      brnNumber: privacy.showBrn === false || !profile.credentials?.brn ? '' : String(profile.credentials.brn),
+      certifications: profileExtras(portfolio).certifications.map((c: any) => ({ ...c, verified: !!c.verified && member.credentialStatus === 'verified' })),
     };
     memberBrokers.push(broker);
   }

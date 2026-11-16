@@ -10,6 +10,7 @@
  */
 import { createStore } from 'zustand/vanilla';
 import { useStore as useZustandStore } from 'zustand';
+import type { profileExtras } from './brokerProfile';
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -65,7 +66,14 @@ export type PublicBroker = {
   sample?: boolean;
   demo?: boolean;
   ownerMemberId?: string | number;
-};
+  agencyRole?: string;
+  brnNumber?: string;
+  currentAgency?: { id?: string | number; name: string; slug?: string } | null;
+  orn?: string;
+  ornVerified?: boolean;
+  tradeLicence?: string;
+  tradeLicenceVerified?: boolean;
+} & Partial<ReturnType<typeof profileExtras>>;
 
 export type PublicListing = {
   id: string;
