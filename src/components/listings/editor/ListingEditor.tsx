@@ -6,8 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
-import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
-import { ProfileAutofill } from '@/components/workspace/ProfileAutofill';
+import { AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
+import { AiAutofill } from '@/components/profiles/AiAutofill';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
 import { STATUS } from '@/config/reference';
@@ -119,11 +119,7 @@ export function ListingEditor({ id = undefined }) {
   const savingRef = useRef(false);
   const editRevision = useRef(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
-  const openAi = () => {
-    setAiOpen(true);
-    setTimeout(() => document.getElementById('listing-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
-  };
+  const aiFirstStep = useRef(1);
   const Lref = useRef(L);
   const dirtyRef = useRef(false);
   const stepRef = useRef(step);
@@ -507,6 +503,7 @@ export function ListingEditor({ id = undefined }) {
     const pending: Record<string, AiSuggestion> = {};
     let planChange = aiPlanChange;
     let milestones = next.editor.milestones;
+    let filled = 0, kept = 0;
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
       if (key === 'milestones') {
@@ -514,7 +511,8 @@ export function ListingEditor({ id = undefined }) {
         if (!(milestones || []).length && Array.isArray(suggestions.milestones)) {
           milestones = suggestions.milestones;
           planChange = { before: next.editor.milestones, applied: milestones };
-        }
+          filled++;
+        } else kept++;
         continue;
       }
       if (/(Max|Multi)$/.test(key)) continue;
@@ -525,6 +523,7 @@ export function ListingEditor({ id = undefined }) {
           const applied = { selected: true, status: data.devStatus === 'offplan' ? 'planned' : 'existing', charge: 'unknown' };
           amenChanges[id] = { before: undefined, applied };
           amenities[id] = applied;
+          filled++;
         }
         continue;
       }
@@ -536,9 +535,13 @@ export function ListingEditor({ id = undefined }) {
         pending[id] = { value: suggestions[key], sources: options[0]?.sources || [], options };
         continue;
       }
-      if (!empty) continue;
+      if (!empty) {
+        kept++;
+        continue;
+      }
       changes[key] = { before: changes[key]?.before ?? data[key], applied: suggestions[key] };
       data[key] = suggestions[key];
+      filled++;
       if (key === 'mapLocation') {
         const coordinates = coordinatesFromMapLink(suggestions[key]);
         for (const coordinate of ['lat', 'lng']) {
@@ -567,10 +570,10 @@ export function ListingEditor({ id = undefined }) {
     setAiAmenChanges(amenChanges);
     setAiChanges(changes);
     setAiSuggestions((current) => ({ ...current, ...pending }));
-    setAiOpen(false);
-    const firstStep = selected.length ? Math.min(...selected.map(stepOf)) : 1;
-    go(firstStep, true);
+    aiFirstStep.current = selected.length ? Math.min(...selected.map(stepOf)) : 1;
     toast('AI suggestions are ready in the listing fields.');
+    // Values that differ from what's already entered wait in the fields for the user's choice.
+    return { filled, missing: 0, review: Object.keys(pending).length, kept };
   };
   const applyAiSuggestion = (id: string, value?: any) => {
     const suggestion = aiSuggestions[id]; if (!suggestion) return;
@@ -712,8 +715,15 @@ export function ListingEditor({ id = undefined }) {
       </div>
 
       <div className="mt-6 space-y-4">
-        <AiBanner kind="listing" open={aiOpen} controls="listing-ai-intake" onStart={openAi} onManual={() => { setAiOpen(false); go(1, true); }} />
-        {aiOpen && <ProfileAutofill id="listing-ai-intake" kind="listing" profile={L.editor.d} onApply={applyAiSuggestions} onClose={() => setAiOpen(false)} />}
+        <AiAutofill
+          id="listing-ai"
+          context="listing"
+          current={L.editor.d}
+          onApply={applyAiSuggestions}
+          onReview={() => go(aiFirstStep.current, true)}
+          onUndo={undoAiChanges}
+          onManual={() => go(1, true)}
+        />
         {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
 

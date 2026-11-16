@@ -23,6 +23,7 @@ import {
 } from '@/lib/store';
 import { absUrl, copyText, share } from '@/lib/share';
 import { EmptyState } from './EmptyState';
+import { BrokerPublicProfile } from '@/components/profiles/BrokerPublicProfile';
 
 const PREFERRED = { whatsapp: 'WhatsApp', call: 'phone call', email: 'email' };
 
@@ -104,6 +105,38 @@ export function BrokerPortfolio({ initialBroker = null, initialListings = [], pr
         </Link>
       </div>
     );
+
+  // Agency admins keep the agency page; every broker (independent or on an agency team) gets the broker profile.
+  const agencyOrg = b.type === 'agency' && b.agencyRole !== 'agency_broker';
+  if (!agencyOrg) {
+    const listings = [...listingsFor(b.id), ...initialListings].filter(
+      (listing, index, all) =>
+        all.findIndex((item) => String(item.slug || item.id) === String(listing.slug || listing.id)) === index,
+    );
+    const notices: string[] = [];
+    if (previewDraft) notices.push('Preview of your unsaved draft. Changes are not public until you publish.');
+    if (owner && !b.isPublic) notices.push('This profile is private. Visitors see a “profile unavailable” page and it is excluded from search engines.');
+    if (owner && b.isPublic && b.searchable === false) notices.push('Hidden from Find an Agent — the page is still reachable by its link.');
+    return (
+      <div className="e8p">
+        <BrokerPublicProfile
+          key={b.id + (previewDraft ? ':draft' : '')}
+          b={b}
+          listings={listings}
+          notices={notices}
+          noticeAction={
+            notices.length ? (
+              <p>
+                <Link className="pp-link" href="/profile">
+                  {previewDraft ? 'Back to editing' : 'Edit profile'}
+                </Link>
+              </p>
+            ) : null
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <Portfolio

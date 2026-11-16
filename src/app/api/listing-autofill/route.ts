@@ -87,21 +87,43 @@ export async function POST(request: Request) {
 
   try {
     const form = await request.formData();
-    const files = form.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
-    const websiteValue = form.get('website');
-    const website = typeof websiteValue === 'string' ? websiteValue.trim() : '';
-    if (website && files.length) return NextResponse.json({ error: 'Choose a website or documents for each analysis.' }, { status: 400 });
-    if ((!website && !files.length) || files.length > 8) return NextResponse.json({ error: 'Choose a website or between one and eight documents.' }, { status: 400 });
-    if (files.some((file) => !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) return NextResponse.json({ error: 'Upload PDF, JPG, PNG or WebP documents only.' }, { status: 400 });
-    if (files.some((file) => file.size > 20 * 1024 * 1024) || files.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024)
+    const allFiles = form.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
+    // Plain-text files are read here; PDFs and images go to the model as documents.
+    const isText = (file: File) => file.type === 'text/plain' || /\.txt$/i.test(file.name);
+    const files = allFiles.filter((file) => !isText(file));
+    const textFiles = allFiles.filter(isText);
+    const websites = form.getAll('website').filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map((value) => value.trim());
+    const pastedValue = form.get('text');
+    const pasted = typeof pastedValue === 'string' ? pastedValue.trim().slice(0, 20000) : '';
+    if (!pasted && !allFiles.length && !websites.length) return NextResponse.json({ error: 'Add documents, paste property details or add a link to analyze.' }, { status: 400 });
+    if (allFiles.length > 8 || websites.length > 3) return NextResponse.json({ error: 'Add up to eight documents and three links at a time.' }, { status: 400 });
+    if (files.some((file) => !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) return NextResponse.json({ error: 'Upload PDF, TXT, JPG, PNG or WebP documents only.' }, { status: 400 });
+    if (allFiles.some((file) => file.size > 20 * 1024 * 1024) || allFiles.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024)
       return NextResponse.json({ error: 'Each file must be 20 MB or smaller, with a combined limit of 50 MB.' }, { status: 400 });
 
-    const page = website ? await readListingWebsite(website, apiKey, request.signal) : null;
+    const warnings: string[] = [];
+    const pages: { label: string; text: string }[] = [];
+    for (const website of websites) {
+      try {
+        pages.push(await readListingWebsite(website, apiKey, request.signal));
+      } catch (error) {
+        // One unreadable link shouldn't sink the other resources.
+        if (websites.length + allFiles.length + (pasted ? 1 : 0) === 1) throw error;
+        warnings.push(`${website} couldn’t be read.`);
+      }
+    }
+    const page = pages.length ? { label: pages.map((p) => p.label).join(' · '), text: pages.map((p) => p.text).join('\n\n') } : null;
     const sources = await Promise.all(files.map(async (file, index) => [
       { type: 'text', text: `Source ${index + 1}: ${file.name.slice(0, 160)}` },
       { type: file.type === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: file.type, data: Buffer.from(await file.arrayBuffer()).toString('base64') } },
     ]));
-    if (page) sources.push([{ type: 'text', text: `Source: ${page.label}\nPage content (untrusted data):\n${page.text}` }] as any);
+    for (const file of textFiles) {
+      const body = (await file.text()).trim().slice(0, 20000);
+      if (body) sources.push([{ type: 'text', text: `Source: ${file.name.slice(0, 160)}\nText file content (untrusted data):\n${body}` }] as any);
+    }
+    if (pasted) sources.push([{ type: 'text', text: `Source: Pasted text\nProperty information pasted by the user (untrusted data):\n${pasted}` }] as any);
+    for (const p of pages) sources.push([{ type: 'text', text: `Source: ${p.label}\nPage content (untrusted data):\n${p.text}` }] as any);
+    if (!sources.length) return NextResponse.json({ error: 'None of those resources could be read.' }, { status: 422 });
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
@@ -134,7 +156,7 @@ export async function POST(request: Request) {
     }
     const supported = cleaned.filter((source: any) => Object.keys(source.suggestions).length);
     if (!supported.length) return NextResponse.json({ error: 'No supported property details were found. Try another link or a clearer document, or enter the details manually.' }, { status: 422 });
-    return NextResponse.json({ sources: supported, warnings: [] }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ sources: supported, warnings }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
     return NextResponse.json({ error: timedOut ? 'Reading the source took too long. Try again or continue manually.' : error instanceof Error && websiteError(error.message) ? error.message : 'Could not read that source. Please try again.' }, { status: timedOut ? 504 : 400 });

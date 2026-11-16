@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { invalidProps } from '@/components/ui/Field';
-import { AiBanner, AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
+import { AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
 import { Avatar } from '@/components/broker/Avatar';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -28,7 +28,7 @@ import { RX, clone, cx, digits, fileToDataURL, initialsOf, slugify } from '@/lib
 import { absUrl, copyText, share } from '@/lib/share';
 import { routes } from '@/lib/routes';
 import { SectionNav, useHashTabs } from './shared';
-import { ProfileAutofill } from './ProfileAutofill';
+import { AiAutofill } from '@/components/profiles/AiAutofill';
 
 /* Profile — public portfolio management (old profile.html + portfolio.js).
  * Edits are kept as a draft (user.portfolioDraft) until “Publish changes”, so brokers can preview first.
@@ -148,15 +148,16 @@ export function Portfolio() {
   const [D, setD] = useState(initDraft);
   const [lists, setLists] = useState(() => listText(D));
   const [err, setErr] = useState<Record<string, string>>({});
-  const [aiOpen, setAiOpen] = useState(false);
   const [aiChanges, setAiChanges] = useState<Record<string, { before: any; applied: any }>>({});
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
+  /** Opens the AI panel (if closed) and scrolls to it. */
   const openAi = () => {
-    setAiOpen(true);
-    setTimeout(() => { document.getElementById('profile-ai-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
+    const cta = document.querySelector<HTMLButtonElement>('[data-ai-autofill] .btn-ai');
+    if (cta && cta.getAttribute('aria-expanded') !== 'true') cta.click();
+    setTimeout(() => { document.getElementById('profile-ai-bt')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30);
   };
   useEffect(() => {
-    if (tab === 'autofill') { setAiOpen(true); go('professional'); }
+    if (tab === 'autofill') go('professional');
   }, [tab, go]);
   const [showCovers, setShowCovers] = useState(false);
   const [pv, setPv] = useState({ open: false, vp: 'desktop', t: 0 });
@@ -306,7 +307,11 @@ export function Portfolio() {
     const changes = { ...aiChanges };
     const pending: Record<string, AiSuggestion> = {};
     const ids: Record<string, string> = { displayName: 'pf-name', title: 'pf-title', headline: 'pf-headline', intro: 'pf-intro', bio: 'pf-bio', experience: 'pf-exp', languages: 'pf-lang', specialties: 'pf-spec', publicEmail: 'pf-email', publicPhone: 'pf-phone', whatsapp: 'pf-wa', agencyName: 'pf-agency', agencyWebsite: 'pf-agencyweb' };
+    let filled = 0, kept = 0;
+    // The agency editor has no fields for the broker-profile extras (journey, socials, why-cards…).
+    const KNOWN = ['displayName', 'title', 'headline', 'intro', 'bio', 'experience', 'languages', 'specialties', 'areas', 'publicEmail', 'publicPhone', 'whatsapp', 'agencyName', 'agencyWebsite', 'credentials'];
     for (const key of selected) {
+      if (!KNOWN.includes(key)) continue;
       const value = suggestions[key];
       const path = key === 'agencyName' ? 'agency.name' : key === 'agencyWebsite' ? 'agency.website' : key;
       const current = getPath(D, path);
@@ -316,7 +321,11 @@ export function Portfolio() {
         pending[ids[key]] = { value, sources: options[0]?.sources || [], options };
         continue;
       }
-      if (!empty) continue;
+      if (!empty) {
+        kept++;
+        continue;
+      }
+      filled++;
       const before = changes[path]?.before ?? current;
       if (key === 'agencyName') setPath(next, 'agency.name', value);
       else if (key === 'agencyWebsite') setPath(next, 'agency.website', value);
@@ -329,9 +338,9 @@ export function Portfolio() {
     saveDraft(next);
     setAiChanges(changes);
     setAiSuggestions((current) => ({ ...current, ...pending }));
-    setAiOpen(false);
     go('professional');
     toast('AI suggestions are ready in your profile fields.');
+    return { filled, missing: next.displayName?.trim() ? 0 : 1, review: Object.keys(pending).length, kept };
   };
   const applyAiSuggestion = (id: string, value?: any) => {
     const suggestion = aiSuggestions[id];
@@ -495,11 +504,16 @@ export function Portfolio() {
         </div>
       </div>
 
-      <AiBanner kind="profile" open={aiOpen} controls="profile-ai-intake" onStart={openAi} onManual={() => {
-        setAiOpen(false); go('professional');
-        setTimeout(() => document.getElementById('pf-name')?.focus({ preventScroll: false }), 30);
-      }} />
-      {aiOpen && <ProfileAutofill profile={D} onApply={applyAutofill} onClose={() => setAiOpen(false)} />}
+      <div className="mt-5">
+        <AiAutofill
+          id="profile-ai"
+          context={agencyAccount ? 'agency-profile' : 'broker-profile'}
+          current={D}
+          onApply={applyAutofill}
+          onUndo={undoAutofill}
+          onManual={() => { go('professional'); setTimeout(() => document.getElementById('pf-name')?.focus({ preventScroll: false }), 30); }}
+        />
+      </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
         <SectionNav label={agencyAccount ? 'Agency portfolio sections' : 'Profile sections'} items={sectionNav} current={tab} onSelect={go} />

@@ -16,6 +16,7 @@ import { PLANS, STATUS, LEGACY_STATUS, USD_PEG } from '@/config/reference';
 import { planIdForAudience } from '@/config/plans';
 import { IMG, PIMG } from '@/config/images';
 import { mediaDisplayURL } from './mediaURL';
+import { profileExtras } from './brokerProfile';
 import {
   setPublicData,
   getPublicBrokers,
@@ -593,6 +594,19 @@ export function brokerFromUser(u) {
     since: new Date(u.createdAt).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
     sample: false,
     demo: !!u.demo,
+    // Broker profile release: journey, why-points, socials, review links, visibility options…
+    ...profileExtras(p),
+    // A certification shows as verified only after Emirate08 has reviewed the account.
+    certifications: profileExtras(p).certifications.map(function (c) {
+      return { ...c, verified: !!c.verified && verified };
+    }),
+    agencyRole: (u.agency && u.agency.agencyRole) || '',
+    // Current agency = team membership on Emirate08 (never a typed name).
+    currentAgency:
+      u.agency && u.agency.agencyRole === 'agency_broker' && u.agency.name
+        ? { id: u.agency.agencyId, name: u.agency.name, slug: u.agency.slug || '' }
+        : null,
+    brnNumber: pv.showBrn === false || !brn ? '' : String(brn),
   };
 }
 export function brokerPreview(u) {
