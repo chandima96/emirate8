@@ -4,6 +4,7 @@
  * this file only adds the fields that release introduced and never invents data. Pure — no React, no store. */
 
 export const DEFAULT_BROKER_COVER = '/images/profile/cover-broker.svg';
+export const DEFAULT_AGENCY_COVER = '/images/profile/cover-agency.svg';
 
 export const SOCIAL_PLATFORMS = ['Instagram', 'Facebook', 'LinkedIn', 'TikTok', 'YouTube', 'X', 'Threads', 'Other'];
 export const REVIEW_PLATFORMS = ['Google Reviews', 'Property Finder', 'Bayut', 'Trustpilot', 'Facebook Reviews', 'Other'];
@@ -18,6 +19,14 @@ export const WHY_EXAMPLES: [string, string][] = [
   ['Transparent Communication', 'Clear, reliable guidance throughout every stage of the property journey.'],
   ['End-to-End Support', 'Dedicated assistance from the first consultation to the final transaction.'],
 ];
+export const WHY_EXAMPLES_AGENCY: [string, string][] = [
+  ['Dubai Property Expertise', 'Strong familiarity with Dubai’s residential and investment property markets.'],
+  ['Experienced Consultants', 'A team of dedicated professionals providing reliable property guidance.'],
+  ['Trusted Client Relationships', 'Building lasting partnerships through transparent communication.'],
+  ['Complete Real Estate Support', 'Supporting customers throughout buying, selling, and renting.'],
+];
+/** Agency-only settings for a team member, keyed by member id (role shown publicly, visibility, featured). */
+export type TeamMeta = Record<string, { role?: string; visible?: boolean; featured?: boolean }>;
 export const LANG_SUG = ['English', 'Arabic', 'Hindi', 'Urdu', 'French', 'Russian', 'Mandarin', 'German', 'Spanish', 'Persian', 'Tagalog'];
 export const SPEC_SUG = ['Residential Sales', 'Waterfront Apartments', 'Off-Plan Properties', 'Luxury Villas', 'Residential Leasing', 'Commercial Leasing', 'Investment Apartments', 'Family Villas', 'Townhouses', 'Holiday Homes'];
 export const CLIENT_SUG = ['First-time buyers', 'Relocating families', 'International investors', 'Upsizing homeowners', 'Landlords', 'Tenants', 'Corporate clients', 'Retirees'];
@@ -65,6 +74,12 @@ export function withProfileDefaults<T extends Record<string, any>>(p: T): T {
   d.indexable = d.indexable !== false;
   d.showSocials = d.showSocials !== false;
   d.contactMode = d.contactMode === 'form' ? 'form' : 'all';
+  // agency-only
+  d.history ??= '';
+  d.founded ??= '';
+  d.address ??= '';
+  d.teamMeta = d.teamMeta && typeof d.teamMeta === 'object' ? d.teamMeta : {};
+  d.includeTeam = d.includeTeam !== false;
   d.defaultSort = normSort(d.defaultSort);
   return p;
 }
@@ -145,6 +160,11 @@ export function profileExtras(portfolio: any) {
     indexable: p.indexable,
     contactMode: p.contactMode,
     defaultSort: p.defaultSort,
+    history: p.history || '',
+    founded: p.founded ? String(p.founded) : '',
+    address: p.address || '',
+    teamMeta: p.teamMeta,
+    includeTeam: p.includeTeam,
   };
 }
 
@@ -170,38 +190,40 @@ export function areaRows(areas: string[], meta: AreaMeta = {}) {
 }
 
 /* ---------------- FAQ — answers are built only from the profile record ---------------- */
-export function faqItems(P: { areas: { name: string; primary: boolean; note: string }[]; languages: string[]; clients: string[]; specialties: string[]; approach: string; preferred: string; booking: string; active: any[] }) {
+export function faqItems(P: { areas: { name: string; primary: boolean; note: string }[]; languages: string[]; clients: string[]; specialties: string[]; approach: string; preferred: string; booking: string; active: any[]; agency?: boolean }) {
+  const A = !!P.agency, me = A ? 'we' : 'I', Me = A ? 'We' : 'I', my = A ? 'our' : 'my', My = A ? 'Our' : 'My';
   const all = P.areas.map((a) => a.name);
   const prim = P.areas.filter((a) => a.primary).map((a) => a.name);
   const note = P.areas.find((a) => a.note);
   const areasAns = all.length
-    ? 'I focus on ' + listJoin(prim.length ? prim : all) + (all.length > prim.length && prim.length ? ', and also cover ' + listJoin(all.filter((a) => prim.indexOf(a) < 0)) : '') + '.' + (note ? ' In ' + note.name + ': ' + note.note : '')
-    : 'Get in touch with the community you are interested in and I will tell you whether I can help.';
+    ? Me + ' focus on ' + listJoin(prim.length ? prim : all) + (all.length > prim.length && prim.length ? ', and also cover ' + listJoin(all.filter((a) => prim.indexOf(a) < 0)) : '') + '.' + (note ? ' In ' + note.name + ': ' + note.note : '')
+    : 'Get in touch with the community you are interested in and ' + me + ' will tell you whether ' + me + ' can help.';
   const intl = P.clients.join(' ').toLowerCase().indexOf('international') > -1;
-  const intlAns = (intl ? 'Yes. International investors and relocating buyers are among the clients I work with most. ' : 'Yes, I can work with buyers who are not yet in Dubai. ') + (P.languages.length ? 'I can advise in ' + listJoin(P.languages) + ', ' : '') + 'and viewings can be arranged by video call before you travel.';
+  const intlAns = (intl ? 'Yes. International investors and relocating buyers are among the clients ' + me + ' work with most. ' : 'Yes, ' + me + ' can work with buyers who are not yet in Dubai. ') + (P.languages.length ? Me + ' can advise in ' + listJoin(P.languages) + ', ' : '') + 'and viewings can be arranged by video call before you travel.';
   const hasOff = P.active.some((l) => l.completion === 'offplan') || P.specialties.join(' ').toLowerCase().indexOf('off-plan') > -1;
   const hasReady = P.active.some((l) => l.completion !== 'offplan');
   const readyAns = hasOff && hasReady
-    ? 'Yes. My current portfolio includes both ready homes and off-plan units, and I can explain payment plans, escrow registration and expected handover dates.'
-    : hasOff ? 'I focus mainly on off-plan purchases, including payment plans and handover timelines.' : 'Most of my current properties are ready to move into. Ask about off-plan options in the same communities.';
+    ? 'Yes. ' + My + ' current portfolio includes both ready homes and off-plan units, and ' + me + ' can explain payment plans, escrow registration and expected handover dates.'
+    : hasOff ? Me + ' focus mainly on off-plan purchases, including payment plans and handover timelines.' : 'Most of ' + my + ' current properties are ready to move into. Ask about off-plan options in the same communities.';
   const pref = ({ whatsapp: 'WhatsApp', call: 'a phone call', email: 'email', form: 'the enquiry form on this page' } as Record<string, string>)[P.preferred] || 'the enquiry form on this page';
   const viewAns = 'Send a message with the property you are interested in and your available times. The quickest way is ' + pref + '.' + (P.booking ? ' You can also book a slot online.' : '');
-  const compareAns = P.approach || 'Yes. Share your budget, preferred communities and timeline, and I will shortlist suitable properties with the key numbers side by side.';
-  const startAns = 'Use Contact Broker to share what you are looking for. I usually reply the same working day, and the first conversation is about your requirements — there is no obligation.';
+  const compareAns = P.approach || 'Yes. Share your budget, preferred communities and timeline, and ' + me + ' will shortlist suitable properties with the key numbers side by side.';
+  const startAns = 'Use Contact ' + (A ? 'Agency' : 'Broker') + ' to share what you are looking for. ' + (A ? 'Your enquiry is passed to the consultant who covers that community' : 'I usually reply the same working day') + ', and the first conversation is about your requirements — there is no obligation.';
   return [
-    ['Which areas do you specialize in?', areasAns],
+    ['Which areas ' + (A ? 'does the agency' : 'do you') + ' specialize in?', areasAns],
     ['Can you help international buyers?', intlAns],
     ['Do you handle both ready and off-plan properties?', readyAns],
     ['How can I arrange a viewing?', viewAns],
     ['Can you help me compare suitable properties?', compareAns],
-    ['How do I start working with you?', startAns],
+    ['How do I start working with ' + (A ? 'your agency' : 'you') + '?', startAns],
   ];
 }
 
 /* ---------------- readiness checklists (not rankings) ---------------- */
 type Check = { label: string; pass: boolean; hint: string; section: string };
 export type ReadinessGroup = { title: string; items: Check[]; passed: number; total: number; pct: number };
-export function readiness(D: any, ctx: { active: any[]; done: any[]; verified: boolean; published: boolean; fieldStatus: Record<string, string> }) {
+export function readiness(D: any, ctx: { active: any[]; done: any[]; verified: boolean; published: boolean; fieldStatus: Record<string, string>; agency?: boolean }) {
+  const A = !!ctx.agency;
   const has = (v: any) => (Array.isArray(v) ? v.length > 0 : !!String(v == null ? '' : v).trim());
   const text = [D.headline, D.intro, D.bio, D.journey, D.approach]
     .concat((D.whyPoints || []).map((w: WhyPoint) => w.title + ' ' + (w.desc || '')), (D.experienceEntries || []).map((x: ExperienceEntry) => [x.agencyName, x.position, x.desc].join(' ')), D.specialties || [], D.services || [], D.clients || [])
@@ -219,22 +241,22 @@ export function readiness(D: any, ctx: { active: any[]; done: any[]; verified: b
   const c = (label: string, pass: any, hint: string, section: string): Check => ({ label, pass: !!pass, hint, section });
   const groups: Record<string, Omit<ReadinessGroup, 'passed' | 'total' | 'pct'>> = {
     seo: { title: 'SEO Readiness', items: [
-      c('Title and meta description can be generated', has(D.displayName) && has(D.title) && has(D.intro), 'Add a professional title and short introduction.', 'identity'),
+      c('Title and meta description can be generated', has(D.displayName) && (A ? has(D.headline) : has(D.title)) && has(D.intro), A ? 'Add a headline and short introduction.' : 'Add a professional title and short introduction.', 'identity'),
       c('Clear heading structure', has(D.displayName) && aboutLen > 200, 'Write at least two About sections so the page has meaningful H2/H3 headings.', 'about'),
       c('Substantial unique profile content', aboutLen > 600, 'Add a fuller biography and specific details about how you work.', 'about'),
-      c('Images have descriptive alt text', has(D.photo), 'Upload a professional photo; alt text is generated from your name.', 'identity'),
+      c('Images have descriptive alt text', has(D.photo), A ? 'Upload your agency logo; alt text is generated from your name.' : 'Upload a professional photo; alt text is generated from your name.', 'identity'),
       c('Internal links to properties', ctx.active.length > 0, 'Publish at least one listing so the profile links to property pages.', 'portfolio'),
       c('Crawlable public page', D.isPublic !== false && D.indexable !== false, 'Turn on Public profile and Allow search engine indexing.', 'visibility'),
-      c('Structured data facts available', has(D.displayName) && areas.length > 0 && has(D.specialties), 'Add service areas and specializations for the ProfilePage / Person markup.', 'areas'),
+      c('Structured data facts available', has(D.displayName) && areas.length > 0 && has(D.specialties), 'Add service areas and specializations for the ProfilePage / ' + (A ? 'Organization' : 'Person') + ' markup.', 'areas'),
       c('Published and reachable', pub, 'Publish your profile.', 'visibility'),
     ] },
     ai: { title: 'AI Information Readiness', items: [
-      c('Identity is clear', has(D.displayName) && has(D.headline) && has(D.title), 'Make sure name, title and headline are filled in.', 'identity'),
-      c('Experience details', has(D.experience) && has(D.journey), 'Add years of experience and your professional journey.', 'identity'),
+      c('Identity is clear', has(D.displayName) && has(D.headline) && (A || has(D.title)), A ? 'Make sure the company name and headline are filled in.' : 'Make sure name, title and headline are filled in.', 'identity'),
+      c('Experience details', A ? has(D.history) : has(D.experience) && has(D.journey), A ? 'Add your company history.' : 'Add years of experience and your professional journey.', A ? 'about' : 'identity'),
       c('Areas of expertise named', has(D.specialties), 'Add property specializations.', 'about'),
       c('Relevant service areas with local notes', areas.length > 0 && areas.some((a) => has(meta[a]?.note)), 'Add service areas and a short local-knowledge note for at least one.', 'areas'),
       c('Verifiable external sources', sources > 0, 'Link a professional profile (e.g. LinkedIn) or business website.', 'contact'),
-      c('FAQ answers are specific', areas.length > 0 && has(D.languages) && has(D.approach), 'Areas, languages and your approach feed the FAQ answers.', 'about'),
+      c('FAQ answers are specific', areas.length > 0 && (A || has(D.languages)) && has(D.approach), A ? 'Areas and your company approach feed the FAQ answers.' : 'Areas, languages and your approach feed the FAQ answers.', 'about'),
       c('Facts are consistent', outside.length === 0, outside.length ? outside.length + ' active listing(s) are outside your service areas — add those areas or check the listings.' : '', 'areas'),
       c('No unconfirmed AI claims', unreviewed.length === 0, 'Confirm or edit fields marked Needs Your Input.', 'identity'),
     ] },
@@ -244,11 +266,11 @@ export function readiness(D: any, ctx: { active: any[]; done: any[]; verified: b
       c('Trust evidence visible', ctx.verified || (D.reviewSources || []).length > 0, 'Verify your credentials or link an external review page.', 'credentials'),
       c('Relevant properties to explore', ctx.active.length >= 3, 'Aim for at least three published listings.', 'portfolio'),
       c('Featured listings chosen', (D.featuredOrder || []).length > 0, 'Feature your best listings so they appear first.', 'portfolio'),
-      c('Works well on mobile', has(D.photo) && (!has(D.headline) || D.headline.length <= 120), 'A photo and a short headline keep the mobile hero clear.', 'identity'),
+      c('Works well on mobile', has(D.photo) && (!has(D.headline) || D.headline.length <= 120), A ? 'A logo and a short headline keep the mobile hero clear.' : 'A photo and a short headline keep the mobile hero clear.', 'identity'),
       c('Preferred contact method set', has(D.preferred), 'Choose a preferred contact method.', 'contact'),
     ] },
     trust: { title: 'Trust & Verification', items: [
-      c('BRN credential verified', ctx.verified, 'Submit your registration document in Account → Credentials.', 'credentials'),
+      c((A ? 'ORN' : 'BRN') + ' credential verified', ctx.verified, 'Submit your registration document in Account → Credentials.', 'credentials'),
       c('Claims confirmed', unreviewed.length === 0 && missingFs.length === 0, 'Review AI-generated fields that need verification or information.', 'identity'),
       c('Supporting references', (D.achievements || []).some((x: Achievement) => x.approved) || ctx.done.length > 0 || (D.reviewSources || []).length > 0, 'Add an approved case study, a review link, or show completed transactions.', 'reviews'),
       c('Published status', pub, 'Publish your profile.', 'visibility'),

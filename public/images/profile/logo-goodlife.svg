@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="GoodLife Real Estate logo">
+<rect width="160" height="160" rx="6" fill="#142326"/>
+<path d="M40 104 V64 l40 -26 l40 26 v40" fill="none" stroke="#a9c0af" stroke-width="8" stroke-linejoin="round"/>
+<path d="M66 104 v-24 h28 v24" fill="none" stroke="#ffffff" stroke-width="8" stroke-linejoin="round"/>
+<text x="80" y="134" text-anchor="middle" font-family="Inter Tight, Arial, sans-serif" font-weight="600" font-size="15" fill="#ffffff" letter-spacing="2">GOODLIFE</text>
+</svg>

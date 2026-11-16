@@ -607,6 +607,12 @@ export function brokerFromUser(u) {
         ? { id: u.agency.agencyId, name: u.agency.name, slug: u.agency.slug || '' }
         : null,
     brnNumber: pv.showBrn === false || !brn ? '' : String(brn),
+    // agency registration (shown on the agency profile)
+    orn: (u.credentials && u.credentials.orn) || '',
+    ornVerified: verified && !!(u.credentials && u.credentials.orn),
+    tradeLicence: (u.credentials && u.credentials.tradeLicence) || '',
+    tradeLicenceVerified: verified && !!(u.credentials && u.credentials.tradeLicence),
+    address: p.address || '',
   };
 }
 export function brokerPreview(u) {

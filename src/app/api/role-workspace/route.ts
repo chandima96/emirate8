@@ -129,7 +129,13 @@ export async function GET(request: Request) {
     const properties = [...uniqueProperties.values()]
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
       .map(listingFromProperty);
-    const team = (teamResult.docs as any[]).filter((item) => String(item.id) !== String(member.id)).map((item) => ({ id: item.id, name: item.name, email: item.email, accountType: item.accountType, agencyRole: item.profile?.agency?.agencyRole || 'agency_broker' }));
+    const team = (teamResult.docs as any[]).filter((item) => String(item.id) !== String(member.id)).map((item) => {
+      const portfolio = item.profile?.portfolio || {};
+      // Profile facts the agency dashboard's Team section shows (eligibility = verified BRN + public profile).
+      return { id: item.id, name: portfolio.displayName || item.name, email: item.email, accountType: item.accountType, agencyRole: item.profile?.agency?.agencyRole || 'agency_broker',
+        slug: portfolio.slug || '', photo: portfolio.photo || '', title: portfolio.title || '', areas: Array.isArray(portfolio.areas) ? portfolio.areas : [],
+        isPublic: portfolio.isPublic !== false && Boolean(portfolio.slug), verified: item.credentialStatus === 'verified' && Boolean(item.profile?.credentials?.brn) };
+    });
     return NextResponse.json({ properties, team, invitations: invitationResult.docs, notifications: notificationResult });
   }
   const developerNetworkMode = params.get('developerNetwork');

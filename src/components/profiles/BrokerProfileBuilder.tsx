@@ -35,6 +35,7 @@ import {
   SOCIAL_PLATFORMS,
   SPEC_SUG,
   WHY_EXAMPLES,
+  WHY_EXAMPLES_AGENCY,
   WHY_ICONS,
   experienceErr,
   readiness,
@@ -52,7 +53,7 @@ import './profiles.css';
  * (js/profile-builder.js). Same sections, markup and class names; styles from ./profiles.css.
  * The draft lives in user.portfolioDraft (auto-saved); Publish copies it to user.portfolio. */
 
-const SECTIONS: [string, string, string][] = [
+const SECTIONS_BROKER: [string, string, string][] = [
   ['identity', 'Identity & Branding', 'Your name, photo and the summary buyers see first.'],
   ['about', 'About & Expertise', 'Your story, the clients you help and how you work.'],
   ['areas', 'Service Areas', 'Communities you cover — entered once, used everywhere.'],
@@ -62,7 +63,23 @@ const SECTIONS: [string, string, string][] = [
   ['portfolio', 'Property Portfolio', 'Choose how your listings appear. Listings come from My Listings.'],
   ['visibility', 'Visibility & Optimization', 'Who can find your profile, its URL and readiness checks.'],
 ];
-const SECTION_ICON: Record<string, string> = { identity: 'person-badge', about: 'journal-richtext', areas: 'geo-alt', credentials: 'patch-check', contact: 'telephone', reviews: 'star', portfolio: 'buildings', visibility: 'globe2' };
+/* Agency dashboard (agency-profile.html): same editor, agency sections incl. Team. */
+const SECTIONS_AGENCY: [string, string, string][] = [
+  ['identity', 'Identity & Branding', 'Company name, logo and the summary visitors see first.'],
+  ['about', 'About & Services', 'Your company story, services and what sets the agency apart.'],
+  ['areas', 'Service Areas', 'Communities the agency covers — entered once, used everywhere.'],
+  ['credentials', 'Credentials & Licences', 'ORN, trade licence and certifications.'],
+  ['contact', 'Contact & Social Links', 'Business contact details and approved social profiles.'],
+  ['portfolio', 'Property Portfolio', 'Company and team listings from your inventory.'],
+  ['team', 'Team', 'Consultants shown on your agency profile.'],
+  ['reviews', 'Review Sources & Achievements', 'Links to your agency’s external review pages, plus approved achievements.'],
+  ['visibility', 'Visibility & Optimization', 'Who can find the profile, its URL and readiness checks.'],
+];
+const LABELS_AGENCY: Record<string, string> = {
+  displayName: 'Company name', intro: 'Short introduction', bio: 'Company biography', history: 'Company history', approach: 'Company mission / approach',
+  whyPoints: 'Why work with us', founded: 'Year founded', location: 'Agency location', address: 'Business address',
+};
+const SECTION_ICON: Record<string, string> = { team: 'people', identity: 'person-badge', about: 'journal-richtext', areas: 'geo-alt', credentials: 'patch-check', contact: 'telephone', reviews: 'star', portfolio: 'buildings', visibility: 'globe2' };
 const LABELS: Record<string, string> = {
   displayName: 'Display name', title: 'Professional title', headline: 'Professional headline', intro: 'Short professional description',
   experience: 'Years of experience', languages: 'Spoken languages', location: 'Location', bio: 'Full biography', journey: 'Career introduction',
@@ -74,10 +91,13 @@ const LABELS: Record<string, string> = {
 function sectionOf(path: string) {
   const k = path.split('.')[0];
   if (['displayName', 'title', 'headline', 'intro', 'location', 'experience', 'languages', 'photo'].includes(k)) return 'identity';
-  if (['bio', 'journey', 'experienceEntries', 'clients', 'specialties', 'services', 'whyPoints', 'approach'].includes(k)) return 'about';
+  if (['bio', 'journey', 'experienceEntries', 'clients', 'specialties', 'services', 'whyPoints', 'approach', 'history'].includes(k)) return 'about';
+  if (k === 'founded') return 'identity';
+  if (k === 'teamMeta') return 'team';
+  if (k === 'includeTeam') return 'portfolio';
   if (k === 'areas') return 'areas';
   if (k === 'credentials') return 'credentials';
-  if (['publicEmail', 'publicPhone', 'whatsapp', 'preferred', 'booking', 'website', 'socials'].includes(k)) return 'contact';
+  if (['publicEmail', 'publicPhone', 'whatsapp', 'preferred', 'booking', 'website', 'socials', 'address'].includes(k)) return 'contact';
   if (['reviewSources', 'achievements'].includes(k)) return 'reviews';
   if (k === 'defaultSort') return 'portfolio';
   return 'visibility';
@@ -88,6 +108,7 @@ const CRED_LABEL: Record<string, string> = { not_submitted: 'Not Submitted', pen
 const PHONE = /^\+?[\d\s()-]{7,20}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const REQUIRED_AI = ['title', 'intro', 'experience', 'languages', 'bio', 'specialties', 'publicEmail', 'publicPhone'];
+const REQUIRED_AI_AGENCY = ['headline', 'intro', 'founded', 'bio', 'services', 'publicEmail', 'publicPhone', 'website'];
 const AI_NOTES: Record<string, string> = {
   intro: 'Write a short description in your own words — it isn’t taken from your sources.',
   headline: 'Write a one-line headline — it isn’t taken from your sources.',
@@ -272,7 +293,7 @@ export function BrokerProfileBuilder() {
   // The builder renders client-side only (it reads the signed-in user), so the hash can be read up front.
   const [current, setCurrent] = useState(() => {
     const h = typeof window === 'undefined' ? '' : location.hash.replace('#', '');
-    return SECTIONS.some(([k]) => k === h) ? h : 'identity';
+    return [...SECTIONS_BROKER, ...SECTIONS_AGENCY].some(([k]) => k === h) ? h : 'identity';
   });
   const [fs, setFs] = useState<FS>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -294,11 +315,26 @@ export function BrokerProfileBuilder() {
   }, [D]);
 
   /* current agency = team membership (set when an agency adds the broker), never typed */
+  /** Agency admins edit the agency profile; brokers (independent or on an agency team) their own. */
+  const isA = user?.type === 'agency' && user?.agency?.agencyRole !== 'agency_broker';
+  const SECTIONS = isA ? SECTIONS_AGENCY : SECTIONS_BROKER;
+  const LABEL = (k: string) => (isA && LABELS_AGENCY[k]) || LABELS[k] || k;
   const currentAgency = user?.agency?.agencyRole === 'agency_broker' && user.agency.name ? { id: user.agency.agencyId, name: user.agency.name } : null;
+  /* agency: team, invitations and agency + team listings from the workspace API */
+  const [ws, setWs] = useState<{ loaded: boolean; team: any[]; invitations: any[]; properties: any[] }>({ loaded: false, team: [], invitations: [], properties: [] });
+  const loadWs = () =>
+    fetch('/api/role-workspace?agencyDashboard=1', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setWs({ loaded: true, team: (d.team || []).filter((m: any) => m.agencyRole === 'agency_broker'), invitations: (d.invitations || []).filter((x: any) => x.status === 'pending'), properties: d.properties || [] }))
+      .catch(() => setWs((w) => ({ ...w, loaded: true })));
+  useEffect(() => {
+    if (isA) loadWs();
+  }, [isA]);
   const agencyList = agencies();
   const dirty = isDirty(D);
   const published = currentUser().portfolio || {};
-  const profilePath = '/brokers/' + encodeURIComponent(published.slug || D.slug);
+  const agencyPath = isA && user.agency?.agencyId ? '/agencies/' + encodeURIComponent(user.agency.slug || user.agency.agencyId) : '';
+  const profilePath = agencyPath || '/brokers/' + encodeURIComponent(published.slug || D.slug);
   const verified = user.credentialStatus === 'verified';
 
   /* flush the pending draft save when leaving the page */
@@ -371,12 +407,12 @@ export function BrokerProfileBuilder() {
   };
   const validate = (): Err[] => {
     const E: Err[] = [];
-    const e = (path: string, msg: string, label?: string) => E.push({ path, section: sectionOf(path), msg, label: label || LABELS[path] || path });
-    if (empty(D.displayName)) e('displayName', 'Enter the name buyers should see.');
-    if (empty(D.title)) e('title', 'Add your professional title.');
+    const e = (path: string, msg: string, label?: string) => E.push({ path, section: sectionOf(path), msg, label: label || LABEL(path) });
+    if (empty(D.displayName)) e('displayName', isA ? 'Enter your company name.' : 'Enter the name buyers should see.');
+    if (!isA && empty(D.title)) e('title', 'Add your professional title.');
     if (empty(D.headline)) e('headline', 'Add a one-line headline.');
     else if (D.headline.length > 120) e('headline', 'Keep the headline to 120 characters.');
-    if (empty(D.intro)) e('intro', 'Add a short professional description.');
+    if (empty(D.intro)) e('intro', isA ? 'Add a short introduction.' : 'Add a short professional description.');
     else if (D.intro.length > 280) e('intro', 'Keep the introduction to 280 characters.');
     if (empty(D.bio)) e('bio', 'Add a biography so visitors understand your work.');
     if (!(D.areas || []).length) e('areas', 'Add at least one service area.');
@@ -396,8 +432,8 @@ export function BrokerProfileBuilder() {
     });
     (D.whyPoints || []).forEach((w: any, i: number) => {
       const t = String(w.title || '').trim(), d = String(w.desc || '').trim();
-      if (t && !d) E.push({ path: 'whyPoints.' + i, section: 'about', msg: 'Add a short description for “' + t + '”.', label: 'Why work with me card ' + (i + 1) });
-      if (!t && d) E.push({ path: 'whyPoints.' + i, section: 'about', msg: 'Add a title for this card.', label: 'Why work with me card ' + (i + 1) });
+      if (t && !d) E.push({ path: 'whyPoints.' + i, section: 'about', msg: 'Add a short description for “' + t + '”.', label: LABEL('whyPoints') + ' card ' + (i + 1) });
+      if (!t && d) E.push({ path: 'whyPoints.' + i, section: 'about', msg: 'Add a title for this card.', label: LABEL('whyPoints') + ' card ' + (i + 1) });
     });
     let curN = 0;
     (D.experienceEntries || []).forEach((x: any, i: number) => {
@@ -408,6 +444,7 @@ export function BrokerProfileBuilder() {
     if (curN > 1) e('experienceEntries', 'Only one entry can be your current position.', 'Professional journey');
     const si = slugIssue(D.slug || '');
     if (si) e('slug', si);
+    if (isA && D.founded && !/^(19[5-9]\d|20\d\d)$/.test(String(D.founded))) e('founded', 'Enter a year such as 2014.');
     return E;
   };
   const errors = showErr ? validate() : [];
@@ -454,14 +491,14 @@ export function BrokerProfileBuilder() {
     cur.portfolio = d;
     delete cur.portfolioDraft;
     saveUser(cur);
-    log('Published portfolio changes', 'person-badge');
+    log(isA ? 'Published agency portfolio changes' : 'Published portfolio changes', isA ? 'building' : 'person-badge');
     setFs((s) => Object.fromEntries(Object.entries(s).filter(([, v]) => v !== 'filled' && v !== 'edited')));
     setSnapshot(null);
     setTimeout(() => setBar('published'), 300);
     toast(
       <>
         Published. Your public profile now shows these changes.{' '}
-        <Link className="underline" href={'/brokers/' + encodeURIComponent(d.slug)}>
+        <Link className="underline" href={agencyPath || '/brokers/' + encodeURIComponent(d.slug)}>
           View it
         </Link>
       </>,
@@ -497,7 +534,7 @@ export function BrokerProfileBuilder() {
     router.push(profilePath);
   };
   const copyProfile = () => {
-    const u = absUrl('/brokers/' + encodeURIComponent(D.slug));
+    const u = absUrl(agencyPath || '/brokers/' + encodeURIComponent(D.slug));
     copyText(u).then(() => toast('Copied ' + u, { icon: 'link-45deg' }), () => window.prompt('Copy your profile link:', u));
   };
 
@@ -519,6 +556,8 @@ export function BrokerProfileBuilder() {
       let val = suggestions[key];
       let path = key;
       if (val == null || val === '') continue;
+      // The agency editor has no journey, client-type or BRN fields.
+      if (isA && ['journey', 'experienceEntries', 'clients', 'brn', 'agencyName', 'agencyWebsite', 'experience', 'languages', 'title'].includes(key)) continue;
       /* ---- structured values: each goes to its own editor, never overwriting what the broker entered ---- */
       if (key === 'brn') {
         brnFound = String(val);
@@ -649,7 +688,7 @@ export function BrokerProfileBuilder() {
         applied++;
       } else if (String(cur).trim() !== String(val).trim()) list.push({ path, cur, val });
     }
-    for (const p of REQUIRED_AI)
+    for (const p of isA ? REQUIRED_AI_AGENCY : REQUIRED_AI)
       if (empty(next[p]) && nfs[p] !== 'error') {
         nfs[p] = 'missing';
         nnotes[p] = nnotes[p] || AI_NOTES[p] || 'Not found in your sources — please add it.';
@@ -657,7 +696,7 @@ export function BrokerProfileBuilder() {
     if (nfs.whyPoints === 'filled') nnotes.whyPoints = 'Written from facts in your sources — check the wording.';
     setSnapshot(snap);
     // The BRN belongs to Account → Credentials (verified there), so it's suggested rather than filled.
-    if (brnFound && !user.credentials?.brn)
+    if (!isA && brnFound && !user.credentials?.brn)
       setTimeout(() => toast(<>Your sources list BRN {brnFound}. Add it in <Link className="underline" href="/account#credentials">Account → Credentials</Link> to get the Verified badge.</>, { icon: 'patch-check' }), 1500);
     return new Promise<AiSummary>((resolve) => {
       if (list.length) {
@@ -853,7 +892,7 @@ export function BrokerProfileBuilder() {
   /* ---------------- sections ---------------- */
   const secIdentity = () => (
     <>
-      <div className={'photo-up' + (photoDrag ? ' is-drag' : '')} data-field="photo">
+      <div className={'photo-up' + (isA ? ' photo-up--logo' : '') + (photoDrag ? ' is-drag' : '')} data-field="photo">
         <label
           className={'photo-up__avatar' + (D.photo ? ' has-photo' : '') + (photoBusy ? ' is-busy' : '')}
           htmlFor="up-photo"
@@ -871,7 +910,7 @@ export function BrokerProfileBuilder() {
           }}
         >
           {D.photo ? (
-            <img src={D.photo} alt={'Profile photo of ' + (D.displayName || 'you')} />
+            <img src={D.photo} alt={(isA ? 'Logo of ' : 'Profile photo of ') + (D.displayName || 'you')} />
           ) : (
             <span className="photo-up__initials" aria-hidden="true">
               {(D.displayName || user.name || '?').split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
@@ -879,7 +918,7 @@ export function BrokerProfileBuilder() {
           )}
           <span className="photo-up__overlay" aria-hidden="true">
             <Icon name={photoBusy ? 'arrow-repeat' : 'camera'} />
-            {photoBusy ? 'Uploading…' : D.photo ? 'Change' : 'Add photo'}
+            {photoBusy ? 'Uploading…' : D.photo ? 'Change' : isA ? 'Add logo' : 'Add photo'}
           </span>
           <span className="photo-up__badge" aria-hidden="true">
             <Icon name={D.photo ? 'pencil-fill' : 'plus-lg'} />
@@ -888,20 +927,35 @@ export function BrokerProfileBuilder() {
         <input className="file-hidden" type="file" id="up-photo" accept="image/jpeg,image/png,image/webp" aria-labelledby="up-photo-l" aria-describedby="up-photo-h" disabled={photoBusy} onChange={onPhoto} />
         <div className="photo-up__info">
           <span className="label" id="up-photo-l">
-            Profile photograph <span className="opt">(recommended)</span>
+            {isA ? 'Agency logo' : 'Profile photograph'} <span className="opt">(recommended)</span>
           </span>
           <p className="photo-up__lead" id="up-photo-h">
-            {D.photo ? 'This photo appears on your public profile, listing cards and in Find an Agent.' : 'Profiles with a photo get noticeably more enquiries. Without one, your initials are shown.'}
+            {isA
+              ? D.photo
+                ? 'Your logo appears in the agency hero, on listing cards, team cards and in search results.'
+                : 'A logo makes your agency recognisable across listings and search. Without one, your initials are shown.'
+              : D.photo
+                ? 'This photo appears on your public profile, listing cards and in Find an Agent.'
+                : 'Profiles with a photo get noticeably more enquiries. Without one, your initials are shown.'}
           </p>
           <ul className="photo-up__tips">
-            <li><Icon name="check2" />Clear, recent head-and-shoulders shot</li>
-            <li><Icon name="check2" />Plain background, good light, facing the camera</li>
+            {isA ? (
+              <>
+                <li><Icon name="check2" />Square PNG or JPG, at least 400 px</li>
+                <li><Icon name="check2" />Transparent or white background works best</li>
+              </>
+            ) : (
+              <>
+                <li><Icon name="check2" />Clear, recent head-and-shoulders shot</li>
+                <li><Icon name="check2" />Plain background, good light, facing the camera</li>
+              </>
+            )}
             <li><Icon name="check2" />JPG, PNG or WebP · up to 5 MB · square works best</li>
           </ul>
           <div className="photo-up__actions">
             <label className={'btn btn-outline btn-sm' + (photoBusy ? ' is-disabled' : '')} htmlFor="up-photo">
               <Icon name={D.photo ? 'arrow-repeat' : 'upload'} />
-              {D.photo ? 'Change photo' : 'Upload photo'}
+              {D.photo ? (isA ? 'Change logo' : 'Change photo') : isA ? 'Upload logo' : 'Upload photo'}
             </label>
             {D.photo && !photoBusy && (
               <button type="button" className="btn btn-ghost btn-sm danger" onClick={() => { set('photo', ''); setPhotoErr(''); }}>
@@ -909,7 +963,7 @@ export function BrokerProfileBuilder() {
                 Remove
               </button>
             )}
-            <span className="photo-up__drop">or drag a photo onto the circle</span>
+            <span className="photo-up__drop">or drag {isA ? 'your logo onto the tile' : 'a photo onto the circle'}</span>
           </div>
           {photoErr && (
             <p className="photo-up__err" role="alert">
@@ -919,6 +973,15 @@ export function BrokerProfileBuilder() {
           )}
         </div>
       </div>
+      {isA ? (
+        <div className="fgrid" style={{ marginTop: 22 }}>
+          {fText('displayName', 'Company name', { req: true, full: true, auto: 'organization', help: 'Your registered trading name. Used as the page title (H1).' })}
+          {fText('headline', 'Professional headline', { req: true, full: true, max: 120, ph: 'e.g. Villas, waterfront homes and leasing across Dubai', help: 'The main value proposition in the hero, e.g. what you sell and where.' })}
+          {fArea('intro', 'Short introduction', { req: true, full: true, max: 280, rows: 3, help: 'Shown in the hero and in agency directory summaries.' })}
+          {fText('location', 'Agency location', { ph: 'e.g. Business Bay, Dubai, UAE', help: 'Shown in the hero label and the About the agency card.' })}
+          {fText('founded', 'Year founded', { type: 'number', min: 1950, maxNum: new Date().getFullYear() })}
+        </div>
+      ) : (
       <div className="fgrid" style={{ marginTop: 22 }}>
         {fText('displayName', 'Display name', { req: true, auto: 'name', help: 'Used as your page title (H1) and across Emirate08.' })}
         {fText('title', 'Professional title', { req: true, ph: 'e.g. Senior Real Estate Consultant', help: 'Shown directly below your name.' })}
@@ -928,6 +991,7 @@ export function BrokerProfileBuilder() {
         {fText('experience', 'Years of experience', { type: 'number', min: 0, maxNum: 60, help: 'Years working in real estate.' })}
         {fTags('languages', 'Spoken languages', LANG_SUG, { help: 'Only languages you can advise clients in.' })}
       </div>
+      )}
     </>
   );
 
@@ -941,11 +1005,11 @@ export function BrokerProfileBuilder() {
       <div className="field ai-field full" data-ai={fs.whyPoints || ''} data-field="whyPoints">
         <div className="field-head">
           <span className="label" id="why-l">
-            Why work with me <span className="opt">(four cards)</span>
+            {isA ? 'Why work with us' : 'Why work with me'} <span className="opt">(four cards)</span>
           </span>
           <span className="ai-tags">{TAGS}</span>
         </div>
-        <p className="guide">What do clients appreciate most about working with you? Each card needs a short title and a one-line description.</p>
+        <p className="guide">What do clients appreciate most about working with {isA ? 'your agency' : 'you'}? Each card needs a short title and a one-line description.</p>
         {notes.whyPoints && <p className="ai-reason"><Icon name="info-circle" /><span>{notes.whyPoints}</span></p>}
         <div className="why-edit" role="group" aria-labelledby="why-l">
           {pts.map((w: any, i: number) => {
@@ -962,9 +1026,9 @@ export function BrokerProfileBuilder() {
                   ))}
                 </select>
                 <label className="sr-only" htmlFor={'why-t-' + i}>Card {i + 1} title</label>
-                <input className="input" id={'why-t-' + i} maxLength={40} value={w.title} placeholder={'e.g. ' + WHY_EXAMPLES[i][0]} aria-invalid={err ? true : undefined} onChange={(e) => setWhy(i, 'title', e.target.value)} />
+                <input className="input" id={'why-t-' + i} maxLength={40} value={w.title} placeholder={'e.g. ' + (isA ? WHY_EXAMPLES_AGENCY : WHY_EXAMPLES)[i][0]} aria-invalid={err ? true : undefined} onChange={(e) => setWhy(i, 'title', e.target.value)} />
                 <label className="sr-only" htmlFor={'why-d-' + i}>Card {i + 1} description</label>
-                <textarea className="textarea why-row__desc" id={'why-d-' + i} maxLength={120} rows={2} placeholder={'e.g. ' + WHY_EXAMPLES[i][1]} value={w.desc || ''} onChange={(e) => setWhy(i, 'desc', e.target.value)} />
+                <textarea className="textarea why-row__desc" id={'why-d-' + i} maxLength={120} rows={2} placeholder={'e.g. ' + (isA ? WHY_EXAMPLES_AGENCY : WHY_EXAMPLES)[i][1]} value={w.desc || ''} onChange={(e) => setWhy(i, 'desc', e.target.value)} />
                 {rowErr(err)}
               </div>
             );
@@ -1059,7 +1123,29 @@ export function BrokerProfileBuilder() {
     );
   };
 
-  const secAbout = () => (
+  const achNote = (
+    <div className="info-note full">
+      <Icon name="trophy" />
+      <span>
+        Notable achievements and real examples / case studies are entered once in{' '}
+        <button type="button" className="linkish" onClick={() => goto('reviews')}>
+          Review Sources & Achievements
+        </button>
+        , so they are not repeated here.
+      </span>
+    </div>
+  );
+  const secAbout = () => isA ? (
+    <div className="fgrid">
+      {fArea('bio', 'Company biography', { req: true, full: true, max: 2000, rows: 5, guide: 'Who is the agency, which teams do you have, and who do you serve?' })}
+      {fArea('history', 'Company history', { full: true, rows: 3, guide: 'When and how did the agency start, and how has it grown?' })}
+      {fArea('approach', 'Company mission / approach', { full: true, rows: 3, guide: 'How does the agency work with clients from first call to transfer?' })}
+      {fTags('services', 'Services', SERVICE_SUG, { full: true })}
+      {fTags('specialties', 'Property specializations', SPEC_SUG, { full: true, guide: 'Which property segments is the agency most experienced in?' })}
+      {whyEditor()}
+      {achNote}
+    </div>
+  ) : (
     <div className="fgrid">
       {fArea('bio', 'Full biography', { req: true, full: true, max: 2000, rows: 5, guide: 'In your own words: who you are and the kind of buyers you help.', help: 'Shown as “About Me”. Write it differently from your short introduction.' })}
       {fArea('journey', 'Career introduction', { full: true, rows: 3, guide: 'Shown at the top of “My Professional Journey”. How did you start in real estate, and how has your work developed?' })}
@@ -1153,10 +1239,37 @@ export function BrokerProfileBuilder() {
     const st = !brn ? 'not_submitted' : user.credentialStatus === 'verified' ? (expires && expires < new Date().toISOString().slice(0, 10) ? 'expired' : 'verified') : user.credentialStatus === 'rejected' ? 'rejected' : 'pending';
     const icon = st === 'verified' ? 'patch-check-fill' : st === 'not_submitted' ? 'patch-question' : 'patch-exclamation';
     const extra = D.credentials || [];
+    const orn = user.credentials?.orn || '', licence = user.credentials?.tradeLicence || '';
+    const ast = (num: string) => (!num ? 'not_submitted' : user.credentialStatus === 'verified' ? 'verified' : user.credentialStatus === 'rejected' ? 'rejected' : 'pending');
+    const credCard = (title: string, issuer: string, num: string, st: string, doc: string) => (
+      <div className="cred-primary">
+        <span style={st === 'verified' ? undefined : { color: 'var(--warn)' }}>
+          <Icon name={st === 'verified' ? 'patch-check-fill' : st === 'not_submitted' ? 'patch-question' : 'patch-exclamation'} />
+        </span>
+        <div>
+          <b>{title}</b> <span className={'state-badge sb-' + st}>{CRED_LABEL[st]}</span>
+          <dl>
+            <div><dt>Issuer</dt><dd>{issuer}</dd></div>
+            <div><dt>Number</dt><dd>{num || '—'}</dd></div>
+            <div><dt>Document</dt><dd>{doc}</dd></div>
+          </dl>
+        </div>
+        <Link className="btn btn-outline btn-sm" href="/account#credentials">
+          <Icon name="box-arrow-up-right" />
+          Manage Credentials
+        </Link>
+      </div>
+    );
     const setCred = (i: number, patch: any) => mutate('credentials', (n) => { n.credentials[i] = { ...n.credentials[i], ...patch, verified: false }; });
     return (
       <>
-        <p className="sub-h">Registration from your account</p>
+        <p className="sub-h">{isA ? 'Registration & licence from your account' : 'Registration from your account'}</p>
+        {isA ? (
+          <>
+            {credCard('RERA Office Registration (ORN)', 'Dubai Land Department / RERA', orn, ast(orn), ast(orn) === 'verified' ? 'Checked' : orn ? 'Uploaded' : 'Not uploaded')}
+            <div style={{ marginTop: 8 }}>{credCard('Trade Licence', 'Dubai Department of Economy and Tourism', licence, ast(licence), user.credentials?.licenceFile ? (ast(licence) === 'verified' ? 'Checked' : 'Uploaded') : 'Not uploaded')}</div>
+          </>
+        ) : (
         <div className="cred-primary">
           <span style={st === 'verified' ? undefined : { color: 'var(--warn)' }}>
             <Icon name={icon} />
@@ -1175,6 +1288,7 @@ export function BrokerProfileBuilder() {
             Manage Credentials
           </Link>
         </div>
+        )}
         <div className="info-note" style={{ marginTop: 10 }}>
           <Icon name="info-circle" />
           <span>These records live in Account → Credentials and are not duplicated here. A verified badge appears publicly only when the underlying record is verified. Emirate08 does not simulate government verification.</span>
@@ -1228,7 +1342,7 @@ export function BrokerProfileBuilder() {
           {fText('publicPhone', 'Business phone', { type: 'tel', auto: 'tel', ph: '+971' })}
           {fText('whatsapp', 'WhatsApp Business number', { type: 'tel', ph: '+971', help: 'Include the country code. Powers the WhatsApp buttons.' })}
           {fSelect('preferred', 'Preferred contact method', [['whatsapp', 'WhatsApp'], ['call', 'Phone call'], ['email', 'Email'], ['form', 'Enquiry form']])}
-          {fText('booking', 'Appointment booking URL', { type: 'url', ph: 'https://' })}
+          {isA ? fText('address', 'Business address', { full: true, ph: 'Office, building, area, emirate' }) : fText('booking', 'Appointment booking URL', { type: 'url', ph: 'https://' })}
           {fText('website', 'Existing website', { type: 'url', ph: 'https://' })}
         </div>
         <p className="info-note" style={{ marginTop: 12 }}>
@@ -1386,7 +1500,15 @@ export function BrokerProfileBuilder() {
   };
 
   /* listings: featured switches apply to listings immediately (same as before); order lives in the draft */
-  const ownListings = data().listings;
+  /* agency: its own listings plus the team's, from the workspace API (own ones stay editable locally) */
+  const ownListings: any[] = isA
+    ? [...data().listings, ...ws.properties].filter((l, i, all) => all.findIndex((x) => String(x.id) === String(l.id)) === i).map((l) => ({ ...l, display: l.display || {} }))
+    : data().listings;
+  const isOwn = (l: any) => data().listings.some((x) => String(x.id) === String(l.id));
+  const agentOf = (l: any) => {
+    const id = String(l.ownerMemberId ?? l.brokerId ?? '');
+    return ws.team.find((m) => String(m.id) === id) || null;
+  };
   const placement = (l: any) => {
     if (l.status === 'published' && l.display.visible !== false) return 'active';
     if ((l.status === 'sold' || l.status === 'rented') && l.display.visible !== false) return 'completed';
@@ -1421,6 +1543,15 @@ export function BrokerProfileBuilder() {
             Listings come from <Link href="/listings">My Listings</Link> — the same inventory used by the listing editor. Draft, pending, unpublished and archived listings never appear publicly; sold and rented ones appear only under Sold.
           </span>
         </div>
+        {isA && (
+          <div className="switch" style={{ marginTop: 14, borderTop: 0 }}>
+            <div>
+              <b id="sw-includeTeam">Include team members’ listings</b>
+              <p>Show published listings from consultants on your public team, with the assigned agent on each card.</p>
+            </div>
+            <input type="checkbox" checked={D.includeTeam !== false} aria-labelledby="sw-includeTeam" onChange={(e) => set('includeTeam', e.target.checked)} />
+          </div>
+        )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', justifyContent: 'space-between', margin: '16px 0 10px' }}>
           <p className="small">
             <b>{counts.a}</b> public · <b>{counts.c}</b> completed · <b>{counts.h}</b> not public
@@ -1449,6 +1580,7 @@ export function BrokerProfileBuilder() {
                 <tr>
                   <th scope="col">Thumbnail</th>
                   <th scope="col">Property title</th>
+                  {isA && <th scope="col">Agent</th>}
                   <th scope="col">Location</th>
                   <th scope="col">Status</th>
                   <th scope="col">Public visibility</th>
@@ -1460,6 +1592,7 @@ export function BrokerProfileBuilder() {
                 {mine.map((l) => {
                   const isPub = l.status === 'published';
                   const on = !!l.display.portfolioFeatured;
+                  const canFeature = isPub && (!isA || isOwn(l));
                   const p = placement(l);
                   return (
                     <tr key={l.id}>
@@ -1471,13 +1604,14 @@ export function BrokerProfileBuilder() {
                           {l.price ? ' · AED ' + Number(l.price).toLocaleString('en-US') + (l.purpose === 'rent' ? '/yr' : '') : ''}
                         </div>
                       </td>
+                      {isA && <td>{agentOf(l)?.name || 'Agency'}</td>}
                       <td>{l.area || ''}</td>
                       <td><span className={'state-badge sb-' + (l.status === 'pending' ? 'pending-review' : l.status)}>{ST_LABEL[l.status] || l.status}</span></td>
                       <td>
                         {p === 'active' ? <span className="vis-ok">Shown in Property Listings</span> : p === 'completed' ? (D.showClosed !== false ? <span className="vis-ok">Shown in Sold</span> : <span className="vis-off">Hidden (history off)</span>) : <span className="vis-off">Not public</span>}
                       </td>
                       <td>
-                        <button type="button" className="star-btn" aria-pressed={on} disabled={!isPub} aria-label={(on ? 'Unfeature ' : 'Feature ') + (l.title || 'listing')} title={isPub ? (on ? 'Unfeature' : 'Feature') : 'Only published listings can be featured'} onClick={() => toggleFeatured(l.id)}>
+                        <button type="button" className="star-btn" aria-pressed={on} disabled={!canFeature} aria-label={(on ? 'Unfeature ' : 'Feature ') + (l.title || 'listing')} title={canFeature ? (on ? 'Unfeature' : 'Feature') : isPub ? 'Team members feature their own listings' : 'Only published listings can be featured'} onClick={() => toggleFeatured(l.id)}>
                           <Icon name={on ? 'star-fill' : 'star'} />
                         </button>
                       </td>
@@ -1488,9 +1622,11 @@ export function BrokerProfileBuilder() {
                               View<span className="sr-only"> {l.title}</span>
                             </Link>
                           )}
-                          <Link href={routes.editListing(l.id)}>
-                            Edit<span className="sr-only"> {l.title} in the listing editor</span>
-                          </Link>
+                          {(!isA || isOwn(l)) && (
+                            <Link href={routes.editListing(l.id)}>
+                              Edit<span className="sr-only"> {l.title} in the listing editor</span>
+                            </Link>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1540,9 +1676,143 @@ export function BrokerProfileBuilder() {
     );
   };
 
+  const [invite, setInvite] = useState({ name: '', email: '', busy: false, err: '' });
+  const sendInvite = async () => {
+    if (!invite.name.trim() || !RX.email.test(invite.email.trim())) return setInvite({ ...invite, err: 'Enter a name and a valid work email.' });
+    setInvite({ ...invite, busy: true, err: '' });
+    const r = await fetch('/api/role-workspace', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'invite-team', name: invite.name.trim(), email: invite.email.trim(), role: 'agency_broker' }) }).catch(() => null);
+    const out = r ? await r.json().catch(() => ({})) : {};
+    if (!r || !r.ok) return setInvite({ ...invite, busy: false, err: out.error || 'Could not send the invitation.' });
+    setInvite({ name: '', email: '', busy: false, err: '' });
+    toast('Invitation sent. They appear publicly only after joining and verifying their BRN.', { icon: 'send' });
+    loadWs();
+  };
+  const cancelInvite = async (id: string) => {
+    await fetch('/api/role-workspace', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'cancel-team-invite', id }) }).catch(() => null);
+    loadWs();
+  };
+  const setMeta = (id: string, patch: any) => mutate('teamMeta', (n) => { n.teamMeta[id] = { ...(n.teamMeta[id] || {}), ...patch }; });
+  const secTeam = () => {
+    const team = ws.team;
+    const meta = D.teamMeta || {};
+    return (
+      <>
+        <div className="info-note">
+          <Icon name="people" />
+          <span>Only consultants with a verified BRN and a public profile can appear on your agency page. Their personal reviews stay on their own profiles and are not mixed into agency reviews.</span>
+        </div>
+        {!ws.loaded ? (
+          <div className="empty-box" style={{ marginTop: 14 }}><Icon name="hourglass-split" />Loading your team…</div>
+        ) : team.length ? (
+          <div className="tbl-wrap" style={{ marginTop: 14 }}>
+            <table className="tbl">
+              <caption className="sr-only">Team members</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Consultant</th>
+                  <th scope="col">Role</th>
+                  <th scope="col">Listings</th>
+                  <th scope="col">Eligibility</th>
+                  <th scope="col">Visible</th>
+                  <th scope="col">Featured</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {team.map((m: any) => {
+                  const id = String(m.id);
+                  const eligible = m.verified && m.isPublic;
+                  const visible = eligible && meta[id]?.visible !== false;
+                  const count = ws.properties.filter((l) => String(l.ownerMemberId ?? l.brokerId ?? '') === id && l.status === 'published').length;
+                  return (
+                    <tr key={id}>
+                      <td>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          {m.photo ? <img src={m.photo} alt="" width={36} height={36} style={{ borderRadius: '50%', objectFit: 'cover' }} /> : <span className="avatar" style={{ width: 36, height: 36 }} aria-hidden="true">{String(m.name || '?').split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}</span>}
+                          <div>
+                            <div className="t-title">{m.name}</div>
+                            <div className="t-sub">{(m.areas || [])[0] || m.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <label className="sr-only" htmlFor={'tm-r-' + id}>Role for {m.name}</label>
+                        <input className="input" style={{ height: 36, minWidth: 160 }} id={'tm-r-' + id} value={meta[id]?.role ?? m.title ?? ''} placeholder="e.g. Sales Consultant" onChange={(e) => setMeta(id, { role: e.target.value })} />
+                      </td>
+                      <td>{count}</td>
+                      <td>{eligible ? <span className="vis-ok">Eligible</span> : <span className="vis-off">{m.verified ? 'Profile not public' : 'BRN not verified'}</span>}</td>
+                      <td>
+                        <div className="switch" style={{ padding: 0, border: 0 }}>
+                          <input type="checkbox" checked={visible} disabled={!eligible} aria-label={'Show ' + m.name + ' on the agency profile'} onChange={(e) => setMeta(id, { visible: e.target.checked, ...(e.target.checked ? {} : { featured: false }) })} />
+                        </div>
+                      </td>
+                      <td>
+                        <button type="button" className="star-btn" aria-pressed={!!meta[id]?.featured} disabled={!visible} aria-label={'Feature ' + m.name} onClick={() => setMeta(id, { featured: !meta[id]?.featured })}>
+                          <Icon name={meta[id]?.featured ? 'star-fill' : 'star'} />
+                        </button>
+                      </td>
+                      <td>
+                        <div className="act-links">
+                          {m.slug ? <Link href={'/brokers/' + encodeURIComponent(m.slug)} target="_blank" rel="noopener">Profile</Link> : <span className="xs muted">No profile yet</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-box" style={{ marginTop: 14 }}>
+            <Icon name="people" />
+            No team members yet. Invite consultants below; the public Team tab shows an empty state until someone is eligible.
+          </div>
+        )}
+        <p className="sub-h">Invite a consultant</p>
+        <div className="rep-item">
+          <div className="rep-grid">
+            <div>
+              <label className="label" htmlFor="iv-name">Name</label>
+              <input className="input" id="iv-name" autoComplete="off" value={invite.name} onChange={(e) => setInvite({ ...invite, name: e.target.value, err: '' })} />
+            </div>
+            <div>
+              <label className="label" htmlFor="iv-email">Work email</label>
+              <input className="input" type="email" id="iv-email" autoComplete="off" value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value, err: '' })} />
+            </div>
+            <div className="full" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-outline" disabled={invite.busy} onClick={sendInvite}>
+                <Icon name="send" />
+                {invite.busy ? 'Sending…' : 'Send invitation'}
+              </button>
+              <Link className="link small" href="/agency-team">Manage team & roles</Link>
+            </div>
+          </div>
+          {rowErr(invite.err)}
+        </div>
+        {!!ws.invitations.length && (
+          <ul className="rep" style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+            {ws.invitations.map((x: any) => (
+              <li key={x.id} className="rep-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  <b>{x.name || x.email}</b> <span className="xs muted">{x.email}</span>
+                </span>
+                <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className="state-badge sb-pending">Invitation pending</span>
+                  <button type="button" className="btn btn-ghost btn-sm danger" onClick={() => cancelInvite(String(x.id))}>
+                    Cancel
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </>
+    );
+  };
+
   const active = ownListings.filter((l) => placement(l) === 'active');
   const done = D.showClosed !== false ? ownListings.filter((l) => placement(l) === 'completed') : [];
-  const groups = readiness(D, { active, done, verified, published: true, fieldStatus: fs });
+  const groups = readiness(D, { active, done, verified, published: true, fieldStatus: fs, agency: isA });
 
   const secVisibility = () => {
     const when = published.publishedAt || published.updatedAt;
@@ -1573,9 +1843,29 @@ export function BrokerProfileBuilder() {
           <div>Published version<b>{when ? new Date(when).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : 'Never published'}</b></div>
           <div>Draft<b>{dirty ? 'Has unpublished changes' : 'Matches published version'}</b></div>
           <div>Search engines<b>{published.isPublic !== false && published.indexable !== false ? 'Indexable' : 'Not indexed (noindex)'}</b></div>
-          <div>Find an Agent<b>{published.isPublic !== false && published.searchable !== false ? 'Listed' : 'Not listed'}</b></div>
+          <div>{isA ? 'Agency directory' : 'Find an Agent'}<b>{published.isPublic !== false && published.searchable !== false ? 'Listed' : 'Not listed'}</b></div>
         </div>
         <p className="sub-h">Public profile URL</p>
+        {isA && agencyPath ? (
+          <div className="field" data-field="slug">
+            <span className="label">Profile address</span>
+            <div className="slug">
+              <span>emirate8.com/agencies/</span>
+              <input value={decodeURIComponent(agencyPath.replace('/agencies/', ''))} readOnly aria-describedby="agency-url-h" />
+            </div>
+            <div className="media-actions">
+              <button type="button" className="btn btn-outline btn-sm" onClick={copyProfile}>
+                <Icon name="copy" />
+                Copy URL
+              </button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={viewPublic}>
+                <Icon name="box-arrow-up-right" />
+                Open public page
+              </button>
+            </div>
+            <p className="hint" id="agency-url-h">Your agency address comes from your registered agency on Emirate08.</p>
+          </div>
+        ) : (
         <div className={'field' + (errAt('slug') ? ' has-error' : '')} data-field="slug">
           <label className="label" htmlFor="slug-in">Profile address</label>
           <div className="slug">
@@ -1598,10 +1888,11 @@ export function BrokerProfileBuilder() {
           </div>
           <p className="hint">Lowercase letters, numbers and hyphens. Once published, your profile opens at the new address — share the new link afterwards.</p>
         </div>
+        )}
         <p className="sub-h">Visibility settings</p>
         <div>
           {sw('isPublic', 'Public profile', 'When off, the page shows “profile unavailable” to visitors and is excluded from search engines.')}
-          {sw('searchable', 'Show in Find an Agent', 'Lists you in the Emirate08 directory. Turning this off does not make your page private — it stays reachable by its link.', D.isPublic === false)}
+          {sw('searchable', isA ? 'Show in agency directory' : 'Show in Find an Agent', 'Lists you in the Emirate08 directory. Turning this off does not make your page private — it stays reachable by its link.', D.isPublic === false)}
           {sw('indexable', 'Allow search engine indexing', 'Separate from the directory: controls whether search engines may index this page.', D.isPublic === false)}
           {sw('showClosed', 'Show sold & rented history', 'Shows completed transactions in the Sold tab. Turn off to hide the tab entirely.')}
           {sw('showSocials', 'Show social links', 'Shows the social profiles you added in Contact & Social Links.')}
@@ -1663,7 +1954,7 @@ export function BrokerProfileBuilder() {
       </>
     );
   };
-  const RENDER: Record<string, () => ReactNode> = { identity: secIdentity, about: secAbout, areas: secAreas, credentials: secCredentials, contact: secContact, reviews: secReviews, portfolio: secPortfolio, visibility: secVisibility };
+  const RENDER: Record<string, () => ReactNode> = { identity: secIdentity, about: secAbout, areas: secAreas, credentials: secCredentials, contact: secContact, reviews: secReviews, portfolio: secPortfolio, team: secTeam, visibility: secVisibility };
 
   /* ---------------- shell ---------------- */
   const idx = SECTIONS.findIndex(([k]) => k === current);
@@ -1679,14 +1970,15 @@ export function BrokerProfileBuilder() {
   };
   /** A section counts as complete when what buyers rely on is in place (not every optional field). */
   const secDone: Record<string, boolean> = {
-    identity: !empty(D.displayName) && !empty(D.title) && !empty(D.headline) && !empty(D.intro) && !!D.photo,
+    identity: !empty(D.displayName) && (isA || !empty(D.title)) && !empty(D.headline) && !empty(D.intro) && !!D.photo,
+    team: ws.team.some((m: any) => m.verified && m.isPublic && D.teamMeta?.[String(m.id)]?.visible !== false),
     about: !empty(D.bio) && (D.specialties || []).length > 0,
     areas: (D.areas || []).length > 0,
     credentials: verified,
     contact: !empty(D.publicEmail) || !empty(D.publicPhone),
     reviews: (D.reviewSources || []).length > 0,
     portfolio: active.length > 0,
-    visibility: !slugIssue(D.slug || '') && D.isPublic !== false,
+    visibility: (isA || !slugIssue(D.slug || '')) && D.isPublic !== false,
   };
   const doneCount = Object.values(secDone).filter(Boolean).length;
   const n = { ai: 0, edited: 0, missing: 0, verify: 0, error: 0 } as Record<string, number>;
@@ -1697,19 +1989,35 @@ export function BrokerProfileBuilder() {
   const liveWhen = published.publishedAt || published.updatedAt;
 
   const barState = hasErrors ? 'errors' : bar;
-  const preview_b = preview ? { ...brokerFromUser({ ...currentUser(), portfolio: D }), isPublic: true } : null;
+  const preview_b = preview
+    ? {
+        ...brokerFromUser({ ...currentUser(), portfolio: D }),
+        isPublic: true,
+        ...(isA
+          ? {
+              type: 'agency',
+              agencyRole: 'agency_admin',
+              team: ws.team.filter((m: any) => m.isPublic).map((m: any) => ({ ...m, brnVerified: m.verified, specialties: [], languages: [] })),
+            }
+          : {}),
+      }
+    : null;
 
   return (
     <div className="e8p e8p--builder">
       <div className="container">
         <div className="dash-head">
           <div>
-            <p className="eyebrow">Your professional presence</p>
+            <p className="eyebrow">{isA ? 'Your agency presence' : 'Your professional presence'}</p>
             <div className="dash-head__meta" style={{ marginTop: 4 }}>
-              <h1>Build Your Professional Portfolio</h1>
+              <h1>{isA ? 'Build Your Agency Portfolio' : 'Build Your Professional Portfolio'}</h1>
               <span className={'status-pill status-pill--' + pill[0]}>{pill[1]}</span>
             </div>
-            <p className="lead">Create a professional online presence that showcases your expertise, properties, and achievements. Help potential buyers discover, evaluate, and contact you—all from one place.</p>
+            <p className="lead">
+              {isA
+                ? 'Showcase your agency, property portfolio, professional team, and expertise through one powerful online presence designed to attract potential clients.'
+                : 'Create a professional online presence that showcases your expertise, properties, and achievements. Help potential buyers discover, evaluate, and contact you—all from one place.'}
+            </p>
             <p className="xs muted" style={{ marginTop: 6 }}>
               {dirty ? 'Live version published ' + (liveWhen ? new Date(liveWhen).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '') + ' · unpublished changes in draft' : 'Live version matches your draft'}
             </p>
@@ -1720,7 +2028,7 @@ export function BrokerProfileBuilder() {
         <div style={{ marginTop: 20 }}>
           <AiAutofill
             id="profile-ai"
-            context="broker-profile"
+            context={isA ? 'agency-profile' : 'broker-profile'}
             defaultOpen={typeof window !== 'undefined' && location.hash === '#autofill'}
             current={D}
             onApply={applyAutofill}
@@ -1950,7 +2258,7 @@ export function BrokerProfileBuilder() {
           <div className="pv__stage">
             <div className="pv__frame">
               <div className="pv__scroll">
-                <BrokerPublicProfile preview b={preview_b} listings={ownListings} notices={['Preview of your unsaved draft. Changes are not public until you publish.']} />
+                <BrokerPublicProfile preview b={preview_b} profilePath={agencyPath || undefined} listings={ownListings.map((l) => ({ ...l, brokerId: l.ownerMemberId ?? l.brokerId }))} notices={['Preview of your unsaved draft. Changes are not public until you publish.']} />
               </div>
             </div>
           </div>
@@ -1973,7 +2281,7 @@ export function BrokerProfileBuilder() {
             <div className="dlg__body">
               {conflicts.list.map((c, k) => (
                 <fieldset className="conf-row" key={c.path}>
-                  <legend className="label">{LABELS[c.path] || c.path}</legend>
+                  <legend className="label">{LABEL(c.path)}</legend>
                   <div className="cur"><span className="xs muted">Yours</span><br />{String(c.cur)}</div>
                   <div className="new"><span className="xs muted">From your sources</span><br />{String(c.val)}</div>
                   <div className="opts">

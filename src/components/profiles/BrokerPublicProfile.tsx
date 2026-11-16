@@ -10,6 +10,7 @@ import { addEnquiry, agencies, brokerUrl, isSaved, listingUrl, photoOf, toggleSa
 import { absUrl, copyText } from '@/lib/share';
 import { digits } from '@/lib/utils';
 import {
+  DEFAULT_AGENCY_COVER,
   DEFAULT_BROKER_COVER,
   PREFERRED_LABEL,
   areaRows,
@@ -26,6 +27,7 @@ import './profiles.css';
  * Rendered inside the marketplace header/footer, and inside the dashboard's Quick Preview (`preview`). */
 
 const SOCIAL_ICON: Record<string, string> = { Instagram: 'instagram', Facebook: 'facebook', LinkedIn: 'linkedin', TikTok: 'tiktok', YouTube: 'youtube', X: 'twitter-x', Threads: 'threads' };
+const SOCIAL_ORDER = ['Instagram', 'LinkedIn', 'Facebook', 'YouTube', 'TikTok', 'X', 'Threads'];
 const REVIEW_ICON: Record<string, string> = { 'Google Reviews': 'google', 'Facebook Reviews': 'facebook', Trustpilot: 'star', 'Property Finder': 'house-door', Bayut: 'buildings' };
 const STEPS: [string, string][] = [
   ['Understand Your Requirements', 'Budget, timeline, financing and how you will use the property.'],
@@ -57,19 +59,23 @@ type Props = {
   /** Owner / preview notices shown above the header card. */
   notices?: string[];
   noticeAction?: ReactNode;
+  /** Canonical page path (agency pages live at /agencies/[id]). */
+  profilePath?: string;
 };
 
-export function BrokerPublicProfile({ b, listings, preview = false, notices = [], noticeAction }: Props) {
+export function BrokerPublicProfile({ b, listings: allListings, preview = false, notices = [], noticeAction, profilePath }: Props) {
   const { toast } = useFeedback();
   const { user } = useSession();
   useStoreVersion();
   const hydrated = useHydrated();
   const name: string = b.name;
+  /* Agency variant (agency-public-profile.html): dark hero, Team tab, company About sections. */
+  const A = b.type === 'agency';
   const first = name.split(' ')[0];
   const contactAll = b.contactMode !== 'form';
   const wa = contactAll && digits(b.whatsapp) ? `https://wa.me/${digits(b.whatsapp)}?text=${encodeURIComponent(`Hello ${name}, I found your profile on Emirate08.`)}` : '';
   const phone = contactAll ? b.phone : '';
-  const path = brokerUrl(b);
+  const path = profilePath || brokerUrl(b);
   const url = hydrated ? absUrl(path) : path;
 
   /* current agency = platform relationship only */
@@ -78,6 +84,17 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
     ? { name: b.currentAgency.name, href: '/agencies/' + encodeURIComponent(agencyRec?.id ?? b.currentAgency.id), logo: agencyRec?.photo || '' }
     : null;
 
+  /* Team: visible, BRN-verified consultants with a public profile; role and featured come from the agency dashboard. */
+  const teamMeta = b.teamMeta || {};
+  const team: any[] = A
+    ? (b.team || [])
+        .filter((m: any) => teamMeta[m.id]?.visible !== false && m.brnVerified !== false)
+        .map((m: any) => ({ ...m, role: teamMeta[m.id]?.role || m.title || 'Consultant', featured: !!teamMeta[m.id]?.featured }))
+        .sort((x: any, y: any) => (y.featured ? 1 : 0) - (x.featured ? 1 : 0))
+    : [];
+  const teamById = new Map(team.map((m: any) => [String(m.id), m]));
+  // "Include team members' listings" off → only listings the agency itself owns.
+  const listings = A && b.includeTeam === false ? allListings.filter((l) => !teamById.has(String(l.brokerId ?? l.broker?.id ?? ''))) : allListings;
   const active = listings.filter(isActive);
   const showSold = b.showClosed !== false;
   const doneAll = listings.filter(isDone);
@@ -98,9 +115,12 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
   const socials: any[] = (b.socials || []).filter((s: any) => safeUrl(s.url));
   const reviewSources: any[] = (b.reviewSources || []).filter((x: any) => safeUrl(x.url));
   const designation = b.title || (agency ? 'Real Estate Broker' : 'Independent Real Estate Broker');
+  const orn = A ? String(b.orn || b.agency?.orn || '').replace(/^ORN\s*/i, '') : '';
+  const ornVerified = A && !!b.ornVerified;
+  const teamLangs = uniq(team.flatMap((m: any) => m.languages || [])).sort();
 
   /* ---------------- tabs ---------------- */
-  const tabs: [string, string, number | null][] = [['listings', 'Property Listings', active.length], ['about', 'About', null], ['reviews', 'Reviews', reviewSources.length]];
+  const tabs: [string, string, number | null][] = [['listings', 'Property Listings', active.length], ['about', 'About', null], ...(A ? [['team', 'Team', team.length] as [string, string, number]] : []), ['reviews', 'Reviews', reviewSources.length]];
   if (showSold) tabs.push(['sold', 'Sold', completed.length]);
   /* #about / #reviews / #sold deep links open that tab (read after hydration, so SSR stays on Listings) */
   const [picked, setTab] = useState<string | null>(null);
@@ -164,6 +184,16 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
     .filter((l) => (sf.kind === 'all' || l.status === sf.kind) && (sf.ptype === 'all' || l.type === sf.ptype) && (sf.area === 'all' || l.area === sf.area))
     .sort((a, c) => String(c.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 
+  /* team filters */
+  const [tf, setTf] = useState({ q: '', lang: 'all', area: 'all', spec: 'all' });
+  const teamOut = team.filter(
+    (m: any) =>
+      (!tf.q.trim() || m.name.toLowerCase().includes(tf.q.trim().toLowerCase())) &&
+      (tf.lang === 'all' || (m.languages || []).includes(tf.lang)) &&
+      (tf.area === 'all' || (m.areas || []).includes(tf.area)) &&
+      (tf.spec === 'all' || (m.specialties || []).includes(tf.spec)),
+  );
+
   /* ---------------- favourites ---------------- */
   const fav = (l: any) => {
     if (preview) return;
@@ -185,7 +215,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
 
   /* ---------------- FAQ ---------------- */
   const [openFaq, setOpenFaq] = useState<number[]>([]);
-  const faq = faqItems({ areas, languages: b.languages || [], clients: b.clients || [], specialties: b.specialties || [], approach: b.approach || '', preferred: b.preferred, booking: b.booking || '', active });
+  const faq = faqItems({ areas, languages: A ? teamLangs : b.languages || [], clients: b.clients || [], specialties: b.specialties || [], approach: b.approach || '', preferred: b.preferred, booking: b.booking || '', active, agency: A });
 
   /* ---------------- share ---------------- */
   const [copied, setCopied] = useState(false);
@@ -319,6 +349,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
     if (l.size) specs.push(['bounding-box', Number(l.size).toLocaleString('en-US') + ' sq ft']);
     const loc = (l.community && l.community !== l.area ? l.community + ', ' : '') + (l.area || '');
     const desc = done ? '' : shortDesc(l);
+    const assigned = A ? teamById.get(String(l.brokerId ?? l.broker?.id ?? '')) : null;
     return (
       <article key={l.id} className={'pp-pcard' + (done ? ' pp-pcard--done' : '')} aria-labelledby={'t-' + l.id}>
         <div className="pp-pcard__media">
@@ -336,11 +367,17 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
           <button type="button" className="pp-fav" aria-pressed={saved} aria-label={(saved ? 'Remove ' : 'Save ') + t + (saved ? ' from favourites' : ' to favourites')} onClick={() => fav(l)}>
             <Icon name={saved ? 'heart-fill' : 'heart'} />
           </button>
-          {agency?.logo && (
-            <Link className="pp-pcard__agency" href={agency.href} aria-label={`Listed with ${agency.name} — view agency profile`} {...ext}>
-              <img src={agency.logo} alt="" width={40} height={40} />
-            </Link>
-          )}
+          {A
+            ? b.photo && (
+                <Link className="pp-pcard__agency" href={path} aria-label={`Listed with ${name} — view agency profile`} {...ext}>
+                  <img src={b.photo} alt="" width={40} height={40} />
+                </Link>
+              )
+            : agency?.logo && (
+                <Link className="pp-pcard__agency" href={agency.href} aria-label={`Listed with ${agency.name} — view agency profile`} {...ext}>
+                  <img src={agency.logo} alt="" width={40} height={40} />
+                </Link>
+              )}
           <Link className="pp-pcard__link" href={href} tabIndex={-1} aria-hidden="true" {...ext} />
         </div>
         <div className="pp-pcard__body">
@@ -374,6 +411,13 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
               <Icon name="geo-alt" />
               <span>{loc}</span>
             </p>
+            {A && assigned && (
+              <div className="pp-avs" role="group" aria-label="Assigned brokers">
+                <Link className="pp-av" href={brokerUrl(assigned)} aria-label={assigned.name + ' — view broker profile'} title={assigned.name} {...ext}>
+                  {assigned.photo ? <img src={assigned.photo} alt="" width={32} height={32} /> : <span>{initials(assigned.name)}</span>}
+                </Link>
+              </div>
+            )}
           </div>
           <h3 className="pp-sr" id={'t-' + l.id}>
             {t}
@@ -433,6 +477,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
       </ul>
     ) : null;
 
+  const why = (b.whyPoints || []).filter((w: any) => w && String(w.title || '').trim()).slice(0, 4);
   const journey = (() => {
     const list = (b.experienceEntries || [])
       .filter((x: any) => x && (x.agencyId || String(x.agencyName || '').trim()))
@@ -481,7 +526,6 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
       </>
     ) : null;
   })();
-  const why = (b.whyPoints || []).filter((w: any) => w && String(w.title || '').trim()).slice(0, 4);
   const expertise =
     (b.specialties || []).length || (b.services || []).length || (b.clients || []).length ? (
       <>
@@ -506,16 +550,37 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
         )}
         {!!(b.clients || []).length && (
           <>
-            <h4>Clients I work with</h4>
+            <h4>Clients {A ? 'we' : 'I'} work with</h4>
             {tags(b.clients)}
           </>
         )}
       </>
     ) : null;
   const creds = [
-    ...(b.brnVerified && b.brnNumber ? [{ label: 'RERA Broker Registration (BRN)', issuer: 'Dubai Land Department / RERA', value: b.brnNumber, expires: '' }] : []),
+    ...(A
+      ? [
+          ...(ornVerified && orn ? [{ label: 'RERA Office Registration (ORN)', issuer: 'Dubai Land Department / RERA', value: orn, expires: '' }] : []),
+          ...(b.tradeLicenceVerified && b.tradeLicence ? [{ label: 'Trade Licence', issuer: 'Dubai Department of Economy and Tourism', value: b.tradeLicence, expires: '' }] : []),
+        ]
+      : b.brnVerified && b.brnNumber
+        ? [{ label: 'RERA Broker Registration (BRN)', issuer: 'Dubai Land Department / RERA', value: b.brnNumber, expires: '' }]
+        : []),
     ...(b.certifications || []).filter((c: any) => c.verified),
   ];
+  const credList = creds.length ? (
+    <ul className="pp-creds">
+      {creds.map((x: any) => (
+        <li key={x.label}>
+          <Icon name="patch-check-fill" />
+          <div>
+            <b>{x.label}</b>
+            <p>{[x.issuer, x.value ? 'No. ' + x.value : '', x.expires ? 'Valid until ' + monthLabel(String(x.expires).slice(0, 7)) : ''].filter(Boolean).join(' · ')}</p>
+            <p className="pp-note">Document checked by Emirate08.</p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  ) : null;
   const links: ReactNode[] = [];
   socials.forEach((s) =>
     links.push(
@@ -545,7 +610,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
         </a>
       </li>,
     );
-  if (agency)
+  if (agency && !A)
     links.push(
       <li key="ag">
         <Link href={agency.href} {...ext}>
@@ -555,8 +620,86 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
       </li>,
     );
   const achievements = (b.achievements || []).filter((x: any) => x.approved);
+  const achList = achievements.length ? (
+    <ul className="pp-ach">
+      {achievements.map((x: any) => (
+        <li key={x.id}>
+          <span className="pp-badge pp-badge--soft">{x.kind}</span>
+          <b>{x.title}</b>
+          <p>{x.detail}</p>
+          {x.date && <p className="pp-note">{monthLabel(x.date)}</p>}
+        </li>
+      ))}
+    </ul>
+  ) : null;
 
-  const aboutBody = [
+  const office =
+    A && contactAll && (b.address || b.phone || b.email) ? (
+      <dl className="pp-dl">
+        {b.address && (
+          <div>
+            <dt>Office</dt>
+            <dd>{b.address}</dd>
+          </div>
+        )}
+        {b.phone && (
+          <div>
+            <dt>Phone</dt>
+            <dd>
+              <a href={'tel:+' + digits(b.phone)}>{b.phone}</a>
+            </dd>
+          </div>
+        )}
+        {b.email && (
+          <div>
+            <dt>Email</dt>
+            <dd>
+              <a href={'mailto:' + b.email}>{b.email}</a>
+            </dd>
+          </div>
+        )}
+      </dl>
+    ) : null;
+  const whyList = why.length ? (
+    <ul className="pp-why pp-why--desc">
+      {why.map((w: any, i: number) => (
+        <li key={i}>
+          <span className="pp-why__icon">
+            <Icon name={w.icon || 'check2-circle'} />
+          </span>
+          <div>
+            <h4>{w.title}</h4>
+            {w.desc && <p>{w.desc}</p>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  ) : null;
+  const areaList = areas.length ? (
+    <ul className="pp-areas">
+      {areas.map((x) => (
+        <li key={x.name}>
+          <div>
+            <b>{x.name}</b>
+            {x.primary && <span className="pp-badge pp-badge--soft">Primary area</span>}
+          </div>
+          {x.note && <p>{x.note}</p>}
+        </li>
+      ))}
+    </ul>
+  ) : null;
+  const aboutBody = A ? [
+    aboutSec('overview', 'Company Overview', paras(b.bio)),
+    aboutSec('history', 'Company History', paras(b.history)),
+    aboutSec('why', 'Why Work With Us', whyList),
+    aboutSec('spec', 'Company Specializations', expertise),
+    aboutSec('areas', 'Areas Served', areaList),
+    aboutSec('approach', 'Company Approach', paras(b.approach)),
+    aboutSec('creds', 'Credentials', credList),
+    aboutSec('ach', 'Achievements', achList),
+    aboutSec('office', 'Office Contact Information', office),
+    aboutSec('links', 'Professional Links', links.length ? <ul className="pp-links">{links}</ul> : null),
+  ].filter(Boolean) : [
     aboutSec('me', 'About Me', paras(b.bio)),
     aboutSec('journey', 'My Professional Journey', journey),
     aboutSec(
@@ -664,7 +807,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
   if ((b.languages || []).length) meta.push(<li key="g"><Icon name="translate" /><span className="pp-sr">Languages: </span>{b.languages.join(', ')}</li>);
 
   return (
-    <div className={'pp pp--broker' + (modal ? ' pp--modal' : '')}>
+    <div className={'pp ' + (A ? 'pp--agency' : 'pp--broker') + (modal ? ' pp--modal' : '')}>
       {!!notices.length && (
         <div className="pp-notice" role="note">
           <Icon name="eye" />
@@ -677,7 +820,98 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
         </div>
       )}
       <main className="pp-main" id="pp-main">
-        {/* header card */}
+        {A ? (
+          <section className="pp-ahead" aria-labelledby="pp-name">
+            <div className="pp-ahead__card">
+              <div className="pp-ahead__bg" aria-hidden="true">
+                <img src={DEFAULT_AGENCY_COVER} alt="" width={800} height={520} fetchPriority="high" />
+              </div>
+              <div className="pp-wrap pp-ahead__inner">
+                <div className="pp-ahead__id">
+                  <div className="pp-logo-tile">{b.photo ? <img src={b.photo} alt={name + ' logo'} width={160} height={160} /> : <span>{initials(name)}</span>}</div>
+                  <div>
+                    <p className="pp-eyebrow pp-eyebrow--light">Real estate agency · {(String(b.location || '').split(',').slice(-2, -1)[0] || 'Dubai').trim()}</p>
+                    <h1 id="pp-name">{name}</h1>
+                    {b.headline && <p className="pp-headline">{b.headline}</p>}
+                    <div className="pp-ahead__chips">
+                      {orn &&
+                        (ornVerified ? (
+                          <span className="pp-dchip">
+                            <Icon name="patch-check-fill" />
+                            ORN {orn} checked by Emirate08
+                          </span>
+                        ) : (
+                          <span className="pp-dchip">ORN {orn}</span>
+                        ))}
+                      {!!areas.length && (
+                        <span className="pp-dchip">
+                          <Icon name="geo-alt" />
+                          {(areas.some((a) => a.primary) ? areas.filter((a) => a.primary) : areas.slice(0, 3)).map((a) => a.name).join(' · ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {b.intro && <p className="pp-intro">{b.intro}</p>}
+                <div className="pp-ahead__cta">
+                  <button type="button" className="pp-btn pp-btn--light" onClick={openContact}>
+                    <Icon name="envelope" />
+                    Contact Agency
+                  </button>
+                  {wa && (
+                    <a className="pp-btn pp-btn--wa" href={wa} target="_blank" rel="noopener">
+                      <Icon name="whatsapp" />
+                      WhatsApp
+                    </a>
+                  )}
+                  {safeUrl(b.website) && (
+                    <a className="pp-btn pp-btn--glass" href={b.website} target="_blank" rel="noopener">
+                      <Icon name="globe2" />
+                      Website
+                    </a>
+                  )}
+                  <button type="button" className="pp-btn pp-btn--glass" onClick={() => copyUrl(true)}>
+                    <Icon name="share-fill" />
+                    Share Profile
+                  </button>
+                  <button type="button" className="pp-btn pp-btn--glass" onClick={() => gotoTab('reviews')}>
+                    <Icon name="star" />
+                    Reviews
+                  </button>
+                  {!!socials.length && (
+                    <ul className="pp-hsocials pp-hsocials--square" aria-label={name + ' on social media'}>
+                      {socials
+                        .slice()
+                        .sort((x, y) => SOCIAL_ORDER.indexOf(x.platform) - SOCIAL_ORDER.indexOf(y.platform))
+                        .map((s) => (
+                          <li key={s.url}>
+                            <a className={'is-' + String(s.platform).toLowerCase()} href={s.url} target="_blank" rel="noopener me" aria-label={s.platform + ' (opens in a new tab)'}>
+                              <Icon name={SOCIAL_ICON[s.platform] || 'link-45deg'} />
+                            </a>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
+                <dl className="pp-stats">
+                  {(
+                    [
+                      [active.length, active.length === 1 ? 'available property' : 'available properties'],
+                      [team.length, team.length === 1 ? 'consultant' : 'consultants'],
+                      [areas.length, areas.length === 1 ? 'community served' : 'communities served'],
+                      ...(b.founded ? [[b.founded, 'founded']] : []),
+                    ] as [string | number, string][]
+                  ).map(([v, l]) => (
+                    <div key={l}>
+                      <dt>{l}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          </section>
+        ) : (
         <section className="pp-wrap pp-bhead" aria-labelledby="pp-name">
           <div className="pp-bhead__card">
             <div className="pp-bhead__banner">
@@ -748,6 +982,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
             </div>
           </div>
         </section>
+        )}
 
         <div className="pp-wrap pp-layout">
           <div className="pp-content">
@@ -777,7 +1012,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
             <section className="pp-panel" role="tabpanel" id="pp-panel-listings" aria-labelledby="pp-tab-listings" tabIndex={0} hidden={tab !== 'listings'}>
               <div className="pp-sechead">
                 <p className="pp-eyebrow">Available properties</p>
-                <h2>Explore My Property Portfolio</h2>
+                <h2>{A ? 'Explore Our Property Portfolio' : 'Explore My Property Portfolio'}</h2>
                 <p>Discover available properties and explore opportunities that match your lifestyle, preferences, and investment goals.</p>
               </div>
               {active.length ? (
@@ -847,11 +1082,113 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
               {aboutBody.length ? aboutBody : <div className="pp-empty"><p>More information is coming soon.</p></div>}
             </section>
 
+            {/* TEAM (agency) */}
+            {A && (
+              <section className="pp-panel" role="tabpanel" id="pp-panel-team" aria-labelledby="pp-tab-team" tabIndex={0} hidden={tab !== 'team'}>
+                <div className="pp-sechead">
+                  <p className="pp-eyebrow">Our people</p>
+                  <h2>Meet the Team</h2>
+                  <p>Each consultant focuses on a small number of communities. Choose one directly, or contact the agency and we will connect you.</p>
+                </div>
+                {team.length ? (
+                  <>
+                    <form className="pp-filters pp-filters--team" role="search" aria-label="Find a team member" onSubmit={(e) => e.preventDefault()}>
+                      <div className="pp-filters__row">
+                        <label className="pp-field pp-field--grow">
+                          <span className="pp-sr">Search by name</span>
+                          <Icon name="search" />
+                          <input type="search" placeholder="Search by name" value={tf.q} onChange={(e) => setTf({ ...tf, q: e.target.value })} />
+                        </label>
+                        {sel('Language', tf.lang, (v) => setTf({ ...tf, lang: v }), [['all', 'Language: all'], ...teamLangs.map((x) => [x, x] as [string, string])])}
+                        {sel('Area', tf.area, (v) => setTf({ ...tf, area: v }), [['all', 'Area: all'], ...uniq(team.flatMap((m: any) => m.areas || [])).sort().map((x) => [x, x] as [string, string])])}
+                        {sel('Specialization', tf.spec, (v) => setTf({ ...tf, spec: v }), [['all', 'Specialization: all'], ...uniq(team.flatMap((m: any) => m.specialties || [])).sort().map((x) => [x, x] as [string, string])])}
+                      </div>
+                      <p className="pp-result" aria-live="polite">
+                        {teamOut.length === team.length ? plural(team.length, 'consultant') : teamOut.length + ' of ' + plural(team.length, 'consultant')}
+                      </p>
+                    </form>
+                    <div className="pp-team pp-team--list">
+                      {teamOut.length
+                        ? teamOut.map((m: any) => {
+                            const href = brokerUrl(m);
+                            const show = m.contactMode !== 'form';
+                            const mwa = show && digits(m.whatsapp) ? `https://wa.me/${digits(m.whatsapp)}?text=${encodeURIComponent(`Hello ${m.name}, I found you on the ${name} page on Emirate08.`)}` : '';
+                            const where = [(m.areas || [])[0], (m.specialties || [])[0]].filter(Boolean).join(' · ');
+                            return (
+                              <article key={m.id} className="pp-member" aria-labelledby={'tm-' + m.id}>
+                                <Link className="pp-member__photo" href={href} tabIndex={-1} aria-hidden="true" {...ext}>
+                                  {m.photo ? <img src={m.photo} alt="" width={170} height={200} loading="lazy" /> : <span>{initials(m.name)}</span>}
+                                </Link>
+                                <div className="pp-member__body">
+                                  <h3 id={'tm-' + m.id}>
+                                    <Link href={href} {...ext}>
+                                      {m.name}
+                                    </Link>
+                                  </h3>
+                                  <div className="pp-member__badges">
+                                    {m.brnVerified && (
+                                      <span className="pp-mbadge">
+                                        <Icon name="patch-check-fill" />
+                                        BRN checked
+                                      </span>
+                                    )}
+                                    <span className="pp-chip">{m.role}</span>
+                                    <Link className="pp-viewpill" href={href} {...ext}>
+                                      <Icon name="person-badge" />
+                                      View Profile<span className="pp-sr"> of {m.name}</span>
+                                    </Link>
+                                  </div>
+                                  {where && (
+                                    <p className="pp-member__area">
+                                      <Icon name="geo-alt" />
+                                      {where}
+                                    </p>
+                                  )}
+                                  {!!(m.languages || []).length && (
+                                    <p className="pp-member__lang">
+                                      <Icon name="translate" />
+                                      Speaks <b>{m.languages.join(', ')}</b>
+                                    </p>
+                                  )}
+                                  <div className="pp-member__actions">
+                                    {show && m.email && (
+                                      <a className="pp-btn pp-btn--tint pp-btn--sm" href={'mailto:' + m.email}>
+                                        <Icon name="envelope-fill" />
+                                        Email<span className="pp-sr"> {m.name}</span>
+                                      </a>
+                                    )}
+                                    {show && m.phone && (
+                                      <a className="pp-btn pp-btn--tint pp-btn--sm" href={'tel:+' + digits(m.phone)}>
+                                        <Icon name="telephone-fill" />
+                                        Call<span className="pp-sr"> {m.name}</span>
+                                      </a>
+                                    )}
+                                    {mwa && (
+                                      <a className="pp-btn pp-btn--wa pp-btn--sm" href={mwa} target="_blank" rel="noopener">
+                                        <Icon name="whatsapp" />
+                                        WhatsApp<span className="pp-sr"> {m.name}</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                  {b.photo && <img className="pp-member__logo" src={b.photo} alt="" width={44} height={44} loading="lazy" />}
+                                </div>
+                              </article>
+                            );
+                          })
+                        : empty('', 'No consultants match', 'Try another language or area.', null, true)}
+                    </div>
+                  </>
+                ) : (
+                  empty('people', 'Team profiles are not public yet', 'Contact the agency and your enquiry will be passed to the right consultant.', <button type="button" className="pp-btn pp-btn--outline" onClick={openContact}>Contact Agency</button>)
+                )}
+              </section>
+            )}
+
             {/* REVIEWS */}
             <section className="pp-panel" role="tabpanel" id="pp-panel-reviews" aria-labelledby="pp-tab-reviews" tabIndex={0} hidden={tab !== 'reviews'}>
               <div className="pp-sechead">
                 <p className="pp-eyebrow">Client reviews</p>
-                <h2>Read My Reviews</h2>
+                <h2>Read {A ? 'Our' : 'My'} Reviews</h2>
                 <p>Reviews are hosted on independent platforms. Each link opens the platform’s own page in a new tab.</p>
               </div>
               {reviewSources.length ? (
@@ -894,7 +1231,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
                 <div className="pp-sechead">
                   <p className="pp-eyebrow">Track record</p>
                   <h2>Completed Sales & Rentals</h2>
-                  <p>Properties I have sold or let. Completed deals are never shown as available.</p>
+                  <p>Properties {A ? 'the agency has' : 'I have'} sold or let. Completed deals are never shown as available.</p>
                 </div>
                 {completed.length ? (
                   <>
@@ -911,7 +1248,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
                     <div className="pp-cards">{soldOut.length ? soldOut.map(card) : empty('', 'No transactions match', '', null, true)}</div>
                   </>
                 ) : (
-                  empty('check2-circle', 'No completed transactions shown yet', `Completed sales and rentals appear here once ${first} chooses to show them.`)
+                  empty('check2-circle', 'No completed transactions shown yet', `Completed sales and rentals appear here once ${A ? 'the agency chooses' : first + ' chooses'} to show them.`)
                 )}
               </section>
             )}
@@ -946,7 +1283,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
               )}
             </section>
             <section className="pp-scard" aria-labelledby="sc-about">
-              <h2 id="sc-about">About the broker</h2>
+              <h2 id="sc-about">About the {A ? 'agency' : 'broker'}</h2>
               {!!(b.specialties || []).length && (
                 <>
                   <h3>Specialisations</h3>
@@ -959,6 +1296,44 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
                   {tags(areas.map((a) => a.name))}
                 </>
               )}
+              {A ? (
+                <dl className="pp-rows pp-rows--about">
+                  {b.founded && (
+                    <div>
+                      <dt>Founded</dt>
+                      <dd>{b.founded}</dd>
+                    </div>
+                  )}
+                  {b.location && (
+                    <div>
+                      <dt>Location</dt>
+                      <dd>{b.location}</dd>
+                    </div>
+                  )}
+                  <div>
+                    <dt>Consultants</dt>
+                    <dd>{team.length}</dd>
+                  </div>
+                  {orn && (
+                    <div>
+                      <dt>ORN</dt>
+                      <dd>
+                        {orn}
+                        <small>{ornVerified ? 'Verified by Emirate08' : 'Not yet verified'}</small>
+                      </dd>
+                    </div>
+                  )}
+                  {b.tradeLicence && (
+                    <div>
+                      <dt>Trade licence</dt>
+                      <dd>
+                        {b.tradeLicence}
+                        <small>{b.tradeLicenceVerified ? 'Verified by Emirate08' : 'Not yet verified'}</small>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              ) : (
               <dl className="pp-rows pp-rows--about">
                 {b.experience ? (
                   <div>
@@ -996,6 +1371,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
                   </div>
                 )}
               </dl>
+              )}
               {!!(b.certifications || []).length && (
                 <>
                   <h3>Professional credentials</h3>
@@ -1014,7 +1390,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
             </section>
             <section className="pp-scard" aria-labelledby="sc-contact">
               <h2 id="sc-contact" className="pp-scard__lg">
-                Contact {first}
+                Contact {A ? name : first}
               </h2>
               {PREFERRED_LABEL[b.preferred] && <p className="pp-note">Preferred: {PREFERRED_LABEL[b.preferred]}</p>}
               <div className="pp-cstack">
@@ -1067,7 +1443,7 @@ export function BrokerPublicProfile({ b, listings, preview = false, notices = []
             </li>
             <li>
               <Link href="/agents" {...ext}>
-                Find an agent
+                {A ? 'Find an agency' : 'Find an agent'}
               </Link>
             </li>
             <li aria-current="page">{name}</li>

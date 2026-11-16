@@ -69,6 +69,10 @@ export type PublicBroker = {
   agencyRole?: string;
   brnNumber?: string;
   currentAgency?: { id?: string | number; name: string; slug?: string } | null;
+  orn?: string;
+  ornVerified?: boolean;
+  tradeLicence?: string;
+  tradeLicenceVerified?: boolean;
 } & Partial<ReturnType<typeof profileExtras>>;
 
 export type PublicListing = {

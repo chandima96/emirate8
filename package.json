@@ -19,6 +19,7 @@
     "migrate:create": "payload migrate:create",
     "seed": "tsx --tsconfig tsconfig.json scripts/seed.ts",
     "seed:demo-users": "tsx --tsconfig tsconfig.json scripts/seed-demo-users.ts",
+    "seed:profile-test": "tsx --tsconfig tsconfig.json scripts/seed-profile-test-data.ts",
     "seed:plans": "tsx --tsconfig tsconfig.json scripts/seed-plans.ts",
     "fix:demo-property-images": "tsx --tsconfig tsconfig.json scripts/fix-demo-property-images.ts",
     "generate:types": "payload generate:types",
