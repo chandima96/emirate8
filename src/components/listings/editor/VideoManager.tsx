@@ -1,6 +1,6 @@
 'use client';
 
-import { Field } from '@/components/ui/Field';
+import { AiField as Field, AiStatus } from '@/components/ui/AiAssist';
 import { uploadMediaFile } from '@/lib/mediaClient';
 import { uid } from '@/lib/utils';
 import { listingSchema as S } from './designer-schema';
@@ -32,7 +32,10 @@ export function VideoManager({ ed }) {
   }
   return (
     <div className="mt-7 border-t border-line pt-5" id="designer-videos" tabIndex={-1}>
-      <h3 className="h4">Videos</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="h4">Videos</h3>
+        <AiStatus id="designer-videos" value={rows.length > 0} optional />
+      </div>
       <p className="mt-1 text-xs text-muted">
         Add up to 3 YouTube or Vimeo video URLs.
       </p>
@@ -40,7 +43,7 @@ export function VideoManager({ ed }) {
         {rows.map((r) => (
           <div key={r.id} className="rounded-lg border border-line p-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field id={'video-title-' + r.id} label="Video title">
+              <Field id={'video-title-' + r.id} label="Video title" value={r.title || ''}>
                 <input
                   id={'video-title-' + r.id}
                   className="input"
@@ -49,7 +52,7 @@ export function VideoManager({ ed }) {
                   onChange={(e) => change(r.id, 'title', e.target.value)}
                 />
               </Field>
-              <Field id={'video-type-' + r.id} label="Video type">
+              <Field id={'video-type-' + r.id} label="Video type" value={r.videoType || 'walkthrough'}>
                 <select
                   id={'video-type-' + r.id}
                   className="select"
@@ -63,7 +66,7 @@ export function VideoManager({ ed }) {
                 </select>
               </Field>
               {r.kind === 'link' ? (
-                <Field id={'video-url-' + r.id} label="YouTube / Vimeo URL">
+                <Field id={'video-url-' + r.id} label="YouTube / Vimeo URL" value={r.url || ''}>
                   <input
                     id={'video-url-' + r.id}
                     className="input"

@@ -2,7 +2,7 @@
 
 import { focusListingField } from './EditorSection';
 import { useContext, useState } from 'react';
-import { AiField as Field, AiReviewContext } from '@/components/ui/AiAssist';
+import { AiField as Field, AiReviewContext, AiStatus } from '@/components/ui/AiAssist';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { COMMUNITIES, EMIRATES } from '@/config/reference';
@@ -58,7 +58,7 @@ export function LocationWidget({ ed, kind }) {
   if (kind === 'community')
     return (
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <Field id="designer-emirate" label="Emirate" error={ed.errors.emirate}>
+        <Field id="designer-emirate" label="Emirate" error={ed.errors.emirate} value={d.emirate}>
           <select
             id="designer-emirate"
             className="select"
@@ -83,7 +83,7 @@ export function LocationWidget({ ed, kind }) {
             ))}
           </select>
         </Field>
-        <Field id="designer-community" label="Area / Community" error={ed.errors.community}>
+        <Field id="designer-community" label="Area / Community" error={ed.errors.community} value={d.communityId}>
           <input
             id="designer-community"
             className="input"
@@ -110,7 +110,7 @@ export function LocationWidget({ ed, kind }) {
             ))}
           </datalist>
         </Field>
-        <Field id="designer-subcommunity" label="Subcommunity" optional="where applicable">
+        <Field id="designer-subcommunity" label="Subcommunity" optional="where applicable" value={d.subcommunity}>
           <input
             id="designer-subcommunity"
             className="input"
@@ -124,7 +124,7 @@ export function LocationWidget({ ed, kind }) {
   if (kind === 'building') return <BuildingPicker ed={ed} />;
   if (kind === 'map')
     return <div className="mb-4 space-y-2">
-      <Field id="designer-mapLocation" label="Google Maps location">
+      <Field id="designer-mapLocation" label="Google Maps location" optional="optional" value={d.mapLocation}>
         <input
           id="designer-mapLocation"
           className="input"
@@ -159,6 +159,9 @@ export function AmenitiesWidget({ ed }) {
   const imported = Object.keys(amen).filter((id) => amen[id].inherited && !amen[id].reviewed);
   return (
     <div id="designer-amen" tabIndex={-1} className="mb-5">
+      <div className="mb-3">
+        <AiStatus id="designer-amen" value={Object.values(amen).some((a: any) => a.selected !== false)} optional />
+      </div>
       {imported.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sage-soft/50 p-3 text-xs">
           <span>
@@ -283,7 +286,7 @@ export function AdditionalFeatures({ ed }) {
       {rows.map((row, i) => (
         <div key={row.id} className="rounded-lg border border-line p-3">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={'feature-name-' + row.id} label="Feature name">
+            <Field id={'feature-name-' + row.id} label="Feature name" value={row.name}>
               <input
                 id={'feature-name-' + row.id}
                 className="input"
@@ -292,7 +295,7 @@ export function AdditionalFeatures({ ed }) {
                 onChange={(e) => set(rows.map((r, j) => (i === j ? { ...r, name: e.target.value.trimStart() } : r)))}
               />
             </Field>
-            <Field id={'feature-desc-' + row.id} label="Description" optional="optional">
+            <Field id={'feature-desc-' + row.id} label="Description" optional="optional" value={row.desc}>
               <input
                 id={'feature-desc-' + row.id}
                 className="input"
@@ -343,7 +346,7 @@ export function AdditionalFeatures({ ed }) {
                 ],
               ],
             ].map(([key, label, options]) => (
-              <Field key={String(key)} id={'feature-' + key + row.id} label={label as string} optional="optional">
+              <Field key={String(key)} id={'feature-' + key + row.id} label={label as string} optional="optional" value={row[String(key)]}>
                 <select
                   id={'feature-' + key + row.id}
                   className="select"
@@ -408,13 +411,14 @@ export function MilestonesWidget({ ed }) {
   const errors = S.milestoneErrors(editorState(ed.L));
   return (
     <div id="designer-milestones" tabIndex={-1} className="space-y-3">
+      <AiStatus id="designer-milestones" value={rows.length > 0} />
       <p className="text-xs text-muted">
         Enter each milestone in AED or as a percentage. Booking is counted once according to the option above.
       </p>
       {rows.map((r) => (
         <div key={r.id} className="rounded-lg border border-line p-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={'ms-name-' + r.id} label="Milestone name">
+            <Field id={'ms-name-' + r.id} label="Milestone name" value={r.name}>
               <input
                 id={'ms-name-' + r.id}
                 className="input"
@@ -422,7 +426,7 @@ export function MilestonesWidget({ ed }) {
                 onChange={(e) => change(r.id, 'name', e.target.value)}
               />
             </Field>
-            <Field id={'ms-mode-' + r.id} label="Amount basis">
+            <Field id={'ms-mode-' + r.id} label="Amount basis" value={r.mode}>
               <select
                 id={'ms-mode-' + r.id}
                 className="select"
@@ -433,7 +437,7 @@ export function MilestonesWidget({ ed }) {
                 <option value="aed">AED amount</option>
               </select>
             </Field>
-            <Field id={'ms-value-' + r.id} label={r.mode === 'pct' ? 'Percentage (%)' : 'Amount (AED)'}>
+            <Field id={'ms-value-' + r.id} label={r.mode === 'pct' ? 'Percentage (%)' : 'Amount (AED)'} value={r.value}>
               <input
                 id={'ms-value-' + r.id}
                 className="input"
@@ -442,7 +446,7 @@ export function MilestonesWidget({ ed }) {
                 onChange={(e) => change(r.id, 'value', e.target.value)}
               />
             </Field>
-            <Field id={'ms-trigger-' + r.id} label="When due">
+            <Field id={'ms-trigger-' + r.id} label="When due" value={r.trigger}>
               <select
                 id={'ms-trigger-' + r.id}
                 className="select"
@@ -458,7 +462,7 @@ export function MilestonesWidget({ ed }) {
               </select>
             </Field>
             {['date', 'construction', 'post'].includes(r.trigger) && (
-              <Field id={'ms-when-' + r.id} label={r.trigger === 'date' ? 'Due date' : 'Due details'}>
+              <Field id={'ms-when-' + r.id} label={r.trigger === 'date' ? 'Due date' : 'Due details'} value={r.when}>
                 <input
                   id={'ms-when-' + r.id}
                   className="input"
@@ -507,6 +511,7 @@ export function TermsWidget({ ed, kind }) {
             id={'cheque-price-' + n}
             label={'Annual rent with ' + n + (n === '1' ? ' cheque' : ' cheques')}
             optional="defaults to annual rent"
+            value={st.cheqAmts?.[n] || ''}
           >
             <input
               id={'cheque-price-' + n}
@@ -544,6 +549,7 @@ export function TermsWidget({ ed, kind }) {
                 id={'term-' + r.id + key}
                 label={label}
                 optional={key === 'label' ? undefined : 'optional'}
+                value={r[key] || ''}
               >
                 <input
                   id={'term-' + r.id + key}
@@ -745,6 +751,9 @@ export function MarketingWidget({ ed, kind }) {
   const rows = l.highlights || [];
   return (
     <div id="designer-highlights" tabIndex={-1}>
+      <div className="mb-2">
+        <AiStatus id="designer-highlights" value={rows.length > 0} optional />
+      </div>
       <p className="mb-3 text-xs text-muted">Up to 6 factual highlights · 120 characters each · {rows.length} / 6</p>
       <div className="flex flex-wrap gap-2">
         {rows.map((h, i) => (
@@ -898,7 +907,7 @@ export function Representation({ ed }) {
         ))}
       </div>
       {!l.ownerDirect && (
-        <Field id="f-primary-broker" label="Primary broker" error={ed.errors.primaryBroker}>
+        <Field id="f-primary-broker" label="Primary broker" error={ed.errors.primaryBroker} value={l.primaryBroker || ''}>
           <select
             id="f-primary-broker"
             className="select"

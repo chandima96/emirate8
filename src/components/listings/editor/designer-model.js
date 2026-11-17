@@ -24,13 +24,15 @@ export function hydrateEditor(l) {
   const o = l.offplan || {},
     p = l.permit || {};
   const handover = /Q([1-4])\s+(\d{4})/i.exec(o.handover || '');
+  // New drafts start with every choice unanswered; only saved legacy records keep their old fallbacks.
+  const legacy = !!l.id;
   const ptype =
     types.find(([key, label]) => label === l.type || key === l.type)?.[0] ||
     (l.type === 'Retail' ? 'shop' : l.type === 'Plot' ? 'residential_plot' : '');
   const d = {
     ...S.defaultData(),
     purpose: l.purpose || '',
-    category: /_plot$/.test(ptype) ? 'land' : l.category || 'residential',
+    category: /_plot$/.test(ptype) ? 'land' : l.category || (legacy ? 'residential' : ''),
     ptype,
     devStatus: l.completion || '',
     stage: optionValue('stage', o.devStatus),
@@ -58,7 +60,7 @@ export function hydrateEditor(l) {
     completionYear: text(l.completionYear),
     handoverQ: handover?.[1] || '',
     handoverY: handover?.[2] || '',
-    tenure: optionValue('tenure', l.ownership) || 'freehold',
+    tenure: optionValue('tenure', l.ownership) || (legacy ? 'freehold' : ''),
     askingPrice: text(l.price),
     unitPrice: text(l.price),
     annualRent: text(l.price),
@@ -77,7 +79,7 @@ export function hydrateEditor(l) {
     permitNo: p.number || '',
     permitExpiry: (p.expiry || '').slice(0, 10),
     decl2: !!l.authorised,
-    floorDisplay: 'hidden',
+    floorDisplay: legacy ? 'hidden' : '',
   };
   return {
     ...l,

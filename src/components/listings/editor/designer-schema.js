@@ -1240,7 +1240,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     F('permitUrl', 'Official permit verification link', 'url', {
       help: 'Shown as “link provided by broker — not reviewed” until verified.',
     }),
-    F('permitExpiry', 'Permit expiry', 'date', {}),
+    F('permitExpiry', 'Permit expiry', 'date', { req: true }),
     F('authType', 'Marketing authorization', 'select', {
       req: true,
       opts: [
@@ -1905,9 +1905,9 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
   E08.defaultData = function () {
     return {
       areaUnit: 'sqft',
-      locPrecision: 'building',
+      locPrecision: '',
       mapLocation: '',
-      floorDisplay: 'band',
+      floorDisplay: '',
       proposing: false,
       coordsAuto: false,
       developerAuto: false,
@@ -1917,7 +1917,6 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       utilitiesLand: [],
       cheques: [],
       cChannels: [],
-      altLang: 'ar',
       overrideContact: false,
       decl1: false,
       decl2: false,

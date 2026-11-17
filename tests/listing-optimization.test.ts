@@ -5,7 +5,7 @@ import { deriveEditor, qualityScore } from '../src/components/listings/editor/li
 import { hydrateEditor, projectListing, validateEditorStep } from '../src/components/listings/editor/designer-model';
 import { blankListing, prepare } from '../src/components/listings/editor/model';
 import { buildCatalogue, searchCatalogue } from '../src/lib/listingCatalogue';
-import { cleanListingSuggestions } from '../src/lib/listingAutofill';
+import { aiNumber, cleanListingSuggestions } from '../src/lib/listingAutofill';
 import { publicListing } from '../src/lib/publicListing';
 import { listingJsonLd } from '../src/lib/listingJsonLd';
 
@@ -95,6 +95,19 @@ test('projection stores price per sq ft, both service-charge bases, developer an
   assert.equal(l.subcommunity, 'Marina Promenade');
   assert.equal(l.marketStatus, 'ready-resale');
   assert.equal(l.issuingAuthority, S.permitAuthority('Dubai').name);
+});
+
+test('a new listing starts with every choice unanswered; saved legacy records keep their fallbacks', () => {
+  const d = projectListing(hydrateEditor(prepare(blankListing()))).editor.d;
+  for (const key of Object.keys(S.FIELDS)) {
+    const f = S.FIELDS[key];
+    // areaUnit is the sq ft / sq m display preference, not a question about the property.
+    if (['seg', 'select', 'multi'].includes(f.kind) && key !== 'areaUnit')
+      assert.ok(S.util.isBlank(d[key]), `${key} should start empty but was ${JSON.stringify(d[key])}`);
+  }
+  const legacy = hydrateEditor(prepare({ ...blankListing(), id: 'old-1', ownership: '' })).editor.d;
+  assert.equal(legacy.category, 'residential');
+  assert.equal(legacy.tenure, 'freehold');
 });
 
 test('new drafts leave the booking basis open; legacy AED bookings keep AED', () => {
@@ -217,4 +230,33 @@ test('quality score rewards photos, Arabic copy and floor plans', () => {
   );
   assert.ok(low.score < 30);
   assert.equal(high.score, 100);
+});
+
+test('AI prices with separators or suffixes are kept, in the field the classification uses', () => {
+  assert.deepEqual(['25,387,028', 'AED 1,200,000', '2.46M', '850K', '10%', 'abc', 12].map(aiNumber), ['25387028', '1200000', '2460000', '850000', '10', '', '12']);
+  // Bayut off-plan "Initial Sale" page: the model returned the headline price as askingPrice.
+  const offInit = cleanListingSuggestions({ purpose: 'sale', category: 'residential', ptype: 'villa', devStatus: 'offplan', txn: 'initial', askingPrice: '25,387,028' });
+  assert.equal(offInit.unitPrice, '25387028');
+  assert.equal(offInit.askingPrice, undefined);
+  const resale = cleanListingSuggestions({ purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'ready', txn: 'resale', unitPrice: '2460000' });
+  assert.equal(resale.askingPrice, '2460000');
+  assert.equal(resale.unitPrice, undefined);
+});
+
+test('workspace saves only rewrite listings that were actually edited', async () => {
+  const { listingEdited } = await import('../src/lib/server/member-properties');
+  const stored = { updatedAt: '2026-11-10T08:00:00.000Z', appData: { updatedAt: '2026-11-10T07:59:59.900Z' } };
+  // Loaded after a refresh: carries the database timestamp.
+  assert.equal(listingEdited({ updatedAt: '2026-11-10T08:00:00.000Z' }, stored), false);
+  // Saved earlier this session: carries the stamp written into its snapshot.
+  assert.equal(listingEdited({ updatedAt: '2026-11-10T07:59:59.900Z' }, stored), false);
+  // Edited now: new stamp.
+  assert.equal(listingEdited({ updatedAt: '2026-11-17T09:00:00.000Z' }, stored), true);
+  // New or unstamped listings are always written.
+  assert.equal(listingEdited({ updatedAt: '2026-11-17T09:00:00.000Z' }, undefined), true);
+  assert.equal(listingEdited({}, stored), true);
+});
+
+test('permit expiry is required on the permit step', () => {
+  assert.equal(S.FIELDS.permitExpiry.req, true);
 });

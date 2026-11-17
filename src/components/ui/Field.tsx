@@ -2,6 +2,34 @@ import { cx } from '@/lib/utils';
 import { Icon } from './Icon';
 import type { ReactNode } from 'react';
 
+export type AiState = 'filled' | 'edited' | 'missing' | 'suggestion' | 'kept';
+
+/** Small AI status tag shown next to a label (or on its own for list widgets). */
+export function AiBadge({ state, optional }: { state?: AiState; optional?: ReactNode }) {
+  if (!state) return null;
+  const tone = {
+    filled: 'bg-[#ecebff] text-[#4338a8]',
+    suggestion: 'bg-[#ecebff] text-[#4338a8]',
+    edited: 'bg-mist text-ink',
+    kept: 'bg-mist text-muted',
+    missing: optional ? 'bg-[#fdf3d7] text-[#8a6212]' : 'bg-[#fde8e6] text-[#b4372c]',
+  }[state];
+  const icon = { filled: 'stars', suggestion: 'stars', edited: 'pencil', kept: 'check2', missing: 'exclamation-circle' }[state];
+  const text = {
+    filled: 'AI-filled',
+    suggestion: 'AI suggestion',
+    edited: 'Edited',
+    kept: 'Not from AI',
+    missing: optional ? 'Not found by AI' : 'Not found by AI · required',
+  }[state];
+  return (
+    <span className={cx('inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold', tone)}>
+      <Icon name={icon} />
+      {text}
+    </span>
+  );
+}
+
 /** Label + control + hint + inline error, matching the `.field` / `.err` styles. */
 export function Field({
   id,
@@ -22,9 +50,9 @@ export function Field({
   className?: string;
   children: ReactNode;
   labelAside?: ReactNode;
-  aiState?: 'filled' | 'edited' | 'missing' | 'suggestion';
+  aiState?: AiState;
 }) {
-  const aiBadge = aiState && <span className={cx('inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-semibold', aiState === 'filled' && 'bg-[#ecebff] text-[#4338a8]', aiState === 'suggestion' && 'bg-[#ecebff] text-[#4338a8]', aiState === 'edited' && 'bg-mist text-ink', aiState === 'missing' && (optional ? 'bg-[#fdf3d7] text-[#8a6212]' : 'bg-[#fde8e6] text-[#b4372c]'))}><Icon name={aiState === 'filled' || aiState === 'suggestion' ? 'stars' : aiState === 'edited' ? 'pencil' : 'exclamation-circle'} />{aiState === 'filled' ? 'AI-filled' : aiState === 'suggestion' ? 'AI suggestion' : aiState === 'edited' ? 'Edited' : optional ? 'Not found by AI' : 'Needs your input'}</span>;
+  const aiBadge = aiState && <AiBadge state={aiState} optional={optional} />;
   return (
     <div className={cx(
       'field',

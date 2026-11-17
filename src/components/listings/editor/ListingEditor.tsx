@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
-import { AiField as Field, AiNotice, AiReviewContext, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
+import { AiField as Field, AiNotice, AiReviewContext, AiStatus, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
 import { AiAutofill } from '@/components/profiles/AiAutofill';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -17,7 +17,6 @@ import {
   currentUser,
   deleteListing,
   listing as getListing,
-  listingUrl,
   log,
   normalize,
   plan,
@@ -34,9 +33,7 @@ import { DesignerStep } from './DesignerStep';
 import { hydrateEditor, projectListing, validateEditorStep, editorReadiness } from './designer-model';
 import { publicListing } from '@/lib/publicListing';
 import { PreviewModal } from './PreviewModal';
-import { LISTING_AI_FIELDS, LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
-
-const AI_FILLABLE = new Set<string>(LISTING_AI_FIELDS);
+import { LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
 
 /** Account listing defaults (Account › Listing defaults) copied into a new draft. */
 function withPresets(l, owner) {
@@ -249,7 +246,8 @@ export function ListingEditor({ id = undefined }) {
   }
   const t = tokens(L);
   const live = L.status === 'published';
-  const publishLabel = live ? 'Update published listing' : verified ? 'Publish listing' : 'Submit for review';
+  // Publishing always goes through review: the listing is saved as "pending" and goes live once approved.
+  const publishLabel = live ? 'Submit changes for review' : 'Publish listing';
   const stepLabel = { 2: 'Location', 3: 'Property details', 4: 'Price & terms' };
 
   /* ---------- validation ---------- */
@@ -429,14 +427,32 @@ export function ListingEditor({ id = undefined }) {
     router.push('/listings');
   }
 
+  // One click submits. The button disables immediately and stays disabled until the save finishes;
+  // after a successful submit it stays disabled while the page navigates away. A background save still
+  // in flight (e.g. from "Continue" to this step) doesn't swallow the click: persist() waits for it.
+  const publishingRef = useRef(false);
+  const [publishing, setPublishing] = useState(false);
   async function publish() {
-    if (savingRef.current) return;
+    if (publishingRef.current) return;
+    publishingRef.current = true;
+    setPublishing(true);
+    let submitted = false;
+    try {
+      submitted = await submitForReview();
+    } finally {
+      if (!submitted) {
+        publishingRef.current = false;
+        setPublishing(false);
+      }
+    }
+  }
+  async function submitForReview(): Promise<boolean> {
     for (let n = 1; n <= totalSteps; n++) {
       if (!check(n)) {
         go(n, false);
         toast('Complete step ' + n + ' (' + stepNames[n - 1] + ') before publishing.', { icon: 'exclamation-circle' });
         setPreviewOpen(false);
-        return;
+        return false;
       }
     }
     const cur = Lref.current;
@@ -445,14 +461,14 @@ export function ListingEditor({ id = undefined }) {
       go(reviewStep, true);
       toast('Complete the checklist before publishing.', { icon: 'exclamation-circle' });
       setPreviewOpen(false);
-      return;
+      return false;
     }
     if (!cur.authorised) {
       setPreviewOpen(false);
       go(reviewStep, false);
       setErrors((e) => ({ ...e, decl2: 'Confirm you are authorised to market this property.' }));
       focusEl('designer-decl2');
-      return;
+      return false;
     }
     const p = plan();
     const wasLive = !!savedRef.current && savedRef.current.status === 'published';
@@ -466,31 +482,21 @@ export function ListingEditor({ id = undefined }) {
         </>,
         { icon: 'exclamation-circle', duration: 6000 },
       );
-      return;
+      return false;
     }
-    const to = verified ? 'published' : 'pending';
-    Lref.current = setIn(cur, 'display.visible', cur.display.visible !== false);
-    const s = await persist(to);
-    if (!s) return;
-    log(
-      (to === 'published' ? (wasLive ? 'Updated' : 'Published') : 'Submitted for review') + ' “' + s.title + '”',
-      to === 'published' ? 'send' : 'hourglass-split',
-    );
+    Lref.current = setIn(cur, 'display.visible', cur.display?.visible !== false);
+    const s = await persist('pending');
+    if (!s) return false;
+    log('Submitted for review “' + s.title + '”', 'hourglass-split');
     setPreviewOpen(false);
     toast(
-      to === 'published' ? (
-        <>
-          {wasLive ? 'Published listing updated.' : 'Listing published.'}{' '}
-          <Link className="underline" href={listingUrl(s)}>
-            View public page
-          </Link>
-        </>
-      ) : (
-        'Submitted — it will publish once your credentials are verified.'
-      ),
-      { duration: 6000 },
+      verified
+        ? 'Saved and sent for review. It will go live once approved.'
+        : 'Saved and sent for review. It will go live once your credentials are verified and the listing is approved.',
+      { icon: 'hourglass-split', duration: 6000 },
     );
-    setTimeout(() => router.push(routes.listing(s.id)), 900);
+    router.push(routes.listing(s.id));
+    return true;
   }
 
   /* ---------- unsaved changes ---------- */
@@ -570,6 +576,28 @@ export function ListingEditor({ id = undefined }) {
     const partnerOf: Record<string, string> = {};
     for (const [k, f] of Object.entries<any>(S.FIELDS)) if (f.kind === 'amt' && f.basisKey) { partnerOf[k] = f.basisKey; partnerOf[f.basisKey] = k; }
     const pairConflict = (k: string) => !!partnerOf[k] && Object.prototype.hasOwnProperty.call(suggestions, partnerOf[k]) && (conflicts(k) || conflicts(partnerOf[k]));
+    // The sale price lives in one of two fields depending on the classification: unitPrice for an
+    // off-plan initial (developer) sale, askingPrice otherwise. The AI sometimes uses the other one
+    // (e.g. a Bayut off-plan "Initial Sale" price returned as askingPrice), which would land in a
+    // hidden field. Move it to the field this listing actually shows.
+    ({ suggestions, selected, candidates } = (() => {
+      const has = (k: string) => Object.prototype.hasOwnProperty.call(suggestions, k) && !isBlank(suggestions[k]);
+      const merged = { ...data };
+      for (const k of ['purpose', 'category', 'ptype', 'devStatus', 'txn']) if (isBlank(merged[k]) && has(k)) merged[k] = suggestions[k];
+      const c = S.ctxOf(merged);
+      if (!c.sale) return { suggestions, selected, candidates };
+      const want = c.offInit ? 'unitPrice' : 'askingPrice';
+      const other = want === 'unitPrice' ? 'askingPrice' : 'unitPrice';
+      if (has(want) || !has(other)) return { suggestions, selected, candidates };
+      const s2 = { ...suggestions }, c2 = { ...(candidates || {}) };
+      for (const [from, to] of [[other, want], [other + 'Max', want + 'Max']]) {
+        if (!Object.prototype.hasOwnProperty.call(s2, from)) continue;
+        s2[to] = s2[from]; delete s2[from];
+        if (c2[from]) { c2[to] = c2[from]; delete c2[from]; }
+      }
+      const sel = selected.map((k) => (k === other ? want : k === other + 'Max' ? want + 'Max' : k));
+      return { suggestions: s2, selected: [...new Set(sel)], candidates: c2 };
+    })());
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
       if (key === 'milestones') {
@@ -700,22 +728,42 @@ export function ListingEditor({ id = undefined }) {
     if (state === 'filled') aiFilled++; else aiEdited++;
   }
   for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
-  // After an AI run, flag the questions AI could have answered but didn't (yellow optional, red required).
-  // The flag disappears as soon as the field has a value.
+  // After an AI run every field shows a state: AI-filled / Edited / AI suggestion from the AI itself,
+  // "Not from AI" when it has a value the AI didn't supply, and missing (yellow optional, red required) when blank.
   const aiRan = Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange;
   let aiMissingRequired = 0;
   if (aiRan) {
     const d = L.editor.d, c = S.ctxOf(d);
-    const flag = (id: string, required: boolean) => {
+    const mark = (id: string, blank: boolean, required: boolean) => {
       if (aiStates[id]) return;
-      aiStates[id] = 'missing';
-      if (required) aiMissingRequired++;
+      aiStates[id] = blank ? 'missing' : 'kept';
+      if (blank && required) aiMissingRequired++;
     };
     for (const key of S.activeFieldKeys(c, d)) {
-      if (AI_FILLABLE.has(key) && S.util.isBlank(d[key])) flag('designer-' + key, S.isReq(S.FIELDS[key], c, d));
+      const f = S.FIELDS[key];
+      const blank = f.kind === 'check' ? !d[key] : S.util.isBlank(d[key]);
+      // Unticked optional boxes are a valid "no", not a gap.
+      if (f.kind === 'check' && !S.isReq(f, c, d)) { if (!aiStates['designer-' + key]) aiStates['designer-' + key] = 'kept'; continue; }
+      mark('designer-' + key, blank, S.isReq(f, c, d));
     }
-    if (S.util.isBlank(d.communityId)) flag('designer-community', true);
-    if (S.util.isBlank(d.buildingName) && !d.proposing) flag('designer-buildingName', c.off);
+    mark('designer-emirate', S.util.isBlank(d.emirate), true);
+    mark('designer-community', S.util.isBlank(d.communityId), true);
+    if (!d.proposing) mark('designer-buildingName', S.util.isBlank(d.buildingName), c.off);
+    mark('designer-mapLocation', S.util.isBlank(d.mapLocation) && S.util.isBlank(d.lat), false);
+    // Payment milestones: compare each row with the row the AI wrote.
+    const appliedRows = new Map((aiPlanChange?.applied || []).map((row: any) => [row.id, JSON.stringify(row)]));
+    for (const row of L.editor.milestones || []) {
+      const state: AiFieldState = appliedRows.has(row.id) ? (appliedRows.get(row.id) === JSON.stringify(row) ? 'filled' : 'edited') : 'kept';
+      for (const part of ['name', 'mode', 'value', 'trigger', 'when']) aiStates['ms-' + part + '-' + row.id] = state;
+    }
+    if (c.offInit) {
+      const rows = L.editor.milestones || [];
+      aiStates['designer-milestones'] = !rows.length ? 'missing' : aiPlanChange ? (JSON.stringify(rows) === JSON.stringify(aiPlanChange.applied) ? 'filled' : 'edited') : 'kept';
+      if (!rows.length) aiMissingRequired++;
+    }
+    const amenFilled = Object.entries(aiAmenChanges).some(([id, change]) => JSON.stringify(L.editor.amen?.[id]) === JSON.stringify(change.applied));
+    aiStates['designer-amen'] = amenFilled ? 'filled' : Object.values(L.editor.amen || {}).some((a: any) => a.selected !== false) ? 'kept' : 'missing';
+    if (!(L.photos || []).length) aiMissingRequired++;
   }
   // Per-step counts for the steps bar: answers still as AI filled them, and AI suggestions awaiting review.
   const aiFilledByStep: Record<number, number> = {};
@@ -731,7 +779,7 @@ export function ListingEditor({ id = undefined }) {
     bump(aiFilledByStep, stepOf('milestones'));
   for (const id of Object.keys(aiSuggestions))
     bump(aiReviewByStep, stepOf(id === 'designer-community' ? 'communityId' : id.replace(/^designer-/, '')));
-  const aiReview = { states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
+  const aiReview = { ran: aiRan, states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
 
   const status = STATUS[L.status] || STATUS.draft;
   const crumb = saved ? saved.title || 'Untitled listing' : 'New listing';
@@ -747,7 +795,7 @@ export function ListingEditor({ id = undefined }) {
         <p className="mt-1 text-[13px] text-muted">Choose which broker in your agency will handle this listing. Existing broker listings stay under their original owner.</p>
         <div className="mt-6 max-w-xl">
           {!canAssignTeamMember && <p className="mb-4 rounded-md border border-sage/30 bg-sage-soft/40 p-3 text-sm text-sage-ink">This listing already belongs to your broker account. Its ownership and broker assignment will stay unchanged.</p>}
-          <label className="field" htmlFor="agency-listing-broker"><span className="label">Assigned broker <span className="opt">(optional)</span></span>
+          <label className="field" htmlFor="agency-listing-broker"><span className="label inline-flex flex-wrap items-center gap-2">Assigned broker <span className="opt">(optional)</span><AiStatus id="agency-listing-broker" value={L.primaryBroker || ''} optional /></span>
             <select id="agency-listing-broker" className="select" value={L.primaryBroker || ''} disabled={!canAssignTeamMember} onChange={(event) => setField('primaryBroker', event.target.value)}>
               <option value="">Keep this listing unassigned</option>
               {agencyBrokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name} · {broker.email}</option>)}
@@ -806,6 +854,7 @@ export function ListingEditor({ id = undefined }) {
           onReview={() => go(aiFirstStep.current, true)}
           onUndo={undoAiChanges}
           onManual={() => go(1, true)}
+          hideSummary
         />
         {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} missing={aiMissingRequired} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
@@ -927,9 +976,9 @@ export function ListingEditor({ id = undefined }) {
                     <Icon name="eye" />
                     Preview Listing
                   </button>
-                  <button type="button" className="btn btn-dark" disabled={saving} onClick={publish}>
-                    <Icon name="send" />
-                    {publishLabel}
+                  <button type="button" className="btn btn-dark" disabled={publishing} aria-busy={publishing} onClick={publish}>
+                    <Icon name={publishing ? 'hourglass-split' : 'send'} />
+                    {publishing ? 'Submitting…' : publishLabel}
                   </button>
                 </>
               ) : (
@@ -951,6 +1000,7 @@ export function ListingEditor({ id = undefined }) {
         publishLabel={publishLabel}
         onSave={saveDraft}
         onPublish={publish}
+        publishing={publishing}
       />
     </div>
     </AiReviewContext.Provider>

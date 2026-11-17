@@ -65,7 +65,7 @@ export function blankListing() {
   return {
     completion: '',
     purpose: '',
-    category: 'residential',
+    category: '',
     type: '',
     emirate: '',
     area: '',
@@ -93,12 +93,12 @@ export function blankListing() {
     occupancy: '',
     serviceCharge: '',
     tenancyInfo: '',
-    ownership: 'Freehold',
+    ownership: '',
     offplan: {
       project: '',
       developer: '',
       devType: 'Residential tower',
-      devStatus: 'Under construction',
+      devStatus: '',
       launch: '',
       handover: '',
       projectReg: '',
@@ -140,7 +140,8 @@ export function prepare(l) {
   if (l.primaryBroker == null) l.primaryBroker = '';
   if (l.ownerDirect !== undefined) l.ownerDirect = l.ownerDirect === true;
   if (l.claimable !== undefined) l.claimable = l.claimable === true;
-  l.category = l.category || 'residential';
+  // Saved records without a category were residential; new drafts start unanswered.
+  if (!l.category && l.id) l.category = 'residential';
   if (!l.editor && TYPES[l.category]?.indexOf(l.type) < 0) l.type = '';
   // Preserve saved communities, including names outside the suggested catalogue.
   return l;

@@ -76,6 +76,19 @@ export function listingAiFieldSpec(includePrivate = false) {
   return fields;
 }
 
+/** Model output for numbers is not always bare digits: "25,387,028", "AED 25,387,028", "2.46M", "10%".
+ * Normalise to a plain numeric string, or '' when it isn't a single number. */
+export function aiNumber(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? String(value) : '';
+  if (typeof value !== 'string') return '';
+  const m = /^(?:AED|Dhs?\.?|د\.إ)?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(k|m|mn|million|bn|b|billion)?\s*(?:AED|%|\/\s*(?:year|yr|annum))?$/i.exec(value.trim());
+  if (!m) return '';
+  const n = Number(m[1].replace(/,/g, '') + (m[2] || ''));
+  const scale = { k: 1e3, m: 1e6, mn: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 }[(m[3] || '').toLowerCase()] || 1;
+  const out = Math.round(n * scale * 100) / 100;
+  return Number.isFinite(out) ? String(out) : '';
+}
+
 function choiceValues(f: any, c: any, d: any, value: unknown) {
   const allowed = S.optsOf(f, c, d).map((option) => String(option.v));
   const list = (Array.isArray(value) ? value : [value]).map((item) => String(item ?? '').trim());
@@ -143,16 +156,16 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
     }
     if (typeof value !== 'string' && typeof value !== 'number') continue;
     if (f?.kind === 'multi') { out[key] = [String(value).trim()]; continue; }
-    const text = String(value).trim().slice(0, f?.max || (key === 'description' ? 5000 : 180));
-    if (!text) continue;
     const kind = f?.kind === 'amt' ? 'money' : f?.kind;
-    if (['int', 'dec', 'money', 'pct'].includes(kind) && (!/^\d+(\.\d+)?$/.test(text) || !Number.isFinite(Number(text)))) continue;
+    const numeric = ['int', 'dec', 'money', 'pct'].includes(kind);
+    const text = numeric ? aiNumber(value) : String(value).trim().slice(0, f?.max || (key === 'description' ? 5000 : 180));
+    if (!text) continue;
     if (kind === 'date' && !S.util.validDate(text)) continue;
     if (kind === 'year' && !/^\d{4}$/.test(text)) continue;
     out[key] = text;
     if (f?.rangeOk && kind === 'money') {
-      const max = String(source[key + 'Max'] ?? '').trim();
-      if (/^\d+(\.\d+)?$/.test(max) && Number(max) > Number(text)) out[key + 'Max'] = max;
+      const max = aiNumber(source[key + 'Max']);
+      if (max && Number(max) > Number(text)) out[key + 'Max'] = max;
     }
   }
   const milestones = cleanMilestones(source.milestones);
@@ -178,6 +191,18 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
     } else if (Array.isArray(out[key])) {
       if (values[0]) out[key] = values[0]; else delete out[key];
     } else if (!values.length) delete out[key];
+  }
+  // The model often returns a portal's headline price as askingPrice even when it has classified the
+  // listing as an off-plan initial sale, whose form only shows unitPrice (and vice versa). Keep the
+  // price in the field this classification actually uses.
+  if (c.sale) {
+    const want = c.offInit ? 'unitPrice' : 'askingPrice';
+    const other = want === 'unitPrice' ? 'askingPrice' : 'unitPrice';
+    if (out[other] && !out[want]) {
+      out[want] = out[other];
+      delete out[other];
+      if (out[other + 'Max']) { out[want + 'Max'] = out[other + 'Max']; delete out[other + 'Max']; }
+    }
   }
   return out;
 }

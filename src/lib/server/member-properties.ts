@@ -151,7 +151,7 @@ function option(value: unknown, allowed: Set<string>, fallback: string) {
   return typeof value === 'string' && allowed.has(value) ? value : fallback;
 }
 
-function propertyData(listing: any, memberId: number) {
+export function propertyData(listing: any, memberId: number) {
   const ownerDeveloper = relationId(listing.ownerDeveloper);
   const ownerAgency = relationId(listing.ownerAgency);
   const primaryBroker = relationId(listing.primaryBroker);
@@ -259,6 +259,56 @@ export function memberListingSlug(listing: any, memberId: number, match: any, oc
   return slug;
 }
 
+/* Fields that differ between the stored snapshot and the copy the client sends back without the
+ * listing having changed: timestamps (the client receives the database's updatedAt, which the
+ * snapshot never holds) and populated relationships (the workspace loads at depth 1, sync reads at
+ * depth 0). Comparing them made every save rewrite every listing — slow, and it reset every row's
+ * "Updated" time to the same moment. */
+function comparableSnapshot(appData: any) {
+  if (!appData || typeof appData !== 'object') return appData;
+  const { updatedAt: _updatedAt, createdAt: _createdAt, ...rest } = appData;
+  const document = rest.permit?.document;
+  if (document && typeof document === 'object') rest.permit = { ...rest.permit, document: relationId(document.id ?? document.mediaId) };
+  return JSON.parse(JSON.stringify(rest));
+}
+
+/** Every value we would write is already stored. Extra stored keys (row ids, empty group fields Payload
+ * adds) are ignored; null, undefined and missing count as the same. */
+function storedMatches(stored: any, next: any): boolean {
+  if (next == null || next === '') return stored == null || stored === '';
+  if (Array.isArray(next)) return Array.isArray(stored) && stored.length === next.length && next.every((item, i) => storedMatches(stored[i], item));
+  if (typeof next === 'object') {
+    if (!stored || typeof stored !== 'object') return false;
+    return Object.keys(next).every((key) => storedMatches(stored[key], next[key]));
+  }
+  if (typeof next === 'number' || typeof stored === 'number') return Number(stored) === Number(next);
+  return stored === next;
+}
+
+/** True when saving `data` would change the stored property `match`. */
+export function propertyChanged(match: any, data: any) {
+  if (!match || match.slug !== data.slug) return true;
+  if (!isDeepStrictEqual(comparableSnapshot(match.appData), comparableSnapshot(data.appData))) return true;
+  return Object.keys(data)
+    .filter((field) => field !== 'appData' && field !== 'slug')
+    .some((field) => !storedMatches(match[field], data[field]));
+}
+
+const sameInstant = (a: unknown, b: unknown) => {
+  if (!a || !b) return false;
+  const x = Date.parse(String(a)), y = Date.parse(String(b));
+  return Number.isFinite(x) && x === y;
+};
+
+/** The workspace stamps `updatedAt` on a listing only when it is saved (store.saveListing). An
+ * unchanged listing still carries either the database's updatedAt (loaded after a refresh) or the
+ * stamp already written into its snapshot (saved earlier this session), so it is skipped without a
+ * write. Listings without a stamp, or not yet stored, are always written. */
+export function listingEdited(listing: any, match: any) {
+  if (!match || !listing?.updatedAt) return true;
+  return !sameInstant(listing.updatedAt, match.updatedAt) && !sameInstant(listing.updatedAt, match.appData?.updatedAt);
+}
+
 /** Mirror every member listing into Payload's properties collection. */
 export async function syncMemberProperties(payload: Payload, memberId: number, state: any) {
   if (!Array.isArray(state?.listings)) throw new Error('Workspace listings must be an array.');
@@ -296,13 +346,7 @@ export async function syncMemberProperties(payload: Payload, memberId: number, s
     const slug = memberListingSlug(listing, memberId, match, occupied);
     const data = propertyData({ ...listing, slug }, memberId);
     occupied.set(slug, match?.id || 'new:' + listingId);
-    const propertyFields = Object.keys(data).filter((field) => field !== 'appData' && field !== 'slug');
-    if (
-      match &&
-      match.slug === slug &&
-      isDeepStrictEqual(match.appData, data.appData) &&
-      propertyFields.every((field) => isDeepStrictEqual(match[field] ?? null, (data as any)[field] ?? null))
-    ) {
+    if (!listingEdited(listing, match) || !propertyChanged(match, data)) {
       savedListings.push({ id: listingId, slug });
       continue;
     }
