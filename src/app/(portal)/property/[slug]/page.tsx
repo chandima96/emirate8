@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { PropertyDetail } from '@/components/property/PropertyDetail';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { getProperty } from '@/lib/cms';
+import { listingJsonLd } from '@/lib/listingJsonLd';
 
 function decodeSlug(value: string) {
   try {
@@ -77,8 +78,11 @@ export default async function PropertyPage({ params }) {
   const listing = listingFromProperty(property);
   listing.broker = brokerFromProperty(property);
 
+  // Escape < so listing text can never close the script tag.
+  const jsonld = JSON.stringify(listingJsonLd(listing)).replace(/</g, '\\u003c');
   return (
     <div className="wrap py-5 sm:py-6">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonld }} />
       <PropertyDetail listing={listing} />
     </div>
   );

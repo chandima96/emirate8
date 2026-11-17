@@ -34,11 +34,37 @@ import { DesignerStep } from './DesignerStep';
 import { hydrateEditor, projectListing, validateEditorStep, editorReadiness } from './designer-model';
 import { publicListing } from '@/lib/publicListing';
 import { PreviewModal } from './PreviewModal';
+import { LISTING_AI_FIELDS, LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
+
+const AI_FILLABLE = new Set<string>(LISTING_AI_FIELDS);
+
+/** Account listing defaults (Account › Listing defaults) copied into a new draft. */
+function withPresets(l, owner) {
+  const presets = owner?.prefs?.listing;
+  if (!presets) return l;
+  const contact = presets.contact || {};
+  const hasContact = !!(contact.phone || contact.whatsapp || contact.email);
+  const d = { ...l.editor.d, areaUnit: presets.areaUnit === 'sqm' ? 'sqm' : 'sqft' };
+  const sources = { ...(l.editor.sources || {}) };
+  if (hasContact) {
+    Object.assign(d, {
+      overrideContact: true,
+      cPhone: contact.phone || '',
+      cWhats: contact.whatsapp || '',
+      cEmail: contact.email || '',
+      cHours: contact.hours || '',
+      cChannels: ['phone', 'whatsapp', 'email'].filter((k) => !!contact[k === 'whatsapp' ? 'whatsapp' : k]),
+    });
+    ['overrideContact', 'cPhone', 'cWhats', 'cEmail', 'cHours', 'cChannels'].forEach((k) => (sources[k] = 'defaults'));
+  }
+  return { ...l, editor: { ...l.editor, d, presets, sources } };
+}
 
 function initialState(id, q) {
   const existing = id ? getListing(id) : null;
-  const L = projectListing(hydrateEditor(prepare(existing ? clone(existing) : blankListing())));
   const owner = currentUser();
+  const base = hydrateEditor(prepare(existing ? clone(existing) : blankListing()));
+  const L = projectListing(existing ? base : withPresets(base, owner));
   if (owner?.type === 'developer' || owner?.type === 'owner') {
     L.ownerType = 'developer';
     L.ownerDeveloper = owner.id;
@@ -321,6 +347,12 @@ export function ListingEditor({ id = undefined }) {
     }
     if (status) obj.status = status;
     else if (!savedRef.current) obj.status = 'draft';
+    // Price history: a change to a published price is kept so a genuine reduction can be shown publicly.
+    const before = savedRef.current;
+    if (before && before.status === 'published' && Number(before.price) > 0 && Number(obj.price) > 0 && Number(before.price) !== Number(obj.price)) {
+      obj.priceHistory = [...(before.priceHistory || []), { price: Number(before.price), at: before.updatedAt || new Date().toISOString() }].slice(-12);
+      obj.previousPrice = Number(before.price);
+    }
     if (!obj.title) obj.title = '';
     const result = saveListing(obj);
     if (!result || result.error) {
@@ -531,6 +563,13 @@ export function ListingEditor({ id = undefined }) {
     let planChange = aiPlanChange;
     let milestones = next.editor.milestones;
     let filled = 0, kept = 0;
+    // An amount and its AED / % basis belong together: if either one would need review, both do.
+    const original = { ...data };
+    const isBlank = (v: any) => v == null || v === '' || (Array.isArray(v) && !v.length);
+    const conflicts = (k: string) => Object.prototype.hasOwnProperty.call(suggestions, k) && !isBlank(original[k]) && JSON.stringify(original[k]) !== JSON.stringify(suggestions[k]);
+    const partnerOf: Record<string, string> = {};
+    for (const [k, f] of Object.entries<any>(S.FIELDS)) if (f.kind === 'amt' && f.basisKey) { partnerOf[k] = f.basisKey; partnerOf[f.basisKey] = k; }
+    const pairConflict = (k: string) => !!partnerOf[k] && Object.prototype.hasOwnProperty.call(suggestions, partnerOf[k]) && (conflicts(k) || conflicts(partnerOf[k]));
     for (const key of selected) {
       if (!Object.prototype.hasOwnProperty.call(suggestions, key)) continue;
       if (key === 'milestones') {
@@ -557,7 +596,7 @@ export function ListingEditor({ id = undefined }) {
       const current = data[key];
       const empty = current == null || current === '' || (Array.isArray(current) && !current.length);
       const options = candidates?.[key] || [];
-      if (options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(suggestions[key])) || (key === 'mapLocation' && empty && (data.lat || data.lng))) {
+      if (LISTING_AI_PRIVATE_FIELDS.includes(key) || pairConflict(key) || options.length > 1 || (!empty && JSON.stringify(current) !== JSON.stringify(suggestions[key])) || (key === 'mapLocation' && empty && (data.lat || data.lng))) {
         const id = key === 'communityId' ? 'designer-community' : 'designer-' + key;
         pending[id] = { value: suggestions[key], sources: options[0]?.sources || [], options };
         continue;
@@ -661,6 +700,23 @@ export function ListingEditor({ id = undefined }) {
     if (state === 'filled') aiFilled++; else aiEdited++;
   }
   for (const id of Object.keys(aiSuggestions)) aiStates[id] = 'suggestion';
+  // After an AI run, flag the questions AI could have answered but didn't (yellow optional, red required).
+  // The flag disappears as soon as the field has a value.
+  const aiRan = Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange;
+  let aiMissingRequired = 0;
+  if (aiRan) {
+    const d = L.editor.d, c = S.ctxOf(d);
+    const flag = (id: string, required: boolean) => {
+      if (aiStates[id]) return;
+      aiStates[id] = 'missing';
+      if (required) aiMissingRequired++;
+    };
+    for (const key of S.activeFieldKeys(c, d)) {
+      if (AI_FILLABLE.has(key) && S.util.isBlank(d[key])) flag('designer-' + key, S.isReq(S.FIELDS[key], c, d));
+    }
+    if (S.util.isBlank(d.communityId)) flag('designer-community', true);
+    if (S.util.isBlank(d.buildingName) && !d.proposing) flag('designer-buildingName', c.off);
+  }
   // Per-step counts for the steps bar: answers still as AI filled them, and AI suggestions awaiting review.
   const aiFilledByStep: Record<number, number> = {};
   const aiReviewByStep: Record<number, number> = {};
@@ -751,7 +807,7 @@ export function ListingEditor({ id = undefined }) {
           onUndo={undoAiChanges}
           onManual={() => go(1, true)}
         />
-        {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
+        {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} missing={aiMissingRequired} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">

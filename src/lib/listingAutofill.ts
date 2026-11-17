@@ -6,19 +6,27 @@ export const LISTING_AI_FIELDS = [
   // Classification
   'purpose', 'category', 'ptype', 'devStatus', 'stage', 'txn',
   // Location
-  'emirate', 'communityId', 'subcommunity', 'buildingName', 'tower', 'developer', 'street', 'mapLocation',
+  'emirate', 'communityId', 'subcommunity', 'buildingName', 'tower', 'developer', 'masterDeveloper', 'street', 'mapLocation',
   // Size & layout
-  'bedrooms', 'bathrooms', 'parking', 'parkingType', 'extraRooms', 'layoutCode',
+  'bedrooms', 'bathrooms', 'parking', 'extraRooms', 'layoutCode', 'totalFloors',
   'unitArea', 'builtUpArea', 'plotArea', 'balconyArea', 'floorBand', 'storeys', 'amenities',
   // Condition, views & specification
   'furnishing', 'condition', 'occupancy', 'completionYear', 'handoverQ', 'handoverY', 'handoverDate', 'plannedSpec',
-  'tenure', 'leaseTerm', 'views', 'viewExtent', 'kitchenLayout', 'appliances', 'pets', 'cooling', 'officeFit', 'fitOut', 'otherInfo',
+  'tenure', 'leaseTerm', 'views', 'kitchenLayout', 'pets', 'cooling', 'officeFit', 'fitOut', 'otherInfo',
   // Price & terms
   'askingPrice', 'negotiable', 'unitPrice', 'annualRent', 'serviceCharge', 'serviceBasis', 'possession',
-  'rentalIncome', 'tenancyExpiry', 'bookingBasis', 'booking', 'postHandover', 'incentives',
+  'rentalIncome', 'tenancyExpiry', 'bookingBasis', 'booking', 'incentives',
   'availability', 'availableFrom', 'minTenancy', 'cheques', 'depositBasis', 'deposit', 'utilities',
   // Marketing
   'title', 'description', 'locHighlights',
+];
+
+// Private identifiers and agreement terms. These are suggested only from documents or text the user
+// supplies (title deed, permit, Form A, SOA), never from a public web page, and always shown for review.
+export const LISTING_AI_PRIVATE_FIELDS = [
+  'unitNo', 'floorNo', 'permitNo', 'permitExpiry', 'authType', 'authExpiry', 'exclusive',
+  'commBasis', 'commission', 'commPayer',
+  'originalPrice', 'paidToDev', 'outstanding', 'payToSeller', 'nextInstDate', 'nextInstAmt', 'transferElig', 'nocStatus',
 ];
 
 const LOCATION_LABELS = { emirate: 'Emirate', communityId: 'Area / Community', buildingName: 'Building / Project', mapLocation: 'Google Maps location', milestones: 'Payment plan' };
@@ -38,14 +46,16 @@ export function isSupportedGoogleMapsUrl(value: string) {
 export function listingAiLabel(key: string) {
   const base = key.replace(/(Max|Multi)$/, '');
   const label = S.FIELDS[base]?.label;
-  const name = LOCATION_LABELS[base] || (typeof label === 'string' ? label : base);
+  const text = typeof label === 'function' ? S.labelOf(S.FIELDS[base], null, { emirate: 'Dubai' }) : label;
+  const name = LOCATION_LABELS[base] || (typeof text === 'string' ? text : base);
   return key.endsWith('Max') ? `${name} (upper value)` : key.endsWith('Multi') ? `${name} (all options)` : name;
 }
 
-export function listingAiFieldSpec() {
+export function listingAiFieldSpec(includePrivate = false) {
   const d = { ...S.defaultData(), purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'ready' };
   const c = S.ctxOf(d);
-  const fields: any[] = LISTING_AI_FIELDS.map((key) => {
+  const keys = includePrivate ? [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS] : LISTING_AI_FIELDS;
+  const fields: any[] = keys.map((key) => {
     if (key === 'amenities') return { key, label: 'Features and amenities', kind: 'array', options: Object.values(S.AMENITY).map((item: any) => ({ value: item.id, label: item.l })) };
     const f = S.FIELDS[key];
     const options = key === 'ptype' ? Object.values(S.PTYPES).flat().map((item: any) => item[0])
@@ -101,11 +111,12 @@ function cleanMilestones(value: unknown) {
   return rows.length ? rows : null;
 }
 
-export function cleanListingSuggestions(input: unknown) {
+export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: boolean } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const source = input as Record<string, any>;
   const out: Record<string, any> = {};
-  for (const key of LISTING_AI_FIELDS) {
+  const keys = opts.allowPrivate ? [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS] : LISTING_AI_FIELDS;
+  for (const key of keys) {
     const value = source[key];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
     const f = S.FIELDS[key];
@@ -154,7 +165,8 @@ export function cleanListingSuggestions(input: unknown) {
   for (const key of Object.keys(out)) {
     const f = S.FIELDS[key];
     if (!f || !['seg', 'select', 'multi'].includes(f.kind)) continue;
-    const values = choiceValues(f, c, d, out[key]);
+    // "More than 10" and "Unknown" are not facts from a source; the field is left for the user instead.
+    const values = choiceValues(f, c, d, out[key]).filter((v) => !S.MULTI_EXCLUDED.includes(v));
     if (f.kind === 'multi') {
       if (values.length) out[key] = values; else delete out[key];
       continue;

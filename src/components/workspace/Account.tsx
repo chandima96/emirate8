@@ -27,13 +27,14 @@ import {
 import { RX, digits, initialsOf, normaliseMobile, passwordScore } from '@/lib/utils';
 import { SectionNav, ToggleRow, credText, useHashTabs } from './shared';
 
-const TABS = ['personal', 'credentials', 'security', 'privacy', 'preferences', 'plan'];
+const TABS = ['personal', 'credentials', 'security', 'privacy', 'preferences', 'listing', 'plan'];
 const NAV = [
   ['personal', 'person', 'Personal information'],
   ['credentials', 'shield-check', 'Credentials'],
   ['security', 'lock', 'Login & security'],
   ['privacy', 'eye-slash', 'Privacy'],
   ['preferences', 'sliders', 'Preferences'],
+  ['listing', 'house-gear', 'Listing defaults'],
   ['plan', 'credit-card', 'Subscription & plan'],
 ];
 
@@ -725,7 +726,7 @@ function Preferences({ user }) {
   const submit = (e) => {
     e.preventDefault();
     const u = currentUser();
-    u.prefs = { ...f };
+    u.prefs = { ...(u.prefs || {}), ...f };
     u.notifications = { ...nt };
     saveUser(u);
     setNote('Saved just now');
@@ -775,6 +776,180 @@ function Preferences({ user }) {
         <span className="text-xs text-muted">{note}</span>
         <button type="submit" className="btn btn-dark">
           Save preferences
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* ---------- Listing defaults ---------- */
+const PAYERS = {
+  sale: [
+    ['buyer', 'Buyer'],
+    ['seller', 'Seller'],
+    ['shared', 'Shared'],
+    ['none', 'No commission'],
+  ],
+  rent: [
+    ['tenant', 'Tenant'],
+    ['landlord', 'Landlord'],
+    ['shared', 'Shared'],
+    ['none', 'No brokerage'],
+  ],
+};
+const NUMBER_RX = /^\d+(\.\d{1,2})?$/;
+/** Account-level answers copied into every new listing (each stays editable per listing). */
+function ListingDefaults({ user }) {
+  const { toast } = useFeedback();
+  const saved = user.prefs?.listing || {};
+  const [f, setF] = useState({
+    areaUnit: saved.areaUnit || 'sqft',
+    sale: { commBasis: 'pct', commission: '', commPayer: '', ...(saved.sale || {}) },
+    rent: { commBasis: 'pct', commission: '', commPayer: '', depositPct: '', maintenance: '', ...(saved.rent || {}) },
+    taxTreatment: saved.taxTreatment || '',
+    viewing: saved.viewing || '',
+    viewingNotes: saved.viewingNotes || '',
+    contact: { phone: '', whatsapp: '', email: '', hours: '', ...(saved.contact || {}) },
+  });
+  const [note, setNote] = useState('');
+  const setPart = (part, key) => (e) => setF({ ...f, [part]: { ...f[part], [key]: e.target.value } });
+  const set = (key) => (e) => setF({ ...f, [key]: e.target.value });
+  const numberOk = (v) => v === '' || NUMBER_RX.test(String(v).trim());
+  const submit = (e) => {
+    e.preventDefault();
+    if (![f.sale.commission, f.rent.commission, f.rent.depositPct].every(numberOk)) {
+      toast('Enter commissions and deposits as numbers, e.g. 2 or 2.5.', { icon: 'exclamation-circle' });
+      return;
+    }
+    const u = currentUser();
+    u.prefs = { ...(u.prefs || {}), listing: { ...f } };
+    saveUser(u);
+    setNote('Saved just now');
+    toast('Listing defaults saved. They apply to new listings.');
+  };
+  const commission = (part) => (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <Field id={'ld-' + part + '-basis'} label="Basis">
+        <select id={'ld-' + part + '-basis'} className="select" value={f[part].commBasis} onChange={setPart(part, 'commBasis')}>
+          <option value="pct">Percentage</option>
+          <option value="aed">Fixed AED</option>
+        </select>
+      </Field>
+      <Field
+        id={'ld-' + part + '-value'}
+        label={f[part].commBasis === 'pct' ? 'Commission (%)' : 'Commission (AED)'}
+        optional="optional"
+      >
+        <input
+          id={'ld-' + part + '-value'}
+          className="input"
+          inputMode="decimal"
+          placeholder={part === 'sale' ? 'e.g. 2' : 'e.g. 5'}
+          value={f[part].commission}
+          onChange={setPart(part, 'commission')}
+        />
+      </Field>
+      <Field id={'ld-' + part + '-payer'} label="Paid by" optional="optional">
+        <select id={'ld-' + part + '-payer'} className="select" value={f[part].commPayer} onChange={setPart(part, 'commPayer')}>
+          <option value="">Not set</option>
+          {PAYERS[part].map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </div>
+  );
+  return (
+    <form className="card p-5 sm:p-7" onSubmit={submit}>
+      <h2 className="h3">Listing defaults</h2>
+      <p className="mt-1 text-[13px] text-muted">
+        Filled in automatically on every new listing{user.type === 'agency' ? ' your agency creates' : ''}, so you only
+        confirm them. Each listing can still be changed.
+      </p>
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <Field id="ld-unit" label="Enter areas in">
+          <select id="ld-unit" className="select" value={f.areaUnit} onChange={set('areaUnit')}>
+            <option value="sqft">Square feet (sq ft)</option>
+            <option value="sqm">Square metres (sq m)</option>
+          </select>
+        </Field>
+        <Field id="ld-tax" label="Tax treatment" optional="optional">
+          <select id="ld-tax" className="select" value={f.taxTreatment} onChange={set('taxTreatment')}>
+            <option value="">Not set</option>
+            <option value="incl">Amounts include VAT where applicable</option>
+            <option value="excl">VAT is added where applicable</option>
+            <option value="na">Not applicable</option>
+          </select>
+        </Field>
+        <Field id="ld-view" label="Viewing arrangements" optional="optional">
+          <select id="ld-view" className="select" value={f.viewing} onChange={set('viewing')}>
+            <option value="">Not set</option>
+            <option value="appointment">By appointment</option>
+            <option value="flexible">Flexible</option>
+            <option value="weekdays">Weekdays only</option>
+            <option value="weekends">Weekends only</option>
+            <option value="virtual">Virtual viewing available</option>
+          </select>
+        </Field>
+        <Field id="ld-view-notes" label="Viewing notes" optional="optional" className="sm:col-span-3">
+          <input id="ld-view-notes" className="input" maxLength={160} value={f.viewingNotes} onChange={set('viewingNotes')} />
+        </Field>
+      </div>
+      <h3 className="h4 mt-8">Sale commission</h3>
+      <div className="mt-3">{commission('sale')}</div>
+      <h3 className="h4 mt-8">Rental brokerage fee &amp; deposit</h3>
+      <div className="mt-3">{commission('rent')}</div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <Field id="ld-deposit" label="Security deposit (% of annual rent)" optional="defaults to 5% / 10% furnished">
+          <input
+            id="ld-deposit"
+            className="input"
+            inputMode="decimal"
+            value={f.rent.depositPct}
+            onChange={setPart('rent', 'depositPct')}
+          />
+        </Field>
+        <Field id="ld-maint" label="Maintenance" optional="optional">
+          <select id="ld-maint" className="select" value={f.rent.maintenance} onChange={setPart('rent', 'maintenance')}>
+            <option value="">Not set</option>
+            <option value="landlord">Landlord</option>
+            <option value="tenant_minor">Tenant (minor), landlord (major)</option>
+            <option value="tenant">Tenant</option>
+          </select>
+        </Field>
+      </div>
+      <h3 className="h4 mt-8">Listing contact</h3>
+      <p className="mt-1 text-xs text-muted">
+        Optional. Use when enquiries should go somewhere other than your account contact
+        {user.type === 'agency' ? ', for example the agency call centre' : ''}. Leave blank to use your account contact.
+      </p>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <Field id="ld-phone" label="Phone" optional="optional">
+          <input id="ld-phone" className="input" type="tel" value={f.contact.phone} onChange={setPart('contact', 'phone')} />
+        </Field>
+        <Field id="ld-wa" label="WhatsApp" optional="optional">
+          <input id="ld-wa" className="input" type="tel" value={f.contact.whatsapp} onChange={setPart('contact', 'whatsapp')} />
+        </Field>
+        <Field id="ld-email" label="Email" optional="optional">
+          <input id="ld-email" className="input" type="email" value={f.contact.email} onChange={setPart('contact', 'email')} />
+        </Field>
+        <Field id="ld-hours" label="Contact hours" optional="optional">
+          <input
+            id="ld-hours"
+            className="input"
+            placeholder="e.g. 9am–7pm, Mon–Sat"
+            maxLength={60}
+            value={f.contact.hours}
+            onChange={setPart('contact', 'hours')}
+          />
+        </Field>
+      </div>
+      <div className="mt-6 flex items-center justify-end gap-3">
+        <span className="text-xs text-muted">{note}</span>
+        <button type="submit" className="btn btn-dark">
+          Save listing defaults
         </button>
       </div>
     </form>
@@ -878,6 +1053,9 @@ export function Account() {
           </div>
           <div hidden={tab !== 'preferences'}>
             <Preferences user={user} />
+          </div>
+          <div hidden={tab !== 'listing'}>
+            <ListingDefaults user={user} />
           </div>
           <div hidden={tab !== 'plan'}>
             <PlanSummary user={user} />

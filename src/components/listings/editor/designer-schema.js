@@ -336,6 +336,17 @@ const E08 = {};
       ],
     },
     {
+      id: 'parking',
+      l: 'Parking',
+      scope: 'Private',
+      items: [
+        ['covered_parking', 'Covered parking'],
+        ['basement_parking', 'Basement parking'],
+        ['garage', 'Garage'],
+        ['allocated_parking', 'Allocated parking'],
+      ],
+    },
+    {
       id: 'shared',
       l: 'Shared facilities',
       scope: 'Shared',
@@ -455,11 +466,47 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
   E08.basisAreaKey = function (c) {
     return c.land ? 'plotArea' : c.unitLike ? 'unitArea' : c.bigBuilt ? 'builtUpArea' : null;
   };
+  function altLangName(d) {
+    var names = { ar: 'Arabic', ru: 'Russian', zh: 'Chinese', fr: 'French', other: 'other language' };
+    return names[(d && d.altLang) || 'ar'] || 'Arabic';
+  }
   function parkingCount(d) {
     if (d.parking === 'custom') return U.parseIntSafe(d.parkingCustom) || 0;
     var n = Number(d.parking);
     return isNaN(n) ? 0 : n;
   }
+
+  /** Advertising-permit authority per emirate (label + verification hint). */
+  var AUTH = {
+    Dubai: {
+      name: 'Dubai Land Department (DLD) / RERA',
+      permitLabel: 'DLD advertising permit (Trakheesi) number',
+      hint: 'Issued through Trakheesi. The permit QR links to trakheesi.dubailand.gov.ae.',
+    },
+    'Abu Dhabi': {
+      name: 'Abu Dhabi Real Estate Centre (ADREC)',
+      permitLabel: 'ADREC (Madhmoun) permit number',
+      hint: 'Issued through the Madhmoun platform.',
+    },
+    Sharjah: { name: 'Sharjah Real Estate Registration Department', permitLabel: 'Sharjah advertising permit number', hint: '' },
+    Ajman: { name: 'Ajman Real Estate Regulatory Agency (ARRA)', permitLabel: 'Ajman advertising permit number', hint: '' },
+    'Ras Al Khaimah': { name: 'RAK Land Department', permitLabel: 'RAK advertising permit number', hint: '' },
+    'Umm Al Quwain': { name: 'Umm Al Quwain Land Department', permitLabel: 'UAQ advertising permit number', hint: '' },
+    Fujairah: { name: 'Fujairah Land Department', permitLabel: 'Fujairah advertising permit number', hint: '' },
+  };
+  E08.permitAuthority = function (emirate) {
+    return AUTH[emirate] || { name: 'Emirate land / real estate authority', permitLabel: 'Advertising permit number', hint: '' };
+  };
+  /** Rough bounding boxes used only to warn about a mistyped pin (never to block). */
+  E08.EMIRATE_BOUNDS = {
+    Dubai: [24.6, 25.45, 54.85, 55.75],
+    'Abu Dhabi': [22.6, 25.3, 51.5, 56.05],
+    Sharjah: [24.9, 25.45, 55.35, 56.4],
+    Ajman: [24.75, 25.5, 55.4, 56.2],
+    'Umm Al Quwain': [25.35, 25.7, 55.5, 55.95],
+    'Ras Al Khaimah': [24.95, 26.1, 55.75, 56.4],
+    Fujairah: [24.95, 25.65, 55.95, 56.4],
+  };
 
   var FL = [
     /* ---------- 1 Classification ---------- */
@@ -489,6 +536,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     }),
     F('devStatus', 'Property development status', 'seg', {
       req: true,
+      hide: true,
       when: function (c) {
         return !!c.cat && !c.land;
       },
@@ -510,6 +558,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     }),
     F('txn', 'Sale transaction type', 'seg', {
       req: true,
+      hide: true,
       when: function (c) {
         return c.sale;
       },
@@ -555,6 +604,10 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       help: function (c) {
         return c.off ? 'Required for off-plan properties.' : 'Filled automatically when you pick a catalogue building.';
       },
+    }),
+    F('masterDeveloper', 'Master developer', 'text', {
+      max: 80,
+      help: 'Filled from the building catalogue when available, e.g. the master developer of the community.',
     }),
     F('unitNo', 'Unit / Villa / Plot number', 'text', { max: 30, priv: true }),
     F('floorNo', 'Exact floor number', 'text', {
@@ -677,9 +730,8 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         O('maid', 'Maid’s room'),
         O('study', 'Study'),
         O('driver', 'Driver’s room'),
-        O('storage', 'Storage'),
-        O('laundry', 'Laundry'),
       ],
+      help: 'Storage and laundry rooms are listed under Features & amenities.',
     }),
     F('layoutCode', 'Layout / Unit type code', 'text', {
       max: 30,
@@ -687,6 +739,12 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       when: function (c) {
         return c.unitLike || c.villaLike;
       },
+    }),
+    F('totalFloors', 'Total floors in the building', 'int', {
+      when: function (c) {
+        return c.unitLike;
+      },
+      help: 'Used with the exact floor number to work out the public floor band.',
     }),
     F('floorBand', 'Public floor band', 'select', {
       when: function (c) {
@@ -699,7 +757,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         O('high', 'High floor'),
         O('penthouse', 'Penthouse level'),
       ],
-      help: 'Shown publicly if you choose “Floor band” in Permit & display.',
+      help: 'Worked out from the floor number and total floors when both are known. Shown publicly if you choose “Floor band” in Permit & display.',
     }),
     F('storeys', 'Number of storeys', 'int', {
       when: function (c) {
@@ -931,6 +989,9 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
 
     /* ---------- 4 Price & terms ---------- */
     F('askingPrice', 'Asking price', 'money', { req: true }),
+    F('priceOnRequest', 'Show “Price on request” instead of the price', 'check', {
+      help: 'The price is still required for review and search ranges, but it is hidden on the public listing.',
+    }),
     F('negotiable', 'Negotiable', 'seg', { opts: [O('yes', 'Negotiable'), O('no', 'Fixed price')] }),
     F('possession', 'Possession', 'select', {
       req: true,
@@ -1130,21 +1191,26 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       max: 1000,
       help: 'Factual distances and nearby places only.',
     }),
-    F('altLang', 'Language', 'select', {
+    F('altLang', 'Language of this version', 'select', {
       opts: [O('ar', 'Arabic'), O('ru', 'Russian'), O('zh', 'Chinese'), O('fr', 'French'), O('other', 'Other')],
+      help: 'Arabic by default.',
     }),
-    F('altTitle', 'Title (additional language)', 'text', {
-      max: 100,
-      when: function (c, d) {
-        return !!d.altLang;
+    F(
+      'altTitle',
+      function (c, d) {
+        return 'Title (' + altLangName(d) + ')';
       },
-    }),
-    F('altDesc', 'Description (additional language)', 'textarea', {
-      max: 5000,
-      when: function (c, d) {
-        return !!d.altLang;
+      'text',
+      { max: 100 },
+    ),
+    F(
+      'altDesc',
+      function (c, d) {
+        return 'Description (' + altLangName(d) + ')';
       },
-    }),
+      'textarea',
+      { max: 5000 },
+    ),
     F('notes', 'Internal broker notes', 'textarea', { max: 2000, priv: true }),
 
     /* ---------- 6 Media ---------- */
@@ -1158,11 +1224,19 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     }),
 
     /* ---------- 7 Permit & display ---------- */
-    F('permitNo', 'Advertising permit number', 'text', {
-      req: true,
-      max: 40,
-      help: 'Entered exactly as issued. Format is checked during verification, not here.',
-    }),
+    F(
+      'permitNo',
+      function (c, d) {
+        var a = E08.permitAuthority((d && d.emirate) || 'Dubai');
+        return a.permitLabel;
+      },
+      'text',
+      {
+        req: true,
+        max: 40,
+        help: 'Entered exactly as issued. Format is checked during verification, not here.',
+      },
+    ),
     F('permitUrl', 'Official permit verification link', 'url', {
       help: 'Shown as “link provided by broker — not reviewed” until verified.',
     }),
@@ -1177,6 +1251,10 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       ],
     }),
     F('authExpiry', 'Authorization expiry', 'date', {}),
+    F('exclusive', 'Mandate', 'seg', {
+      opts: [O('exclusive', 'Exclusive'), O('non_exclusive', 'Non-exclusive')],
+      help: 'As stated on the owner–broker agreement (Form A).',
+    }),
     F('overrideContact', 'Use different contact details for this listing', 'check', {}),
     F('cPhone', 'Phone for this listing', 'phone', {
       req: true,
@@ -1255,14 +1333,15 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           fields: ['purpose'],
           note: 'Short-term and holiday-home rentals aren’t available in this version. They need a separate workflow — holiday-home permit, nightly rates and an availability calendar — planned for later.',
         },
-        { id: 'cls-prop', title: 'Property', fields: ['category', 'ptype', 'devStatus', 'stage'] },
+        { id: 'cls-prop', title: 'Property', fields: ['category', 'ptype'] },
         {
-          id: 'cls-sale',
-          title: 'Sale transaction',
+          id: 'cls-market',
+          title: 'Market status',
+          kind: 'market',
           when: function (c) {
-            return c.sale;
+            return !!c.cat && (c.sale || !c.land);
           },
-          fields: ['txn'],
+          fields: ['devStatus', 'txn', 'stage'],
         },
         { id: 'cls-ref', title: 'References', kind: 'ref', fields: ['extRef'] },
       ],
@@ -1282,10 +1361,10 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         {
           id: 'loc-unit',
           title: 'Unit & address',
-          fields: ['developer', 'unitNo', 'floorNo', 'street'],
+          fields: ['developer', 'masterDeveloper', 'unitNo', 'floorNo', 'street'],
           note: 'Your unit number and private verification details will not appear publicly.',
         },
-        { id: 'loc-map', title: 'Map location', kind: 'map', fields: [] },
+        { id: 'loc-map', title: 'Map location', kind: 'map', fields: ['lat', 'lng'] },
         { id: 'loc-pub', title: 'Public location', fields: ['locPrecision'] },
       ],
     },
@@ -1310,7 +1389,6 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
             return c.typeOk;
           },
           fields: [
-            'areaUnit',
             'bedrooms',
             'bedroomsCustom',
             'bathrooms',
@@ -1322,9 +1400,9 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
             'areaSource',
             'parking',
             'parkingCustom',
-            'parkingType',
             'extraRooms',
             'layoutCode',
+            'totalFloors',
             'floorBand',
             'storeys',
           ],
@@ -1431,7 +1509,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           when: function (c) {
             return c.typeOk && !c.land;
           },
-          fields: ['views', 'viewExtent', 'kitchenLayout', 'appliances'],
+          fields: ['views', 'kitchenLayout'],
         },
         {
           id: 'det-amen',
@@ -1481,7 +1559,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           when: function (c) {
             return c.priceReady && c.sale && !c.off;
           },
-          fields: ['askingPrice', 'negotiable', 'possession', 'possessionDate'],
+          fields: ['askingPrice', 'priceOnRequest', 'negotiable', 'possession', 'possessionDate'],
         },
         {
           id: 'pr-ten',
@@ -1497,7 +1575,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           when: function (c) {
             return c.priceReady && c.sale && !c.land;
           },
-          fields: ['serviceCharge', 'serviceBasis', 'servicePeriod'],
+          fields: ['serviceCharge', 'serviceBasis'],
         },
         {
           id: 'pr-salesum',
@@ -1513,7 +1591,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           when: function (c) {
             return c.priceReady && c.offInit;
           },
-          fields: ['unitPrice', 'bookingBasis', 'booking', 'bookingInSchedule', 'postHandover'],
+          fields: ['unitPrice', 'priceOnRequest', 'bookingBasis', 'booking'],
         },
         {
           id: 'pr-ms',
@@ -1538,7 +1616,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           when: function (c) {
             return c.priceReady && c.offResale;
           },
-          fields: ['askingPrice', 'priceBasis', 'priceIncludes'],
+          fields: ['askingPrice', 'priceOnRequest', 'priceBasis', 'priceIncludes'],
         },
         {
           id: 'pr-resfin',
@@ -1653,9 +1731,11 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         { id: 'mk-loc', title: 'Location highlights', optional: true, fields: ['locHighlights'] },
         {
           id: 'mk-lang',
-          title: 'Additional language version',
+          title: 'Arabic version',
           optional: true,
-          fields: ['altLang', 'altTitle', 'altDesc'],
+          kind: 'translate',
+          fields: ['altTitle', 'altDesc', 'altLang'],
+          note: 'Both major UAE portals publish an Arabic version. Translate with AI, then review the wording before publishing.',
         },
         {
           id: 'mk-notes',
@@ -1675,7 +1755,6 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         { id: 'md-fp', title: 'Floor plans', optional: true, kind: 'plans' },
         { id: 'md-tour', title: 'Virtual tour', optional: true, kind: 'tour', fields: ['tourUrl'] },
         { id: 'md-br', title: 'Brochure', optional: true, kind: 'brochure' },
-        { id: 'md-rights', title: 'Media rights', fields: ['mediaRights'] },
       ],
     },
     {
@@ -1691,7 +1770,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         },
         { id: 'pm-qr', title: 'Official permit QR', optional: true, kind: 'doc', doc: 'qr' },
         { id: 'pm-broker', title: 'Broker licence & brokerage', kind: 'broker' },
-        { id: 'pm-auth', title: 'Marketing authorization', fields: ['authType', 'authExpiry'] },
+        { id: 'pm-auth', title: 'Marketing authorization', fields: ['authType', 'authExpiry', 'exclusive'] },
         { id: 'pm-authdoc', title: 'Authorization document', optional: true, kind: 'doc', doc: 'auth' },
         {
           id: 'pm-contact',
@@ -1703,7 +1782,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
           id: 'pm-disp',
           title: 'Display',
           kind: 'precisionNote',
-          fields: ['floorDisplay', 'portfolio', 'promotion', 'scheduleDate'],
+          fields: ['floorDisplay', 'portfolio', 'promotion'],
         },
       ],
     },
@@ -1720,6 +1799,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
 
   /* Widget error keys -> step index (for focus + step status) */
   E08.WIDGET_KEYS = {
+    market: 0,
     community: 1,
     building: 1,
     amen: 2,
@@ -1748,6 +1828,7 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     plans: 'plans',
   };
   E08.WIDGET_LABEL = {
+    market: 'Market status',
     community: 'Area / Community',
     building: 'Building / Project',
     amen: 'Features & amenities',
@@ -1832,14 +1913,12 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       developerAuto: false,
       views: [],
       extraRooms: [],
-      parkingType: [],
       utilities: [],
       utilitiesLand: [],
       cheques: [],
       cChannels: [],
-      bookingInSchedule: false,
+      altLang: 'ar',
       overrideContact: false,
-      mediaRights: false,
       decl1: false,
       decl2: false,
       decl3: false,
@@ -1907,7 +1986,11 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     var out = { price: price, okPrice: okPrice, rows: [], invalid: [], status: 'empty', msg: '', ok: false };
     var booking = amt(d, 'booking', 'bookingBasis', okPrice ? price : null);
     out.booking = booking;
-    var includeBooking = !d.bookingInSchedule && booking.ok && !booking.blank;
+    // The booking is counted once: skip it when a schedule row already represents it.
+    var bookingRow = (st.milestones || []).some(function (r) {
+      return r.trigger === 'booking';
+    });
+    var includeBooking = !bookingRow && booking.ok && !booking.blank;
     var allPct = true,
       sumBp = 0,
       sumF = 0,
@@ -2384,9 +2467,12 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       !isNaN(ln) &&
       !errs.lat &&
       !errs.lng &&
-      (la < 24.6 || la > 25.45 || ln < 54.85 || ln > 55.75)
+      (function () {
+        var b = E08.EMIRATE_BOUNDS[d.emirate];
+        return b && (la < b[0] || la > b[1] || ln < b[2] || ln > b[3]);
+      })()
     )
-      warn('lat', 'These coordinates look outside Dubai. Please double-check.');
+      warn('lat', 'These coordinates look outside ' + d.emirate + '. Please double-check.');
     if (on.tourUrl && !U.isBlank(d.tourUrl) && !errs.tourUrl && !U.parseTourUrl(d.tourUrl))
       set('tourUrl', 'Only Matterport (my.matterport.com/show/?m=…) and Kuula links are supported.');
     if (on.permitUrl && !errs.permitUrl && d.permitUrl && !/^http/.test(d.permitUrl))
@@ -2552,7 +2638,6 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       if (!r.trigger) m.push('when it is due');
       else if (r.trigger === 'date' && !U.validDate(r.when)) m.push('a valid date');
       else if (r.trigger === 'construction' && !U.trim1(r.when)) m.push('the construction milestone');
-      if (r.trigger === 'post' && st.d.postHandover !== 'yes') m.push('“Post-handover payment plan: Yes” above');
       if (m.length) out[r.id] = 'Add ' + m.join(', ') + '.';
     });
     return out;
@@ -2565,7 +2650,7 @@ E08.FIELDS.developer.help = 'Enter the developer name as shown on the property o
 // Fields that may hold a range (lower value in the field, upper in `<key>Max`, or `rawMax` for areas)
 // and choice fields that may hold several answers (`<key>Multi`, first choice kept in the field itself).
 E08.RANGE_KEYS = ['unitArea', 'builtUpArea', 'plotArea', 'balconyArea', 'askingPrice', 'unitPrice', 'annualRent', 'serviceCharge'];
-E08.MULTI_KEYS = ['bedrooms', 'bathrooms', 'parking', 'floorBand', 'furnishing', 'condition', 'kitchenLayout', 'minTenancy'];
+E08.MULTI_KEYS = ['ptype', 'bedrooms', 'bathrooms', 'parking', 'floorBand', 'furnishing', 'condition', 'kitchenLayout', 'minTenancy'];
 E08.RANGE_KEYS.forEach(function (k) {
   E08.FIELDS[k].rangeOk = true;
 });

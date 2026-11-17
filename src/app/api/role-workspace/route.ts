@@ -92,7 +92,18 @@ export async function GET(request: Request) {
       .filter((broker) => eligibleMembers.has(String(broker.appData?.ownerMemberId)))
       .map((broker) => {
         const teamMember: any = eligibleMembers.get(String(broker.appData?.ownerMemberId));
-        return { id: broker.id, memberId: teamMember.id, name: broker.name || teamMember.profile?.portfolio?.displayName || teamMember.name, email: teamMember.email };
+        const portfolio = teamMember.profile?.portfolio || {};
+        return {
+          id: broker.id,
+          memberId: teamMember.id,
+          name: broker.name || portfolio.displayName || teamMember.name,
+          email: teamMember.email,
+          // Licence and public contact used for the listing's permit and contact steps.
+          brn: teamMember.profile?.credentials?.brn || broker.reraNumber || '',
+          phone: portfolio.publicPhone || broker.phone || '',
+          whatsapp: portfolio.whatsapp || broker.whatsapp || '',
+          publicEmail: portfolio.publicEmail || broker.email || '',
+        };
       });
     return NextResponse.json({ teamBrokers });
   }

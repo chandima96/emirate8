@@ -5,11 +5,13 @@ import { useContext, useState } from 'react';
 import { AiField as Field, AiReviewContext } from '@/components/ui/AiAssist';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
-import { AREAS, EMIRATES } from '@/config/reference';
+import { COMMUNITIES, EMIRATES } from '@/config/reference';
 import { currentUser } from '@/lib/store';
 import { uid } from '@/lib/utils';
 import { listingSchema as S } from './designer-schema';
 import { editorState, validateEditorStep } from './designer-model';
+import { BuildingPicker, SourceChip } from './AutofillWidgets';
+import { qualityScore } from './listing-derive';
 
 const U = S.util;
 export function coordinatesFromMapLink(value) {
@@ -60,7 +62,7 @@ export function LocationWidget({ ed, kind }) {
           <select
             id="designer-emirate"
             className="select"
-            value={d.emirate || 'Dubai'}
+            value={d.emirate || ''}
             onChange={(e) => {
               ed.set('editor.d', {
                 ...d,
@@ -103,7 +105,7 @@ export function LocationWidget({ ed, kind }) {
             {...invalidProps('designer-community', ed.errors.community)}
           />
           <datalist id="listing-communities">
-            {(AREAS[d.emirate || 'Dubai'] || []).map((v) => (
+            {(d.emirate ? COMMUNITIES[d.emirate] || [] : [...new Set(Object.values(COMMUNITIES).flat())]).map((v) => (
               <option key={v} value={v} />
             ))}
           </datalist>
@@ -119,34 +121,7 @@ export function LocationWidget({ ed, kind }) {
         </Field>
       </div>
     );
-  if (kind === 'building')
-    return (
-      <div className="mb-4 space-y-3">
-        <Field
-          id="designer-buildingName"
-          label="Building / Project"
-          optional={S.ctxOf(d).off ? undefined : 'where applicable'}
-          error={ed.errors.buildingName}
-        >
-          <input
-            id="designer-buildingName"
-            className="input"
-            value={d.buildingName || ''}
-            maxLength={80}
-            onChange={(e) => set('buildingName', e.target.value)}
-            placeholder="Enter the building or project name"
-            {...invalidProps('designer-buildingName', ed.errors.buildingName)}
-          />
-        </Field>
-        <label className="check">
-          <input type="checkbox" checked={!!d.proposing} onChange={(e) => set('proposing', e.target.checked)} />
-          <span>Can't find your building? Propose a building / project</span>
-        </label>
-        {d.proposing && (
-          <p className="text-xs text-muted">Saved as a proposed building for review with this listing.</p>
-        )}
-      </div>
-    );
+  if (kind === 'building') return <BuildingPicker ed={ed} />;
   if (kind === 'map')
     return <div className="mb-4 space-y-2">
       <Field id="designer-mapLocation" label="Google Maps location">
@@ -165,7 +140,10 @@ export function LocationWidget({ ed, kind }) {
           }}
         />
       </Field>
-      <p className="text-xs text-muted">Paste a Google Maps link with a dropped pin. The pin coordinates are saved automatically.</p>
+      <p className="text-xs text-muted">
+        Paste a Google Maps link with a dropped pin, or enter the coordinates below. Picking a building from the list
+        fills the building’s pin automatically.
+      </p>
       {d.lat && d.lng && <p className="text-xs text-sage-ink"><Icon name="geo-alt" className="mr-1" />Map pin added</p>}
       {d.mapLocation && <a className="inline-flex items-center gap-1 text-xs font-medium text-[#3157a5] underline underline-offset-2" href={isGoogleMapLink(d.mapLocation) ? d.mapLocation : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.mapLocation)}`} target="_blank" rel="noreferrer"><Icon name="box-arrow-up-right" />Open location in Google Maps</a>}
     </div>;
@@ -177,9 +155,30 @@ export function AmenitiesWidget({ ed }) {
   const aiReview = useContext(AiReviewContext);
   const amen = ed.L.editor.amen || {},
     off = S.ctxOf(ed.L.editor.d).off;
-  const change = (id, next) => ed.set('editor.amen', { ...amen, [id]: next });
+  const change = (id, next) => ed.set('editor.amen', { ...amen, [id]: { ...next, reviewed: true } });
+  const imported = Object.keys(amen).filter((id) => amen[id].inherited && !amen[id].reviewed);
   return (
     <div id="designer-amen" tabIndex={-1} className="mb-5">
+      {imported.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sage-soft/50 p-3 text-xs">
+          <span>
+            {imported.length} shared amenit{imported.length === 1 ? 'y was' : 'ies were'} imported from the building.
+            Untick any that don’t apply, then confirm.
+          </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() =>
+              ed.set(
+                'editor.amen',
+                Object.fromEntries(Object.entries(amen).map(([id, a]: [string, any]) => [id, a.inherited ? { ...a, reviewed: true } : a])),
+              )
+            }
+          >
+            Confirm imported amenities
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted">
           {Object.values(amen).filter((a: any) => a.selected !== false).length} selected
@@ -222,6 +221,9 @@ export function AmenitiesWidget({ ed }) {
                         }
                       />
                       <span>{label}</span>
+                      {amen[id]?.inherited && !amen[id]?.reviewed && (
+                        <span className="rounded bg-sage-soft px-1.5 py-0.5 text-[10px] font-semibold text-sage-ink">From building</span>
+                      )}
                       {aiReview?.states?.['amenity-' + id] === 'filled' && <span className="rounded bg-[#ecebff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338a8]">AI-filled</span>}
                     </label>
                     {amen[id]?.selected && (
@@ -638,6 +640,74 @@ export function PriceSummary({ ed, kind }) {
   );
 }
 
+const PARA = '\n\n';
+const optLabel = (key, value) => S.FIELDS[key]?.opts?.find?.((o) => o.v === value)?.l || '';
+
+/** Factual title and description drafted only from the structured answers. */
+export function draftCopy(l) {
+  const d = l.editor.d,
+    c = S.ctxOf(d);
+  const type = S.PTYPE_LABEL[d.ptype] || 'Property';
+  const beds = c.resUnit ? (d.bedrooms === 'studio' ? 'Studio' : l.beds ? l.beds + ' BR' : '') : '';
+  const view = (d.views || []).filter((v) => v !== 'other').map((v) => optLabel('views', v))[0];
+  const place = d.buildingName || d.subcommunity || d.communityId;
+  const title = [
+    [c.ready && d.occupancy === 'vacant' ? 'Vacant' : '', beds, beds === 'Studio' ? '' : type].filter(Boolean).join(' '),
+    view ? view + ' view' : '',
+    ['high', 'penthouse'].includes(d.floorBand) ? optLabel('floorBand', d.floorBand) : '',
+    c.off ? 'Off-plan' : '',
+    place,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const sizeText = l.size ? U.fmtNum(l.size, 0) + ' sq ft (' + U.fmtNum(l.sizeSqm || 0, 0) + ' sq m)' : '';
+  const amenities = (l.amenities || []).slice(0, 8);
+  const facts = [
+    [
+      (beds ? beds.replace(' BR', '-bedroom') + ' ' : '') + type.toLowerCase(),
+      d.purpose === 'rent' ? 'for rent' : 'for sale',
+      place ? 'in ' + [d.buildingName, d.subcommunity, d.communityId].filter(Boolean).join(', ') : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/^./, (m) => m.toUpperCase()) + '.',
+    [sizeText && 'Size: ' + sizeText, l.baths ? l.baths + ' bathroom' + (l.baths === 1 ? '' : 's') : '', l.parking ? l.parking + ' parking space' + (l.parking === 1 ? '' : 's') : '']
+      .filter(Boolean)
+      .join(' · '),
+    [optLabel('furnishing', d.furnishing), optLabel('condition', d.condition), c.ready ? optLabel('occupancy', d.occupancy) : '']
+      .filter(Boolean)
+      .join(', '),
+    view ? (d.views || []).map((v) => optLabel('views', v)).filter(Boolean).join(', ') + ' views.' : '',
+    d.developer ? 'Developed by ' + d.developer + (c.ready && d.completionYear ? ', completed in ' + d.completionYear : '') + '.' : '',
+    c.off && d.handoverQ && d.handoverY ? 'Expected handover: Q' + d.handoverQ + ' ' + d.handoverY + '.' : '',
+    l.postHandover ? 'Post-handover payment plan available.' : '',
+    d.tenure ? optLabel('tenure', d.tenure) + ' ownership.' : '',
+    amenities.length ? 'Amenities: ' + amenities.join(', ') + '.' : '',
+    ...(l.highlights || []),
+  ];
+  return { title: title.slice(0, 100), description: facts.filter((x) => x && x !== '.').join(PARA) };
+}
+
+/** Highlight chips suggested from the answers (the user adds the ones that apply). */
+function suggestedHighlights(l) {
+  const d = l.editor.d,
+    c = S.ctxOf(d);
+  const out = [
+    c.ready && d.occupancy === 'vacant' ? 'Vacant and ready to move in' : '',
+    ...(d.views || []).filter((v) => v !== 'other').map((v) => optLabel('views', v) + ' view'),
+    ['high', 'penthouse'].includes(d.floorBand) ? optLabel('floorBand', d.floorBand) : '',
+    d.condition === 'renovated' ? 'Renovated' : d.condition === 'brand_new' ? 'Brand new' : '',
+    d.position === 'corner' ? 'Corner unit' : '',
+    (d.extraRooms || []).includes('maid') ? 'Maid’s room' : '',
+    l.editor.amen?.priv_pool?.selected ? 'Private pool' : '',
+    d.furnishing === 'furnished' ? 'Fully furnished' : '',
+    l.postHandover ? 'Post-handover payment plan' : '',
+    c.rent && (d.cheques || []).length > 2 ? 'Up to ' + Math.max(...d.cheques.map(Number)) + ' cheques' : '',
+  ].filter(Boolean);
+  const have = new Set((l.highlights || []).map((h) => U.norm(h)));
+  return [...new Set(out)].filter((h) => !have.has(U.norm(h)));
+}
+
 export function MarketingWidget({ ed, kind }) {
   const [text, setText] = useState('');
   const l = ed.L,
@@ -659,31 +729,17 @@ export function MarketingWidget({ ed, kind }) {
               }))
             )
               return;
-            const type = S.PTYPE_LABEL[d.ptype] || 'Property';
-            const title = [
-              type,
-              d.communityId ? 'in ' + d.communityId : '',
-              d.purpose === 'rent' ? 'for rent' : 'for sale',
-            ]
-              .filter(Boolean)
-              .join(' ');
-            const description = [
-              title + '.',
-              l.beds !== '' && l.beds != null ? (l.beds === 0 ? 'Studio layout.' : l.beds + ' bedrooms.') : '',
-              l.size ? 'Area: ' + l.size.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' sq ft.' : '',
-              l.furnishing ? l.furnishing + '.' : '',
-              l.view ? l.view + ' view.' : '',
-              ...(l.highlights || []),
-            ]
-              .filter(Boolean)
-              .join('\n\n');
+            const { title, description } = draftCopy(l);
             ed.set('editor.d', { ...d, title: title.slice(0, 100), description });
           }}
         >
           <Icon name="magic" />
           Generate from property details
         </button>
-        <p className="mt-2 text-xs text-muted">Creates an editable template using only the details you entered.</p>
+        <p className="mt-2 text-xs text-muted">
+          Drafts a factual title and description from the details you entered, including building facts. Edit it before
+          publishing.
+        </p>
       </div>
     );
   const rows = l.highlights || [];
@@ -710,6 +766,19 @@ export function MarketingWidget({ ed, kind }) {
           </button>
         ))}
       </div>
+      {rows.length < 6 && suggestedHighlights(l).length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted">Suggested:</span>
+          {suggestedHighlights(l)
+            .slice(0, 6 - rows.length)
+            .map((h) => (
+              <button key={h} type="button" className="tog-chip" onClick={() => ed.set('highlights', [...rows, h])}>
+                <Icon name="plus" />
+                {h}
+              </button>
+            ))}
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
         <label className="sr-only" htmlFor="highlight-new">
           New highlight
@@ -858,6 +927,8 @@ export function ProfileWidget({ ed, kind }) {
     profile = u.profile || u;
   const credentials = u.credentials || {};
   const agency = u.portfolio?.agency || profile.agency || {};
+  const assigned = ed.isAgency ? (ed.agencyBrokers || []).find((b) => String(b.id) === String(ed.L.primaryBroker)) : null;
+  const authority = S.permitAuthority(ed.L.editor.d.emirate || 'Dubai');
   if (kind === 'broker')
     return (
       <div className="mb-4 rounded-lg bg-mist p-4 text-[13px]">
@@ -872,7 +943,15 @@ export function ProfileWidget({ ed, kind }) {
                     profile.developer?.registrationNumber,
                 ],
               ]
-            : [
+            : ed.isAgency
+              ? [
+                  ['Assigned broker', assigned?.name],
+                  ['Broker BRN', assigned?.brn],
+                  ['Agency ORN', credentials.orn || agency.orn],
+                  ['Trade licence', credentials.tradeLicence],
+                  ['Brokerage', u.name],
+                ]
+              : [
                 ['BRN', credentials.brn],
                 ['ORN', credentials.orn || agency.orn],
                 [
@@ -880,7 +959,9 @@ export function ProfileWidget({ ed, kind }) {
                   agency.name || credentials.agencyName || (u.type === 'independent' ? 'Independent broker' : ''),
                 ],
               ]
-          ).map(([label, value]) => (
+          )
+            .concat([['Permit authority', authority.name]])
+            .map(([label, value]) => (
             <div key={label} className="flex flex-wrap justify-between gap-3">
               <dt className="text-muted">{label}</dt>
               <dd>{value || 'Not provided'}</dd>
@@ -896,13 +977,12 @@ export function ProfileWidget({ ed, kind }) {
   if (kind === 'contact')
     return (
       <div className="mb-4 rounded-lg bg-mist p-4 text-[13px]">
-        <p className="font-semibold">Contact from your account</p>
+        <p className="font-semibold">{assigned ? 'Contact of the assigned broker' : 'Contact from your account'}</p>
         <p className="mt-1 text-muted">
-          {[
-            u.portfolio?.publicPhone || profile.phone,
-            u.portfolio?.whatsapp || profile.whatsapp,
-            u.portfolio?.publicEmail || u.email,
-          ]
+          {(assigned
+            ? [assigned.phone, assigned.whatsapp, assigned.publicEmail || assigned.email]
+            : [u.portfolio?.publicPhone || profile.phone, u.portfolio?.whatsapp || profile.whatsapp, u.portfolio?.publicEmail || u.email]
+          )
             .filter(Boolean)
             .join(' · ') || 'Manage your contact details in Account.'}
         </p>
@@ -925,8 +1005,37 @@ export function ReviewSummary({ ed }) {
     ed.go(step, true);
     setTimeout(() => focusListingField('designer-' + key), 50);
   };
+  const aiChanges = ed.L.editor.ai?.changes || {};
+  const sourceOf = (key) =>
+    aiChanges[key] && JSON.stringify(aiChanges[key].applied) === JSON.stringify(st.d[key]) ? 'ai' : ed.L.editor.sources?.[key];
+  const autoCount = Object.keys(st.d).filter((key) => !U.isBlank(st.d[key]) && sourceOf(key)).length;
+  const quality = qualityScore(ed.L);
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-line p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-[13px] font-semibold">Listing quality</h4>
+          <span className={'badge ' + (quality.score >= 80 ? 'badge-ok' : quality.score >= 50 ? 'badge-warn' : 'badge-muted')}>
+            {quality.score} / 100
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-mist">
+          <div className="h-full bg-sage-ink" style={{ width: quality.score + '%' }} />
+        </div>
+        {quality.tips.length > 0 && (
+          <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-muted">
+            {quality.tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ul>
+        )}
+        {autoCount > 0 && (
+          <p className="mt-3 text-xs text-muted">
+            {autoCount} answer{autoCount === 1 ? ' was' : 's were'} filled automatically — each is labelled with its source
+            below. Check them before publishing.
+          </p>
+        )}
+      </div>
       {S.STEPS.slice(0, 7).map((step, i) => {
         const keys = S.activeFieldKeys(c, st.d, i),
           allStepKeys = [...new Set(step.sections.flatMap((section) => section.fields || []))] as string[],
@@ -963,6 +1072,7 @@ export function ReviewSummary({ ed }) {
                     <div key={key} className="grid gap-1 text-xs sm:grid-cols-[minmax(0,180px)_1fr_auto]">
                       <dt className="text-muted">
                         {label}
+                        <SourceChip source={sourceOf(key)} />
                         <span className="ml-1 text-2xs">
                           (
                           {[
@@ -971,9 +1081,7 @@ export function ReviewSummary({ ed }) {
                             'floorDisplay',
                             'portfolio',
                             'promotion',
-                            'scheduleDate',
                             'overrideContact',
-                            'mediaRights',
                             'authType',
                             'authExpiry',
                             'finSource',

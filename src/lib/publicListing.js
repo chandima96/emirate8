@@ -10,7 +10,22 @@ export function publicListing(source) {
   delete l.brokerRef;
   delete l.ownerMemberId;
   if (!l.mapLocation && typeof source.appData?.mapLocation === 'string') l.mapLocation = source.appData.mapLocation;
-  if (l.permit) l.permit = { number: l.permit.number, expiry: l.permit.expiry };
+  if (l.permit)
+    l.permit = {
+      number: l.permit.number,
+      expiry: l.permit.expiry,
+      ...(l.permit.url ? { url: l.permit.url } : {}),
+      ...(l.permit.authority ? { authority: l.permit.authority } : {}),
+    };
+  delete l.priceHistory;
+  delete l.qualityScore;
+  if (l.priceOnRequest) {
+    // The price stays with the record for review; buyers see "Price on request".
+    delete l.price;
+    delete l.priceMax;
+    delete l.pricePerSqft;
+    delete l.previousPrice;
+  } else if (!(Number(l.previousPrice) > Number(l.price))) delete l.previousPrice;
   if (l.appData) l.appData = publicListing(l.appData);
   if (!d) {
     delete l.mapLocation;
@@ -51,7 +66,7 @@ export function publicListing(source) {
             !f.priv &&
             (!f.when || f.when(c, d)) &&
             !S.util.isBlank(d[key]) &&
-            !['areaUnit', 'floorBand', 'bedroomsCustom', 'bathroomsCustom', 'parkingCustom'].includes(key)
+            !['areaUnit', 'floorBand', 'totalFloors', 'bedroomsCustom', 'bathroomsCustom', 'parkingCustom'].includes(key)
           );
         })
         .map((key) => {

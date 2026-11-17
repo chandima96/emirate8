@@ -67,7 +67,7 @@ export function blankListing() {
     purpose: '',
     category: 'residential',
     type: '',
-    emirate: 'Dubai',
+    emirate: '',
     area: '',
     building: '',
     unit: '',

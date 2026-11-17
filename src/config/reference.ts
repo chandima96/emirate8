@@ -29,6 +29,47 @@ export const AREAS = {
   'Umm Al Quwain': ['UAQ Marina'],
   Fujairah: ['Fujairah City'],
 };
+/**
+ * Fuller community list for the listing editor's location step (names only — no coordinates or
+ * boundaries are implied). `AREAS` stays the short list used by search filters.
+ */
+export const COMMUNITIES: Record<string, string[]> = {
+  Dubai: [
+    ...AREAS.Dubai,
+    'Al Barsha', 'Al Furjan', 'Al Garhoud', 'Al Jaddaf', 'Al Khail Heights', 'Al Kifaf', 'Al Mankhool', 'Al Mizhar',
+    'Al Nahda', 'Al Quoz', 'Al Qusais', 'Al Safa', 'Al Satwa', 'Al Sufouh', 'Al Warqa', 'Al Wasl', 'Arabian Ranches 2',
+    'Arabian Ranches 3', 'Arjan', 'Barsha Heights', 'Bluewaters Island', 'Bur Dubai', 'Culture Village', 'DAMAC Hills',
+    'DAMAC Hills 2', 'DAMAC Lagoons', 'Deira', 'DIFC', 'Discovery Gardens', 'Dubai Festival City', 'Dubai Harbour',
+    'Dubai Healthcare City', 'Dubai Internet City', 'Dubai Investments Park', 'Dubai Islands', 'Dubai Maritime City',
+    'Dubai Media City', 'Dubai Production City', 'Dubai Science Park', 'Dubai Silicon Oasis', 'Dubai Sports City',
+    'Dubai Studio City', 'Dubailand', 'Emaar Beachfront', 'Emaar South', 'Emirates Hills', 'Expo City Dubai',
+    'Green Community', 'International City', 'Jebel Ali', 'Jumeirah Bay Island', 'Jumeirah Beach Residence',
+    'Jumeirah Golf Estates', 'Jumeirah Heights', 'Jumeirah Islands', 'Jumeirah Park', 'Jumeirah Village Triangle',
+    'Karama', 'La Mer', 'Living Legends', 'Majan', 'Mina Rashid', 'Mirdif', 'Mohammed Bin Rashid City', 'Motor City',
+    'Mudon', 'Nad Al Sheba', 'Oud Metha', 'Palm Jebel Ali', 'Pearl Jumeirah', 'Port de La Mer', 'Ras Al Khor',
+    'Remraam', 'Serena', 'Sheikh Zayed Road', 'Sobha Hartland', 'The Greens', 'The Lakes', 'The Meadows', 'The Oasis',
+    'The Springs', 'The Valley', 'The Views', 'The World Islands', 'Tilal Al Ghaf', 'Town Square', 'Trade Centre',
+    'Umm Suqeim', 'Villanova', 'Wadi Al Safa', 'Zaabeel',
+  ],
+  'Abu Dhabi': [
+    ...AREAS['Abu Dhabi'],
+    'Al Bateen', 'Al Ghadeer', 'Al Hudayriat Island', 'Al Jubail Island', 'Al Khalidiya', 'Al Maryah Island',
+    'Al Mushrif', 'Al Raha Gardens', 'Al Reef', 'Al Shamkha', 'Corniche Area', 'Hydra Village', 'Khalifa City',
+    'Masdar City', 'Mohammed Bin Zayed City', 'Ramhan Island',
+  ],
+  Sharjah: [
+    ...AREAS.Sharjah,
+    'Al Mamzar', 'Al Nahda', 'Al Qasimia', 'Al Taawun', 'Al Tai', 'Al Zahia', 'Hoshi', 'Maryam Island', 'Muwaileh',
+    'Sharjah Waterfront City', 'Tilal City',
+  ],
+  Ajman: [
+    ...AREAS.Ajman,
+    'Al Amerah', 'Al Helio', 'Al Jurf', 'Al Mowaihat', 'Al Rashidiya', 'Al Rawda', 'Al Yasmeen', 'Al Zorah', 'Emirates City',
+  ],
+  'Ras Al Khaimah': [...AREAS['Ras Al Khaimah'], 'Al Hamra Village', 'Al Nakheel', 'Dafan Al Nakheel', 'Julphar'],
+  'Umm Al Quwain': [...AREAS['Umm Al Quwain'], 'Al Raas', 'Al Salamah'],
+  Fujairah: [...AREAS.Fujairah, 'Al Faseel', 'Dibba'],
+};
 export const TYPES = {
   residential: ['Apartment', 'Villa', 'Townhouse', 'Penthouse', 'Duplex', 'Hotel apartment', 'Residential building'],
   commercial: ['Office', 'Shop / Retail', 'Showroom', 'Warehouse', 'Commercial villa', 'Commercial building', 'Factory', 'Labour accommodation', 'Retail'],
