@@ -14,7 +14,7 @@ export const LISTING_AI_FIELDS = [
   'furnishing', 'condition', 'occupancy', 'completionYear', 'handoverQ', 'handoverY', 'handoverDate', 'plannedSpec',
   'tenure', 'leaseTerm', 'views', 'kitchenLayout', 'pets', 'cooling', 'officeFit', 'fitOut', 'otherInfo',
   // Price & terms
-  'askingPrice', 'negotiable', 'unitPrice', 'annualRent', 'serviceCharge', 'serviceBasis', 'possession',
+  'askingPrice', 'negotiable', 'unitPrice', 'annualRent', 'serviceCharge', 'serviceBasis', 'possession', 'possessionDate',
   'rentalIncome', 'tenancyExpiry', 'bookingBasis', 'booking', 'incentives',
   'availability', 'availableFrom', 'minTenancy', 'cheques', 'depositBasis', 'deposit', 'utilities',
   // Marketing
@@ -192,17 +192,22 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
       if (values[0]) out[key] = values[0]; else delete out[key];
     } else if (!values.length) delete out[key];
   }
-  // The model often returns a portal's headline price as askingPrice even when it has classified the
-  // listing as an off-plan initial sale, whose form only shows unitPrice (and vice versa). Keep the
-  // price in the field this classification actually uses.
-  if (c.sale) {
-    const want = c.offInit ? 'unitPrice' : 'askingPrice';
-    const other = want === 'unitPrice' ? 'askingPrice' : 'unitPrice';
-    if (out[other] && !out[want]) {
-      out[want] = out[other];
-      delete out[other];
-      if (out[other + 'Max']) { out[want + 'Max'] = out[other + 'Max']; delete out[other + 'Max']; }
-    }
+  alignPriceKey(out);
+  return out;
+}
+
+/** The model often returns a portal's headline price as askingPrice even when the listing is an
+ * off-plan initial sale, whose form only shows unitPrice (and vice versa). Moves the price (and its
+ * range end) to the field the suggested classification actually uses. Mutates and returns `out`. */
+export function alignPriceKey(out: Record<string, any>) {
+  const c = S.ctxOf({ ...S.defaultData(), ...out });
+  if (!c.sale) return out;
+  const want = c.offInit ? 'unitPrice' : 'askingPrice';
+  const other = want === 'unitPrice' ? 'askingPrice' : 'unitPrice';
+  if (out[other] && !out[want]) {
+    out[want] = out[other];
+    delete out[other];
+    if (out[other + 'Max']) { out[want + 'Max'] = out[other + 'Max']; delete out[other + 'Max']; }
   }
   return out;
 }
