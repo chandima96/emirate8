@@ -260,3 +260,15 @@ test('workspace saves only rewrite listings that were actually edited', async ()
 test('permit expiry is required on the permit step', () => {
   assert.equal(S.FIELDS.permitExpiry.req, true);
 });
+
+test('page classification trusts the portal record over agent tags', async () => {
+  const { pageClassification } = await import('../src/lib/listingAutofillServer');
+  // Property Finder: agent tag "Offplan: Re-Sale" but the project card says Completed, delivered Q3 2023.
+  const pf = '1. [Lamar Residences]\nSuperAgent\nOffplan: Re-Sale\n21\n1,553,000\n## Project information\n[Lamar Residence]\nCompleted\nLamar Residence\nDeveloped by:\n[Aabar Properties]\nDelivery Date:\nQ3 2023\nDown payment:\n20%\n';
+  assert.deepEqual(pageClassification(pf, '2026-11-17'), { devStatus: 'ready', txn: 'resale', delivery: '2023-09-30' });
+  // Bayut: Completion status Off-Plan, handover Q1 2028, "Initial Sale" line.
+  const bayut = 'Initial Sale\nProperty Information\nType\nVilla\nCompletion\nOff-Plan\nHandover date\nQ1 2028\n';
+  assert.deepEqual(pageClassification(bayut, '2026-11-17'), { devStatus: 'offplan', txn: 'initial', delivery: '2028-03-31' });
+  // A nav link or a description word alone forces nothing.
+  assert.deepEqual(pageClassification('[Buy][Rent][Off-plan]\nGreat resale value in this ready community.', '2026-11-17'), { devStatus: '', txn: '', delivery: '' });
+});

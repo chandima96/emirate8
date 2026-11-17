@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/server/session';
-import { cleanListingSuggestions } from '@/lib/listingAutofill';
-import { explicitProjectStatus, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite } from '@/lib/listingAutofillServer';
+import { alignPriceKey, cleanListingSuggestions } from '@/lib/listingAutofill';
+import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite } from '@/lib/listingAutofillServer';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -85,21 +85,35 @@ export async function POST(request: Request) {
       const mapUrl = source.suggestions.mapLocation;
       const sourceText = page?.text.replace(/&amp;/gi, '&') || '';
       if (mapUrl && (!page || !sourceText.includes(mapUrl))) delete source.suggestions.mapLocation;
-      const pageStatus = page ? explicitProjectStatus(sourceText) : '';
-      if (pageStatus) {
-        source.suggestions.devStatus = pageStatus;
-        const projectText = sourceText.split(/\bSimilar Projects\b/i, 1)[0];
+      const page_ = page ? pageClassification(sourceText) : null;
+      if (page_?.devStatus) {
+        source.suggestions.devStatus = page_.devStatus;
+        const projectText = sourceText.split(/Similar Projects/i, 1)[0];
         if (
-          pageStatus === 'offplan' &&
-          /\bstarting price\b/i.test(projectText) &&
-          /\bpayment plan\b/i.test(projectText) &&
-          /\bdeveloper\b/i.test(projectText) &&
-          !/\b(?:resale|secondary market)\b/i.test(projectText)
+          page_.devStatus === 'offplan' &&
+          /starting price/i.test(projectText) &&
+          /payment plan/i.test(projectText) &&
+          /developer/i.test(projectText) &&
+          !/(?:resale|secondary market)/i.test(projectText)
         ) source.suggestions.txn = 'initial';
+        // A completed building has no construction stage or handover quarter to offer.
+        if (page_.devStatus === 'ready') for (const k of ['stage', 'handoverQ', 'handoverY']) delete source.suggestions[k];
       }
+      if (page_?.txn && source.suggestions.purpose !== 'rent') source.suggestions.txn = page_.txn;
       if (page && !source.suggestions.devStatus && explicitlyReadyForOccupancy(sourceText)) {
         source.suggestions.devStatus = 'ready';
       }
+      // The classification may have changed above: keep the price in the field it now uses.
+      alignPriceKey(source.suggestions);
+      // "Available from" a date that has already passed means available now.
+      if (source.suggestions.possession === 'expected') {
+        const date = String(source.suggestions.possessionDate || '');
+        if (!date) delete source.suggestions.possession;
+        else if (date < new Date().toISOString().slice(0, 10)) {
+          source.suggestions.possession = 'now';
+          delete source.suggestions.possessionDate;
+        }
+      } else delete source.suggestions.possessionDate;
     }
     // Values a source contradicts itself on become extra candidates, so the form asks the user to choose
     // between them instead of silently keeping one (the same review used when two documents differ).
