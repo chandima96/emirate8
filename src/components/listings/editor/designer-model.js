@@ -1,4 +1,5 @@
 import { listingSchema as S } from './designer-schema.js';
+import { deriveEditor, qualityScore } from './listing-derive.js';
 
 const U = S.util;
 const types = Object.values(S.PTYPES).flat();
@@ -23,19 +24,21 @@ export function hydrateEditor(l) {
   const o = l.offplan || {},
     p = l.permit || {};
   const handover = /Q([1-4])\s+(\d{4})/i.exec(o.handover || '');
+  // New drafts start with every choice unanswered; only saved legacy records keep their old fallbacks.
+  const legacy = !!l.id;
   const ptype =
     types.find(([key, label]) => label === l.type || key === l.type)?.[0] ||
     (l.type === 'Retail' ? 'shop' : l.type === 'Plot' ? 'residential_plot' : '');
   const d = {
     ...S.defaultData(),
     purpose: l.purpose || '',
-    category: /_plot$/.test(ptype) ? 'land' : l.category || 'residential',
+    category: /_plot$/.test(ptype) ? 'land' : l.category || (legacy ? 'residential' : ''),
     ptype,
     devStatus: l.completion || '',
     stage: optionValue('stage', o.devStatus),
     txn: '',
     extRef: l.brokerRef || '',
-    emirate: l.emirate || 'Dubai',
+    emirate: l.emirate || '',
     communityId: l.area || '',
     buildingName: l.building || o.project || '',
     developer: o.developer || '',
@@ -57,7 +60,7 @@ export function hydrateEditor(l) {
     completionYear: text(l.completionYear),
     handoverQ: handover?.[1] || '',
     handoverY: handover?.[2] || '',
-    tenure: optionValue('tenure', l.ownership) || 'freehold',
+    tenure: optionValue('tenure', l.ownership) || (legacy ? 'freehold' : ''),
     askingPrice: text(l.price),
     unitPrice: text(l.price),
     annualRent: text(l.price),
@@ -65,9 +68,9 @@ export function hydrateEditor(l) {
     serviceBasis: l.serviceCharge ? 'per_sqft' : '',
     depositBasis: l.deposit ? 'pct' : '',
     deposit: text(l.deposit),
-    bookingBasis: 'aed',
+    // Legacy records stored the booking in AED; new drafts leave the basis for the user or AI to choose.
+    bookingBasis: o.booking ? 'aed' : '',
     booking: text(o.booking),
-    bookingInSchedule: !!o.plan?.length,
     cheques: l.cheques ? [text(l.cheques)] : [],
     title: l.title || '',
     description: l.description || '',
@@ -76,7 +79,7 @@ export function hydrateEditor(l) {
     permitNo: p.number || '',
     permitExpiry: (p.expiry || '').slice(0, 10),
     decl2: !!l.authorised,
-    floorDisplay: 'hidden',
+    floorDisplay: legacy ? 'hidden' : '',
   };
   return {
     ...l,
@@ -125,6 +128,8 @@ export function editorState(l) {
 
 /** Project active answers into the existing CMS/public listing shape; hidden answers stay in the draft. */
 export function projectListing(l) {
+  const derived = deriveEditor(hydrateEditor(l).editor);
+  if (derived !== l.editor) l = { ...l, editor: derived };
   const st = editorState(l),
     d = st.d,
     c = S.ctxOf(d);
@@ -165,7 +170,7 @@ export function projectListing(l) {
     pct: m.mode === 'pct' ? decimal(m.value) : money(d.unitPrice) > 0 ? (money(m.value) / money(d.unitPrice)) * 100 : 0,
     due: m.when || m.trigger,
   }));
-  if (c.offInit && !d.bookingInSchedule && !U.isBlank(d.booking))
+  if (c.offInit && !(st.milestones || []).some((m) => m.trigger === 'booking') && !U.isBlank(d.booking))
     plan.unshift({
       id: 'booking',
       label: 'Booking',
@@ -182,6 +187,31 @@ export function projectListing(l) {
     .filter(([, a]) => a.selected !== false)
     .map(([id]) => S.AMENITY[id]?.l)
     .filter(Boolean);
+  const price = money(val(priceKey));
+  const sqftArea = Number.isFinite(area) && area > 0 ? area : null;
+  // Service charge: keep both the per-sq-ft rate and the annual total, whichever basis was entered.
+  const sc = money(val('serviceCharge'));
+  const scBasis = val('serviceBasis');
+  const scPerSqft = sc === '' ? '' : scBasis === 'per_sqft' ? sc : sqftArea ? Math.round((sc / sqftArea) * 100) / 100 : '';
+  const scAnnual = sc === '' ? '' : scBasis === 'per_year' ? sc : sqftArea ? Math.round(sc * sqftArea) : '';
+  const rent = c.rent ? money(d.annualRent) : '';
+  const depositPct = c.rent && d.depositBasis === 'pct' ? decimal(d.deposit) : '';
+  const depositAed = c.rent
+    ? d.depositBasis === 'aed'
+      ? money(d.deposit)
+      : depositPct !== '' && rent > 0
+        ? Math.round((rent * depositPct) / 100)
+        : ''
+    : '';
+  const marketStatus = c.land
+    ? d.txn === 'initial' ? 'land-primary' : d.txn === 'resale' ? 'land-resale' : ''
+    : c.rent
+      ? d.devStatus || ''
+      : d.devStatus && d.txn
+        ? (d.devStatus === 'offplan' ? 'offplan-' : 'ready-') + (d.txn === 'initial' ? 'primary' : 'resale')
+        : '';
+  const authority = S.permitAuthority(d.emirate || 'Dubai');
+  const quality = qualityScore(l);
   return {
     ...l,
     editor: l.editor,
@@ -189,7 +219,7 @@ export function projectListing(l) {
     category: d.category,
     type: S.PTYPE_LABEL[d.ptype] || '',
     completion: c.land ? 'ready' : d.devStatus,
-    emirate: d.emirate || 'Dubai',
+    emirate: d.emirate || '',
     area: d.communityId || '',
     building: d.proposing ? d.propName || '' : d.buildingName || '',
     unit: d.unitNo || '',
@@ -223,24 +253,55 @@ export function projectListing(l) {
       .join(', '),
     title: val('title') || '',
     description: val('description') || '',
-    price: money(val(priceKey)),
+    price,
     priceMax: moneyMax(priceKey),
+    priceOnRequest: !c.rent && !!val('priceOnRequest'),
+    pricePerSqft: price > 0 && sqftArea ? Math.round(price / sqftArea) : '',
+    sizeSqm: sqftArea ? Math.round(sqftArea * S.config.SQM_PER_SQFT) : '',
+    subcommunity: d.subcommunity || '',
+    tower: d.tower || '',
+    developer: (d.proposing ? d.propDeveloper : d.developer) || d.developer || '',
+    masterDeveloper: val('masterDeveloper') || '',
+    buildingRef: d.buildingRef || '',
+    marketStatus,
+    transaction: c.sale ? d.txn || '' : '',
+    totalFloors: decimal(val('totalFloors')),
+    views: (val('views') || []).slice(),
+    extraRooms: (val('extraRooms') || []).slice(),
+    negotiable: val('negotiable') || '',
+    possession: val('possession') || '',
+    minTenancy: val('minTenancy') || '',
+    handoverDate: val('handoverDate') || '',
+    postHandover: c.offInit ? (st.milestones || []).some((m) => m.trigger === 'post') : false,
+    depositAed,
+    depositPct,
+    serviceChargePerSqft: scPerSqft,
+    serviceChargeAnnual: scAnnual,
+    exclusive: val('exclusive') || '',
+    issuingAuthority: authority.name,
+    qualityScore: quality.score,
     cheques: c.rent ? (d.cheques || []).join(', ') : '',
-    deposit: c.rent && d.depositBasis === 'pct' ? decimal(d.deposit) : '',
+    deposit: depositPct,
     availableFrom: c.rent ? (d.availability === 'now' ? 'Immediately' : d.availableFrom || '') : '',
-    serviceCharge: val('serviceBasis') === 'per_sqft' ? money(val('serviceCharge')) : '',
+    serviceCharge: scPerSqft,
     serviceChargeMax: val('serviceBasis') === 'per_sqft' ? moneyMax('serviceCharge') : '',
     nearbyNote: val('locHighlights') || '',
     brokerRef: d.extRef || '',
     authorised: !!d.decl2,
     amenities: c.land ? [] : [...new Set([...(l.editor.legacyAmenities || []), ...amen])],
     display: { ...(l.display || {}), portfolioFeatured: d.promotion === 'featured' },
-    permit: { ...(l.permit || {}), number: d.permitNo || '', expiry: d.permitExpiry || '' },
+    permit: {
+      ...(l.permit || {}),
+      number: d.permitNo || '',
+      expiry: d.permitExpiry || '',
+      url: d.permitUrl || '',
+      authority: authority.name,
+    },
     media: { ...(l.media || {}), tour: val('tourUrl') || '' },
     offplan: {
       ...(l.offplan || {}),
       project: c.off ? (d.proposing ? d.propName : d.buildingName) || '' : '',
-      developer: c.off ? d.developer || '' : '',
+      developer: c.off ? (d.proposing ? d.propDeveloper : d.developer) || d.developer || '' : '',
       handover: c.off && d.handoverQ && d.handoverY ? 'Q' + d.handoverQ + ' ' + d.handoverY : '',
       devStatus: label('stage'),
       plan,

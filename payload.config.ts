@@ -24,9 +24,18 @@ import { AgencyInvitations } from './src/collections/AgencyInvitations';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
-const configuredPoolMax = Number(process.env.DATABASE_POOL_MAX);
+const poolSize = (value: string | undefined, fallback: number) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 2 ? Math.floor(n) : fallback;
+};
+// Production (Vercel) runs many warm instances, each with its own pool, against a shared Supabase pooler,
+// so keep each pool small there. `next dev` is a single process that fires bursts of parallel queries
+// (and reconnects after every hot reload); with only one usable client those queue past the connection
+// timeout ("timeout exceeded when trying to connect"), so development gets its own, larger size.
 const databasePoolMax =
-  Number.isFinite(configuredPoolMax) && configuredPoolMax >= 2 ? Math.floor(configuredPoolMax) : 2;
+  process.env.NODE_ENV === 'development'
+    ? poolSize(process.env.DATABASE_POOL_MAX_DEV, 10)
+    : poolSize(process.env.DATABASE_POOL_MAX, 2);
 
 export default buildConfig({
   admin: {

@@ -132,6 +132,17 @@ export function useListingActions() {
     l.title = (l.title + ' (copy)').slice(0, 80);
     l.permit = { number: '', expiry: '' };
     l.authorised = false;
+    delete l.priceHistory;
+    delete l.previousPrice;
+    // The editor re-projects the record from `editor.d`, so unit-specific answers must be cleared there too.
+    if (l.editor?.d) {
+      const d = { ...l.editor.d };
+      ['unitNo', 'floorNo', 'extRef', 'permitNo', 'permitExpiry', 'permitUrl', 'authExpiry'].forEach((k) => (d[k] = ''));
+      ['decl1', 'decl2', 'decl3'].forEach((k) => (d[k] = false));
+      l.editor = { ...l.editor, d, ai: undefined };
+    }
+    l.unit = '';
+    l.brokerRef = '';
     l.display.portfolioFeatured = false;
     const saved = saveListing(l);
     if (saved && saved.error) {

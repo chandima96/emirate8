@@ -22,7 +22,11 @@ export function ListingBadges({ listing: l, featured = true, extra = undefined }
               ? 'For rent'
               : 'For sale'}
       </span>
-      <span className="ptag-light">{l.completion === 'offplan' ? 'Off-plan' : 'Ready'}</span>
+      <span className="ptag-light">
+        {(l.completion === 'offplan' ? 'Off-plan' : 'Ready') +
+          (l.purpose === 'sale' && l.transaction ? (l.transaction === 'initial' ? ' · First sale' : ' · Resale') : '')}
+      </span>
+      {priceDropPct(l) > 0 && <span className="ptag-sage">{priceDropPct(l)}% price drop</span>}
       {l.display?.portfolioFeatured && featured && (
         <span className="ptag-sage">
           <Icon name="star-fill" className="h-3 w-3" />
@@ -58,6 +62,13 @@ export function ListingSpecs({ listing: l, className = 'text-[13px] text-text' }
       )}
     </div>
   );
+}
+
+/** Percentage drop since the last published price (0 when the price hasn't fallen). */
+export function priceDropPct(l) {
+  const before = Number(l?.previousPrice), now = Number(l?.price);
+  if (!(before > 0) || !(now > 0) || now >= before) return 0;
+  return Math.round(((before - now) / before) * 100);
 }
 
 export function Price({ listing: l, period = '/year', className }) {

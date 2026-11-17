@@ -10,7 +10,7 @@ import { Icon } from '@/components/ui/Icon';
  *   iframe → parent  { type: 'e08-preview-ready' }
  *   parent → iframe  { type: 'e08-preview', mode, viewport, listing }  (on ready, on load and on every tab/viewport change)
  */
-export function PreviewModal({ open, onClose, getListing, complete, publishLabel, onSave, onPublish }) {
+export function PreviewModal({ open, onClose, getListing, complete, publishLabel, onSave, onPublish, publishing = false }) {
   const [tab, setTab] = useState('card');
   const [vp, setVp] = useState('desktop');
   const frame = useRef(null);
@@ -129,12 +129,13 @@ export function PreviewModal({ open, onClose, getListing, complete, publishLabel
           <button
             type="button"
             className="btn btn-dark"
-            disabled={!complete}
-            title={complete ? undefined : 'Complete the checklist to publish'}
+            disabled={publishing}
+            aria-busy={publishing}
+            title={complete ? undefined : 'Some steps are incomplete. Clicking takes you to the first one.'}
             onClick={onPublish}
           >
-            <Icon name="send" />
-            {publishLabel}
+            <Icon name={publishing ? 'hourglass-split' : 'send'} />
+            {publishing ? 'Submitting…' : publishLabel}
           </button>
         </div>
       </div>

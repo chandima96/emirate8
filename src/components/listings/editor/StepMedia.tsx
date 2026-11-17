@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
-import { Field, invalidProps } from '@/components/ui/Field';
+import { invalidProps } from '@/components/ui/Field';
+import { AiField as Field, AiStatus } from '@/components/ui/AiAssist';
 import { Icon } from '@/components/ui/Icon';
 import { cx, fmtBytes } from '@/lib/utils';
 import { uploadMediaDataURL, uploadMediaFile } from '@/lib/mediaClient';
@@ -275,6 +276,9 @@ export function StepMedia({ ed }) {
       <p className="mt-1 text-[13px] text-muted">
         Drag to reorder. The featured photo leads the gallery and appears on every card.
       </p>
+      <div className="mt-2">
+        <AiStatus id="designer-photos" value={L.photos.length > 0} />
+      </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
         <label
           className={cx('dropzone', dropActive && 'is-drag')}
@@ -576,6 +580,9 @@ export function StepMedia({ ed }) {
           defaultOpen={L.media.floorplans.length > 0}
           hasErrors={!!errors.plans}
         >
+          <div className="mt-2">
+            <AiStatus id="designer-plans" value={L.media.floorplans.length > 0} optional />
+          </div>
           <label className="btn btn-outline btn-sm mt-3 cursor-pointer" htmlFor="f-floorplans">
             <Icon name="grid-1x2" />
             Add floor plans
@@ -657,7 +664,7 @@ export function StepMedia({ ed }) {
         </EditorSection>
         <div className="grid gap-4">
           {[['f-video', 'media.video', 'Property video URL']].map(([id, path, label]) => (
-            <Field key={id} id={id} label={label} optional="optional" error={errors[path]}>
+            <Field key={id} id={id} label={label} optional="optional" error={errors[path]} value={L.media[path.split('.')[1]] || ''}>
               <input
                 id={id}
                 type="url"

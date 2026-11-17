@@ -2,14 +2,36 @@
 
 import { createContext, useContext, useEffect, useRef, type ComponentProps } from 'react';
 import { Icon } from './Icon';
-import { Field } from './Field';
+import { AiBadge, Field } from './Field';
 
-export type AiFieldState = 'filled' | 'edited' | 'missing' | 'suggestion';
+export type AiFieldState = 'filled' | 'edited' | 'missing' | 'suggestion' | 'kept';
 export type AiSuggestion = { value: any; sources?: string[]; options?: { value: any; sources: string[] }[] };
-export type AiReviewValue = { states: Record<string, AiFieldState>; suggestions: Record<string, AiSuggestion>; use: (id: string) => void; keep: (id: string) => void; select: (id: string, value: any) => void };
+export type AiReviewValue = { states: Record<string, AiFieldState>; suggestions: Record<string, AiSuggestion>; use: (id: string) => void; keep: (id: string) => void; select: (id: string, value: any) => void; ran?: boolean };
+
+const isBlankValue = (value: unknown) =>
+  value == null || value === '' || value === false || (Array.isArray(value) && !value.length) ||
+  (typeof value === 'object' && !Array.isArray(value) && 'raw' in (value as any) && ((value as any).raw == null || (value as any).raw === ''));
+
+/** State for a field after an AI run: an explicit state wins; otherwise blank = missing, filled = not from AI. */
+function stateFor(review: AiReviewValue, id: string, hasValue: boolean, value: unknown): AiFieldState | undefined {
+  if (review.suggestions?.[id]) return 'suggestion';
+  if (review.states?.[id]) return review.states[id];
+  if (!review.ran || !hasValue) return undefined;
+  return isBlankValue(value) ? 'missing' : 'kept';
+}
+
+/** Badge-only status for list widgets (amenities, photos, milestones…) after an AI run. */
+export function AiStatus({ id, value, optional }: { id: string; value: unknown; optional?: boolean }) {
+  const review = useContext(AiReviewContext);
+  const state = review && typeof review === 'object' && 'states' in review ? stateFor(review, id, true, value) : undefined;
+  return state ? <AiBadge state={state} optional={optional ? 'optional' : undefined} /> : null;
+}
 export const AiReviewContext = createContext<AiReviewValue>({ states: {}, suggestions: {}, use: () => {}, keep: () => {}, select: () => {} });
 
-export function AiField(props: ComponentProps<typeof Field>) {
+export function AiField(allProps: ComponentProps<typeof Field> & { value?: unknown }) {
+  // Passing `value` (even blank) opts the field into the "missing / not from AI" states after an AI run.
+  const { value, ...props } = allProps;
+  const hasValue = Object.prototype.hasOwnProperty.call(allProps, 'value');
   const contextValue = useContext(AiReviewContext);
   // Keep fields resilient to a stale provider value during Next.js Fast Refresh.
   const review: AiReviewValue = contextValue && typeof contextValue === 'object' && 'states' in contextValue
@@ -17,7 +39,7 @@ export function AiField(props: ComponentProps<typeof Field>) {
     : { states: contextValue as unknown as Record<string, AiFieldState>, suggestions: {}, use: () => {}, keep: () => {}, select: () => {} };
   const id = props.id || '';
   const suggestion = review.suggestions?.[id];
-  const state = suggestion ? 'suggestion' : review.states[id];
+  const state = stateFor(review, id, !!hasValue, value);
   const valueText = (value: any) => Array.isArray(value) ? value.map((item) => typeof item === 'object' && item ? [item.label, item.value].filter(Boolean).join(': ') : item).join(', ') : value && typeof value === 'object' ? Object.entries(value).map(([key, item]) => `${key}: ${item}`).join(', ') : String(value ?? '');
   const activeValue = suggestion?.value;
   return <Field {...props} aiState={state}>
@@ -47,7 +69,7 @@ export function AiNotice({ filled, edited, missing = 0, review = 0, onUndo }: { 
     <div className="relative z-10 min-w-0 flex-1">
       <b className="block text-lg font-semibold leading-snug tracking-tight text-[#252c69] sm:text-xl">AI has prepared these details.</b>
       <p className="mt-0.5 text-sm text-[#4a5288] sm:text-[15px]">Please review them before continuing.</p>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="inline-flex items-center gap-1.5 rounded-full border border-[#d8d5fb] bg-white/90 px-3 py-1.5 font-semibold text-[#5142a7]"><Icon name="stars" />{filled} AI-filled</span><span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 font-semibold text-muted"><Icon name="pencil" />{edited} edited</span>{missing + review > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#f0d7a8] bg-[#fffaf0] px-3 py-1.5 font-semibold text-warn"><Icon name="exclamation-circle" />{missing + review} need your input</span>}</div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="inline-flex items-center gap-1.5 rounded-full border border-[#d8d5fb] bg-white/90 px-3 py-1.5 font-semibold text-[#5142a7]"><Icon name="stars" />{filled} AI-filled</span><span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 font-semibold text-muted"><Icon name="pencil" />{edited} edited</span>{missing > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#ef9a92] bg-[#fff4f2] px-3 py-1.5 font-semibold text-[#b42318]"><Icon name="exclamation-circle" />{missing} required {missing === 1 ? 'field needs' : 'fields need'} your input</span>}{review > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-[#f0d7a8] bg-[#fffaf0] px-3 py-1.5 font-semibold text-warn"><Icon name="lightbulb" />{review} AI {review === 1 ? 'suggestion' : 'suggestions'} to review</span>}</div>
     </div>
     <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-12 -z-0 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(141,132,255,0.24),transparent_68%)] blur-lg" />
     <button type="button" className="relative z-10 btn btn-ghost btn-sm" onClick={onUndo}><Icon name="arrow-counterclockwise" />Undo AI changes</button>

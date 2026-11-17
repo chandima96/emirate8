@@ -547,13 +547,13 @@ export function StepReview({ ed, preview, ready }) {
     note = [
       'bg-ok-soft text-ok',
       L.display.visible === false
-        ? 'Ready to publish. Public visibility is off, so it will stay hidden until you switch it on.'
-        : 'Everything is ready. Publishing shows this listing in search and on your public portfolio.',
+        ? 'Ready. Publishing sends it for review; public visibility is off, so it will stay hidden after approval until you switch it on.'
+        : 'Everything is ready. Publishing saves it and sends it for review; once approved it shows in search and on your public portfolio.',
     ];
   else if (ready.complete && L.authorised)
     note = [
       'bg-warn-soft text-warn',
-      'Complete. Your credentials are still being verified, so it will be submitted for review and publish once you’re verified.',
+      'Complete. Publishing sends it for review; it goes live once your credentials are verified and the listing is approved.',
     ];
   else note = ['bg-mist text-muted', 'Some required details are missing. Save as a draft and come back any time.'];
 

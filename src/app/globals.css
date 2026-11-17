@@ -1221,6 +1221,18 @@ html.is-embed .mkt-shell {
   }
 }
 
+/* ---------- Fields AI could not fill: yellow when optional, red when required ---------- */
+.field[data-ai='missing'][data-ai-req='optional'] .choice,
+.field[data-ai='missing'][data-ai-req='optional'] .tog-chip {
+  border-color: #e3c26a;
+  background-color: #fffaeb;
+}
+.field[data-ai='missing'][data-ai-req='required'] .choice,
+.field[data-ai='missing'][data-ai-req='required'] .tog-chip {
+  border-color: #ef9a92;
+  background-color: #fff4f2;
+}
+
 /* ---------- AI-filled answers: same light blue as AI-filled inputs and selects ---------- */
 .field[data-ai='filled'] .choice,
 .field[data-ai='filled'] .tog-chip {

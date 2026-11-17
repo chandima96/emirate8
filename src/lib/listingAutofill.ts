@@ -6,19 +6,27 @@ export const LISTING_AI_FIELDS = [
   // Classification
   'purpose', 'category', 'ptype', 'devStatus', 'stage', 'txn',
   // Location
-  'emirate', 'communityId', 'subcommunity', 'buildingName', 'tower', 'developer', 'street', 'mapLocation',
+  'emirate', 'communityId', 'subcommunity', 'buildingName', 'tower', 'developer', 'masterDeveloper', 'street', 'mapLocation',
   // Size & layout
-  'bedrooms', 'bathrooms', 'parking', 'parkingType', 'extraRooms', 'layoutCode',
+  'bedrooms', 'bathrooms', 'parking', 'extraRooms', 'layoutCode', 'totalFloors',
   'unitArea', 'builtUpArea', 'plotArea', 'balconyArea', 'floorBand', 'storeys', 'amenities',
   // Condition, views & specification
   'furnishing', 'condition', 'occupancy', 'completionYear', 'handoverQ', 'handoverY', 'handoverDate', 'plannedSpec',
-  'tenure', 'leaseTerm', 'views', 'viewExtent', 'kitchenLayout', 'appliances', 'pets', 'cooling', 'officeFit', 'fitOut', 'otherInfo',
+  'tenure', 'leaseTerm', 'views', 'kitchenLayout', 'pets', 'cooling', 'officeFit', 'fitOut', 'otherInfo',
   // Price & terms
   'askingPrice', 'negotiable', 'unitPrice', 'annualRent', 'serviceCharge', 'serviceBasis', 'possession',
-  'rentalIncome', 'tenancyExpiry', 'bookingBasis', 'booking', 'postHandover', 'incentives',
+  'rentalIncome', 'tenancyExpiry', 'bookingBasis', 'booking', 'incentives',
   'availability', 'availableFrom', 'minTenancy', 'cheques', 'depositBasis', 'deposit', 'utilities',
   // Marketing
   'title', 'description', 'locHighlights',
+];
+
+// Private identifiers and agreement terms. These are suggested only from documents or text the user
+// supplies (title deed, permit, Form A, SOA), never from a public web page, and always shown for review.
+export const LISTING_AI_PRIVATE_FIELDS = [
+  'unitNo', 'floorNo', 'permitNo', 'permitExpiry', 'authType', 'authExpiry', 'exclusive',
+  'commBasis', 'commission', 'commPayer',
+  'originalPrice', 'paidToDev', 'outstanding', 'payToSeller', 'nextInstDate', 'nextInstAmt', 'transferElig', 'nocStatus',
 ];
 
 const LOCATION_LABELS = { emirate: 'Emirate', communityId: 'Area / Community', buildingName: 'Building / Project', mapLocation: 'Google Maps location', milestones: 'Payment plan' };
@@ -38,14 +46,16 @@ export function isSupportedGoogleMapsUrl(value: string) {
 export function listingAiLabel(key: string) {
   const base = key.replace(/(Max|Multi)$/, '');
   const label = S.FIELDS[base]?.label;
-  const name = LOCATION_LABELS[base] || (typeof label === 'string' ? label : base);
+  const text = typeof label === 'function' ? S.labelOf(S.FIELDS[base], null, { emirate: 'Dubai' }) : label;
+  const name = LOCATION_LABELS[base] || (typeof text === 'string' ? text : base);
   return key.endsWith('Max') ? `${name} (upper value)` : key.endsWith('Multi') ? `${name} (all options)` : name;
 }
 
-export function listingAiFieldSpec() {
+export function listingAiFieldSpec(includePrivate = false) {
   const d = { ...S.defaultData(), purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'ready' };
   const c = S.ctxOf(d);
-  const fields: any[] = LISTING_AI_FIELDS.map((key) => {
+  const keys = includePrivate ? [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS] : LISTING_AI_FIELDS;
+  const fields: any[] = keys.map((key) => {
     if (key === 'amenities') return { key, label: 'Features and amenities', kind: 'array', options: Object.values(S.AMENITY).map((item: any) => ({ value: item.id, label: item.l })) };
     const f = S.FIELDS[key];
     const options = key === 'ptype' ? Object.values(S.PTYPES).flat().map((item: any) => item[0])
@@ -64,6 +74,19 @@ export function listingAiFieldSpec() {
     returns: 'array of {"name":"On booking","mode":"pct" or "aed","value":"20","trigger":"booking|date|construction|handover|post","when":"YYYY-MM-DD for date, otherwise short text such as 50% construction or 24 months after handover"}',
   });
   return fields;
+}
+
+/** Model output for numbers is not always bare digits: "25,387,028", "AED 25,387,028", "2.46M", "10%".
+ * Normalise to a plain numeric string, or '' when it isn't a single number. */
+export function aiNumber(value: unknown) {
+  if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? String(value) : '';
+  if (typeof value !== 'string') return '';
+  const m = /^(?:AED|Dhs?\.?|د\.إ)?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(k|m|mn|million|bn|b|billion)?\s*(?:AED|%|\/\s*(?:year|yr|annum))?$/i.exec(value.trim());
+  if (!m) return '';
+  const n = Number(m[1].replace(/,/g, '') + (m[2] || ''));
+  const scale = { k: 1e3, m: 1e6, mn: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 }[(m[3] || '').toLowerCase()] || 1;
+  const out = Math.round(n * scale * 100) / 100;
+  return Number.isFinite(out) ? String(out) : '';
 }
 
 function choiceValues(f: any, c: any, d: any, value: unknown) {
@@ -101,11 +124,12 @@ function cleanMilestones(value: unknown) {
   return rows.length ? rows : null;
 }
 
-export function cleanListingSuggestions(input: unknown) {
+export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: boolean } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const source = input as Record<string, any>;
   const out: Record<string, any> = {};
-  for (const key of LISTING_AI_FIELDS) {
+  const keys = opts.allowPrivate ? [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS] : LISTING_AI_FIELDS;
+  for (const key of keys) {
     const value = source[key];
     if (value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
     const f = S.FIELDS[key];
@@ -132,16 +156,16 @@ export function cleanListingSuggestions(input: unknown) {
     }
     if (typeof value !== 'string' && typeof value !== 'number') continue;
     if (f?.kind === 'multi') { out[key] = [String(value).trim()]; continue; }
-    const text = String(value).trim().slice(0, f?.max || (key === 'description' ? 5000 : 180));
-    if (!text) continue;
     const kind = f?.kind === 'amt' ? 'money' : f?.kind;
-    if (['int', 'dec', 'money', 'pct'].includes(kind) && (!/^\d+(\.\d+)?$/.test(text) || !Number.isFinite(Number(text)))) continue;
+    const numeric = ['int', 'dec', 'money', 'pct'].includes(kind);
+    const text = numeric ? aiNumber(value) : String(value).trim().slice(0, f?.max || (key === 'description' ? 5000 : 180));
+    if (!text) continue;
     if (kind === 'date' && !S.util.validDate(text)) continue;
     if (kind === 'year' && !/^\d{4}$/.test(text)) continue;
     out[key] = text;
     if (f?.rangeOk && kind === 'money') {
-      const max = String(source[key + 'Max'] ?? '').trim();
-      if (/^\d+(\.\d+)?$/.test(max) && Number(max) > Number(text)) out[key + 'Max'] = max;
+      const max = aiNumber(source[key + 'Max']);
+      if (max && Number(max) > Number(text)) out[key + 'Max'] = max;
     }
   }
   const milestones = cleanMilestones(source.milestones);
@@ -154,7 +178,8 @@ export function cleanListingSuggestions(input: unknown) {
   for (const key of Object.keys(out)) {
     const f = S.FIELDS[key];
     if (!f || !['seg', 'select', 'multi'].includes(f.kind)) continue;
-    const values = choiceValues(f, c, d, out[key]);
+    // "More than 10" and "Unknown" are not facts from a source; the field is left for the user instead.
+    const values = choiceValues(f, c, d, out[key]).filter((v) => !S.MULTI_EXCLUDED.includes(v));
     if (f.kind === 'multi') {
       if (values.length) out[key] = values; else delete out[key];
       continue;
@@ -166,6 +191,18 @@ export function cleanListingSuggestions(input: unknown) {
     } else if (Array.isArray(out[key])) {
       if (values[0]) out[key] = values[0]; else delete out[key];
     } else if (!values.length) delete out[key];
+  }
+  // The model often returns a portal's headline price as askingPrice even when it has classified the
+  // listing as an off-plan initial sale, whose form only shows unitPrice (and vice versa). Keep the
+  // price in the field this classification actually uses.
+  if (c.sale) {
+    const want = c.offInit ? 'unitPrice' : 'askingPrice';
+    const other = want === 'unitPrice' ? 'askingPrice' : 'unitPrice';
+    if (out[other] && !out[want]) {
+      out[want] = out[other];
+      delete out[other];
+      if (out[other + 'Max']) { out[want + 'Max'] = out[other + 'Max']; delete out[other + 'Max']; }
+    }
   }
   return out;
 }

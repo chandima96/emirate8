@@ -21,6 +21,8 @@ type Props = {
   onReview?: () => void;
   onUndo?: () => void;
   onManual?: () => void;
+  /** Hide the success summary card (the page shows its own AI notice instead). Errors still show. */
+  hideSummary?: boolean;
   id?: string;
   /** Start with the resource panel open (e.g. arriving via #autofill). */
   defaultOpen?: boolean;
@@ -108,7 +110,7 @@ function collectCandidates(sources: { label: string; suggestions: Record<string,
   return out;
 }
 
-export function AiAutofill({ context, current, onApply, onReview, onUndo, onManual, id = 'ai-autofill', defaultOpen = false }: Props) {
+export function AiAutofill({ context, current, onApply, onReview, onUndo, onManual, hideSummary = false, id = 'ai-autofill', defaultOpen = false }: Props) {
   const C = COPY[context];
   const [open, setOpen] = useState(defaultOpen);
   const [entering, setEntering] = useState(false);
@@ -619,7 +621,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
           </div>
         )}
 
-        {result && (
+        {result && !(hideSummary && result.ok) && (
           <div className="aif-result" tabIndex={-1} ref={resultRef}>
             {result.ok ? (
               <div className="aif-sum">

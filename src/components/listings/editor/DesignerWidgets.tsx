@@ -2,14 +2,16 @@
 
 import { focusListingField } from './EditorSection';
 import { useContext, useState } from 'react';
-import { AiField as Field, AiReviewContext } from '@/components/ui/AiAssist';
+import { AiField as Field, AiReviewContext, AiStatus } from '@/components/ui/AiAssist';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
-import { AREAS, EMIRATES } from '@/config/reference';
+import { COMMUNITIES, EMIRATES } from '@/config/reference';
 import { currentUser } from '@/lib/store';
 import { uid } from '@/lib/utils';
 import { listingSchema as S } from './designer-schema';
 import { editorState, validateEditorStep } from './designer-model';
+import { BuildingPicker, SourceChip } from './AutofillWidgets';
+import { qualityScore } from './listing-derive';
 
 const U = S.util;
 export function coordinatesFromMapLink(value) {
@@ -56,11 +58,11 @@ export function LocationWidget({ ed, kind }) {
   if (kind === 'community')
     return (
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <Field id="designer-emirate" label="Emirate" error={ed.errors.emirate}>
+        <Field id="designer-emirate" label="Emirate" error={ed.errors.emirate} value={d.emirate}>
           <select
             id="designer-emirate"
             className="select"
-            value={d.emirate || 'Dubai'}
+            value={d.emirate || ''}
             onChange={(e) => {
               ed.set('editor.d', {
                 ...d,
@@ -81,7 +83,7 @@ export function LocationWidget({ ed, kind }) {
             ))}
           </select>
         </Field>
-        <Field id="designer-community" label="Area / Community" error={ed.errors.community}>
+        <Field id="designer-community" label="Area / Community" error={ed.errors.community} value={d.communityId}>
           <input
             id="designer-community"
             className="input"
@@ -103,12 +105,12 @@ export function LocationWidget({ ed, kind }) {
             {...invalidProps('designer-community', ed.errors.community)}
           />
           <datalist id="listing-communities">
-            {(AREAS[d.emirate || 'Dubai'] || []).map((v) => (
+            {(d.emirate ? COMMUNITIES[d.emirate] || [] : [...new Set(Object.values(COMMUNITIES).flat())]).map((v) => (
               <option key={v} value={v} />
             ))}
           </datalist>
         </Field>
-        <Field id="designer-subcommunity" label="Subcommunity" optional="where applicable">
+        <Field id="designer-subcommunity" label="Subcommunity" optional="where applicable" value={d.subcommunity}>
           <input
             id="designer-subcommunity"
             className="input"
@@ -119,37 +121,10 @@ export function LocationWidget({ ed, kind }) {
         </Field>
       </div>
     );
-  if (kind === 'building')
-    return (
-      <div className="mb-4 space-y-3">
-        <Field
-          id="designer-buildingName"
-          label="Building / Project"
-          optional={S.ctxOf(d).off ? undefined : 'where applicable'}
-          error={ed.errors.buildingName}
-        >
-          <input
-            id="designer-buildingName"
-            className="input"
-            value={d.buildingName || ''}
-            maxLength={80}
-            onChange={(e) => set('buildingName', e.target.value)}
-            placeholder="Enter the building or project name"
-            {...invalidProps('designer-buildingName', ed.errors.buildingName)}
-          />
-        </Field>
-        <label className="check">
-          <input type="checkbox" checked={!!d.proposing} onChange={(e) => set('proposing', e.target.checked)} />
-          <span>Can't find your building? Propose a building / project</span>
-        </label>
-        {d.proposing && (
-          <p className="text-xs text-muted">Saved as a proposed building for review with this listing.</p>
-        )}
-      </div>
-    );
+  if (kind === 'building') return <BuildingPicker ed={ed} />;
   if (kind === 'map')
     return <div className="mb-4 space-y-2">
-      <Field id="designer-mapLocation" label="Google Maps location">
+      <Field id="designer-mapLocation" label="Google Maps location" optional="optional" value={d.mapLocation}>
         <input
           id="designer-mapLocation"
           className="input"
@@ -165,7 +140,10 @@ export function LocationWidget({ ed, kind }) {
           }}
         />
       </Field>
-      <p className="text-xs text-muted">Paste a Google Maps link with a dropped pin. The pin coordinates are saved automatically.</p>
+      <p className="text-xs text-muted">
+        Paste a Google Maps link with a dropped pin, or enter the coordinates below. Picking a building from the list
+        fills the building’s pin automatically.
+      </p>
       {d.lat && d.lng && <p className="text-xs text-sage-ink"><Icon name="geo-alt" className="mr-1" />Map pin added</p>}
       {d.mapLocation && <a className="inline-flex items-center gap-1 text-xs font-medium text-[#3157a5] underline underline-offset-2" href={isGoogleMapLink(d.mapLocation) ? d.mapLocation : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.mapLocation)}`} target="_blank" rel="noreferrer"><Icon name="box-arrow-up-right" />Open location in Google Maps</a>}
     </div>;
@@ -177,9 +155,33 @@ export function AmenitiesWidget({ ed }) {
   const aiReview = useContext(AiReviewContext);
   const amen = ed.L.editor.amen || {},
     off = S.ctxOf(ed.L.editor.d).off;
-  const change = (id, next) => ed.set('editor.amen', { ...amen, [id]: next });
+  const change = (id, next) => ed.set('editor.amen', { ...amen, [id]: { ...next, reviewed: true } });
+  const imported = Object.keys(amen).filter((id) => amen[id].inherited && !amen[id].reviewed);
   return (
     <div id="designer-amen" tabIndex={-1} className="mb-5">
+      <div className="mb-3">
+        <AiStatus id="designer-amen" value={Object.values(amen).some((a: any) => a.selected !== false)} optional />
+      </div>
+      {imported.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sage-soft/50 p-3 text-xs">
+          <span>
+            {imported.length} shared amenit{imported.length === 1 ? 'y was' : 'ies were'} imported from the building.
+            Untick any that don’t apply, then confirm.
+          </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() =>
+              ed.set(
+                'editor.amen',
+                Object.fromEntries(Object.entries(amen).map(([id, a]: [string, any]) => [id, a.inherited ? { ...a, reviewed: true } : a])),
+              )
+            }
+          >
+            Confirm imported amenities
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs text-muted">
           {Object.values(amen).filter((a: any) => a.selected !== false).length} selected
@@ -222,6 +224,9 @@ export function AmenitiesWidget({ ed }) {
                         }
                       />
                       <span>{label}</span>
+                      {amen[id]?.inherited && !amen[id]?.reviewed && (
+                        <span className="rounded bg-sage-soft px-1.5 py-0.5 text-[10px] font-semibold text-sage-ink">From building</span>
+                      )}
                       {aiReview?.states?.['amenity-' + id] === 'filled' && <span className="rounded bg-[#ecebff] px-1.5 py-0.5 text-[10px] font-semibold text-[#4338a8]">AI-filled</span>}
                     </label>
                     {amen[id]?.selected && (
@@ -281,7 +286,7 @@ export function AdditionalFeatures({ ed }) {
       {rows.map((row, i) => (
         <div key={row.id} className="rounded-lg border border-line p-3">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={'feature-name-' + row.id} label="Feature name">
+            <Field id={'feature-name-' + row.id} label="Feature name" value={row.name}>
               <input
                 id={'feature-name-' + row.id}
                 className="input"
@@ -290,7 +295,7 @@ export function AdditionalFeatures({ ed }) {
                 onChange={(e) => set(rows.map((r, j) => (i === j ? { ...r, name: e.target.value.trimStart() } : r)))}
               />
             </Field>
-            <Field id={'feature-desc-' + row.id} label="Description" optional="optional">
+            <Field id={'feature-desc-' + row.id} label="Description" optional="optional" value={row.desc}>
               <input
                 id={'feature-desc-' + row.id}
                 className="input"
@@ -341,7 +346,7 @@ export function AdditionalFeatures({ ed }) {
                 ],
               ],
             ].map(([key, label, options]) => (
-              <Field key={String(key)} id={'feature-' + key + row.id} label={label as string} optional="optional">
+              <Field key={String(key)} id={'feature-' + key + row.id} label={label as string} optional="optional" value={row[String(key)]}>
                 <select
                   id={'feature-' + key + row.id}
                   className="select"
@@ -406,13 +411,14 @@ export function MilestonesWidget({ ed }) {
   const errors = S.milestoneErrors(editorState(ed.L));
   return (
     <div id="designer-milestones" tabIndex={-1} className="space-y-3">
+      <AiStatus id="designer-milestones" value={rows.length > 0} />
       <p className="text-xs text-muted">
         Enter each milestone in AED or as a percentage. Booking is counted once according to the option above.
       </p>
       {rows.map((r) => (
         <div key={r.id} className="rounded-lg border border-line p-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={'ms-name-' + r.id} label="Milestone name">
+            <Field id={'ms-name-' + r.id} label="Milestone name" value={r.name}>
               <input
                 id={'ms-name-' + r.id}
                 className="input"
@@ -420,7 +426,7 @@ export function MilestonesWidget({ ed }) {
                 onChange={(e) => change(r.id, 'name', e.target.value)}
               />
             </Field>
-            <Field id={'ms-mode-' + r.id} label="Amount basis">
+            <Field id={'ms-mode-' + r.id} label="Amount basis" value={r.mode}>
               <select
                 id={'ms-mode-' + r.id}
                 className="select"
@@ -431,7 +437,7 @@ export function MilestonesWidget({ ed }) {
                 <option value="aed">AED amount</option>
               </select>
             </Field>
-            <Field id={'ms-value-' + r.id} label={r.mode === 'pct' ? 'Percentage (%)' : 'Amount (AED)'}>
+            <Field id={'ms-value-' + r.id} label={r.mode === 'pct' ? 'Percentage (%)' : 'Amount (AED)'} value={r.value}>
               <input
                 id={'ms-value-' + r.id}
                 className="input"
@@ -440,7 +446,7 @@ export function MilestonesWidget({ ed }) {
                 onChange={(e) => change(r.id, 'value', e.target.value)}
               />
             </Field>
-            <Field id={'ms-trigger-' + r.id} label="When due">
+            <Field id={'ms-trigger-' + r.id} label="When due" value={r.trigger}>
               <select
                 id={'ms-trigger-' + r.id}
                 className="select"
@@ -456,7 +462,7 @@ export function MilestonesWidget({ ed }) {
               </select>
             </Field>
             {['date', 'construction', 'post'].includes(r.trigger) && (
-              <Field id={'ms-when-' + r.id} label={r.trigger === 'date' ? 'Due date' : 'Due details'}>
+              <Field id={'ms-when-' + r.id} label={r.trigger === 'date' ? 'Due date' : 'Due details'} value={r.when}>
                 <input
                   id={'ms-when-' + r.id}
                   className="input"
@@ -505,6 +511,7 @@ export function TermsWidget({ ed, kind }) {
             id={'cheque-price-' + n}
             label={'Annual rent with ' + n + (n === '1' ? ' cheque' : ' cheques')}
             optional="defaults to annual rent"
+            value={st.cheqAmts?.[n] || ''}
           >
             <input
               id={'cheque-price-' + n}
@@ -542,6 +549,7 @@ export function TermsWidget({ ed, kind }) {
                 id={'term-' + r.id + key}
                 label={label}
                 optional={key === 'label' ? undefined : 'optional'}
+                value={r[key] || ''}
               >
                 <input
                   id={'term-' + r.id + key}
@@ -638,6 +646,74 @@ export function PriceSummary({ ed, kind }) {
   );
 }
 
+const PARA = '\n\n';
+const optLabel = (key, value) => S.FIELDS[key]?.opts?.find?.((o) => o.v === value)?.l || '';
+
+/** Factual title and description drafted only from the structured answers. */
+export function draftCopy(l) {
+  const d = l.editor.d,
+    c = S.ctxOf(d);
+  const type = S.PTYPE_LABEL[d.ptype] || 'Property';
+  const beds = c.resUnit ? (d.bedrooms === 'studio' ? 'Studio' : l.beds ? l.beds + ' BR' : '') : '';
+  const view = (d.views || []).filter((v) => v !== 'other').map((v) => optLabel('views', v))[0];
+  const place = d.buildingName || d.subcommunity || d.communityId;
+  const title = [
+    [c.ready && d.occupancy === 'vacant' ? 'Vacant' : '', beds, beds === 'Studio' ? '' : type].filter(Boolean).join(' '),
+    view ? view + ' view' : '',
+    ['high', 'penthouse'].includes(d.floorBand) ? optLabel('floorBand', d.floorBand) : '',
+    c.off ? 'Off-plan' : '',
+    place,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const sizeText = l.size ? U.fmtNum(l.size, 0) + ' sq ft (' + U.fmtNum(l.sizeSqm || 0, 0) + ' sq m)' : '';
+  const amenities = (l.amenities || []).slice(0, 8);
+  const facts = [
+    [
+      (beds ? beds.replace(' BR', '-bedroom') + ' ' : '') + type.toLowerCase(),
+      d.purpose === 'rent' ? 'for rent' : 'for sale',
+      place ? 'in ' + [d.buildingName, d.subcommunity, d.communityId].filter(Boolean).join(', ') : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/^./, (m) => m.toUpperCase()) + '.',
+    [sizeText && 'Size: ' + sizeText, l.baths ? l.baths + ' bathroom' + (l.baths === 1 ? '' : 's') : '', l.parking ? l.parking + ' parking space' + (l.parking === 1 ? '' : 's') : '']
+      .filter(Boolean)
+      .join(' · '),
+    [optLabel('furnishing', d.furnishing), optLabel('condition', d.condition), c.ready ? optLabel('occupancy', d.occupancy) : '']
+      .filter(Boolean)
+      .join(', '),
+    view ? (d.views || []).map((v) => optLabel('views', v)).filter(Boolean).join(', ') + ' views.' : '',
+    d.developer ? 'Developed by ' + d.developer + (c.ready && d.completionYear ? ', completed in ' + d.completionYear : '') + '.' : '',
+    c.off && d.handoverQ && d.handoverY ? 'Expected handover: Q' + d.handoverQ + ' ' + d.handoverY + '.' : '',
+    l.postHandover ? 'Post-handover payment plan available.' : '',
+    d.tenure ? optLabel('tenure', d.tenure) + ' ownership.' : '',
+    amenities.length ? 'Amenities: ' + amenities.join(', ') + '.' : '',
+    ...(l.highlights || []),
+  ];
+  return { title: title.slice(0, 100), description: facts.filter((x) => x && x !== '.').join(PARA) };
+}
+
+/** Highlight chips suggested from the answers (the user adds the ones that apply). */
+function suggestedHighlights(l) {
+  const d = l.editor.d,
+    c = S.ctxOf(d);
+  const out = [
+    c.ready && d.occupancy === 'vacant' ? 'Vacant and ready to move in' : '',
+    ...(d.views || []).filter((v) => v !== 'other').map((v) => optLabel('views', v) + ' view'),
+    ['high', 'penthouse'].includes(d.floorBand) ? optLabel('floorBand', d.floorBand) : '',
+    d.condition === 'renovated' ? 'Renovated' : d.condition === 'brand_new' ? 'Brand new' : '',
+    d.position === 'corner' ? 'Corner unit' : '',
+    (d.extraRooms || []).includes('maid') ? 'Maid’s room' : '',
+    l.editor.amen?.priv_pool?.selected ? 'Private pool' : '',
+    d.furnishing === 'furnished' ? 'Fully furnished' : '',
+    l.postHandover ? 'Post-handover payment plan' : '',
+    c.rent && (d.cheques || []).length > 2 ? 'Up to ' + Math.max(...d.cheques.map(Number)) + ' cheques' : '',
+  ].filter(Boolean);
+  const have = new Set((l.highlights || []).map((h) => U.norm(h)));
+  return [...new Set(out)].filter((h) => !have.has(U.norm(h)));
+}
+
 export function MarketingWidget({ ed, kind }) {
   const [text, setText] = useState('');
   const l = ed.L,
@@ -659,36 +735,25 @@ export function MarketingWidget({ ed, kind }) {
               }))
             )
               return;
-            const type = S.PTYPE_LABEL[d.ptype] || 'Property';
-            const title = [
-              type,
-              d.communityId ? 'in ' + d.communityId : '',
-              d.purpose === 'rent' ? 'for rent' : 'for sale',
-            ]
-              .filter(Boolean)
-              .join(' ');
-            const description = [
-              title + '.',
-              l.beds !== '' && l.beds != null ? (l.beds === 0 ? 'Studio layout.' : l.beds + ' bedrooms.') : '',
-              l.size ? 'Area: ' + l.size.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' sq ft.' : '',
-              l.furnishing ? l.furnishing + '.' : '',
-              l.view ? l.view + ' view.' : '',
-              ...(l.highlights || []),
-            ]
-              .filter(Boolean)
-              .join('\n\n');
+            const { title, description } = draftCopy(l);
             ed.set('editor.d', { ...d, title: title.slice(0, 100), description });
           }}
         >
           <Icon name="magic" />
           Generate from property details
         </button>
-        <p className="mt-2 text-xs text-muted">Creates an editable template using only the details you entered.</p>
+        <p className="mt-2 text-xs text-muted">
+          Drafts a factual title and description from the details you entered, including building facts. Edit it before
+          publishing.
+        </p>
       </div>
     );
   const rows = l.highlights || [];
   return (
     <div id="designer-highlights" tabIndex={-1}>
+      <div className="mb-2">
+        <AiStatus id="designer-highlights" value={rows.length > 0} optional />
+      </div>
       <p className="mb-3 text-xs text-muted">Up to 6 factual highlights · 120 characters each · {rows.length} / 6</p>
       <div className="flex flex-wrap gap-2">
         {rows.map((h, i) => (
@@ -710,6 +775,19 @@ export function MarketingWidget({ ed, kind }) {
           </button>
         ))}
       </div>
+      {rows.length < 6 && suggestedHighlights(l).length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted">Suggested:</span>
+          {suggestedHighlights(l)
+            .slice(0, 6 - rows.length)
+            .map((h) => (
+              <button key={h} type="button" className="tog-chip" onClick={() => ed.set('highlights', [...rows, h])}>
+                <Icon name="plus" />
+                {h}
+              </button>
+            ))}
+        </div>
+      )}
       <div className="mt-3 flex gap-2">
         <label className="sr-only" htmlFor="highlight-new">
           New highlight
@@ -829,7 +907,7 @@ export function Representation({ ed }) {
         ))}
       </div>
       {!l.ownerDirect && (
-        <Field id="f-primary-broker" label="Primary broker" error={ed.errors.primaryBroker}>
+        <Field id="f-primary-broker" label="Primary broker" error={ed.errors.primaryBroker} value={l.primaryBroker || ''}>
           <select
             id="f-primary-broker"
             className="select"
@@ -858,6 +936,8 @@ export function ProfileWidget({ ed, kind }) {
     profile = u.profile || u;
   const credentials = u.credentials || {};
   const agency = u.portfolio?.agency || profile.agency || {};
+  const assigned = ed.isAgency ? (ed.agencyBrokers || []).find((b) => String(b.id) === String(ed.L.primaryBroker)) : null;
+  const authority = S.permitAuthority(ed.L.editor.d.emirate || 'Dubai');
   if (kind === 'broker')
     return (
       <div className="mb-4 rounded-lg bg-mist p-4 text-[13px]">
@@ -872,7 +952,15 @@ export function ProfileWidget({ ed, kind }) {
                     profile.developer?.registrationNumber,
                 ],
               ]
-            : [
+            : ed.isAgency
+              ? [
+                  ['Assigned broker', assigned?.name],
+                  ['Broker BRN', assigned?.brn],
+                  ['Agency ORN', credentials.orn || agency.orn],
+                  ['Trade licence', credentials.tradeLicence],
+                  ['Brokerage', u.name],
+                ]
+              : [
                 ['BRN', credentials.brn],
                 ['ORN', credentials.orn || agency.orn],
                 [
@@ -880,7 +968,9 @@ export function ProfileWidget({ ed, kind }) {
                   agency.name || credentials.agencyName || (u.type === 'independent' ? 'Independent broker' : ''),
                 ],
               ]
-          ).map(([label, value]) => (
+          )
+            .concat([['Permit authority', authority.name]])
+            .map(([label, value]) => (
             <div key={label} className="flex flex-wrap justify-between gap-3">
               <dt className="text-muted">{label}</dt>
               <dd>{value || 'Not provided'}</dd>
@@ -896,13 +986,12 @@ export function ProfileWidget({ ed, kind }) {
   if (kind === 'contact')
     return (
       <div className="mb-4 rounded-lg bg-mist p-4 text-[13px]">
-        <p className="font-semibold">Contact from your account</p>
+        <p className="font-semibold">{assigned ? 'Contact of the assigned broker' : 'Contact from your account'}</p>
         <p className="mt-1 text-muted">
-          {[
-            u.portfolio?.publicPhone || profile.phone,
-            u.portfolio?.whatsapp || profile.whatsapp,
-            u.portfolio?.publicEmail || u.email,
-          ]
+          {(assigned
+            ? [assigned.phone, assigned.whatsapp, assigned.publicEmail || assigned.email]
+            : [u.portfolio?.publicPhone || profile.phone, u.portfolio?.whatsapp || profile.whatsapp, u.portfolio?.publicEmail || u.email]
+          )
             .filter(Boolean)
             .join(' · ') || 'Manage your contact details in Account.'}
         </p>
@@ -925,8 +1014,37 @@ export function ReviewSummary({ ed }) {
     ed.go(step, true);
     setTimeout(() => focusListingField('designer-' + key), 50);
   };
+  const aiChanges = ed.L.editor.ai?.changes || {};
+  const sourceOf = (key) =>
+    aiChanges[key] && JSON.stringify(aiChanges[key].applied) === JSON.stringify(st.d[key]) ? 'ai' : ed.L.editor.sources?.[key];
+  const autoCount = Object.keys(st.d).filter((key) => !U.isBlank(st.d[key]) && sourceOf(key)).length;
+  const quality = qualityScore(ed.L);
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-line p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-[13px] font-semibold">Listing quality</h4>
+          <span className={'badge ' + (quality.score >= 80 ? 'badge-ok' : quality.score >= 50 ? 'badge-warn' : 'badge-muted')}>
+            {quality.score} / 100
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-mist">
+          <div className="h-full bg-sage-ink" style={{ width: quality.score + '%' }} />
+        </div>
+        {quality.tips.length > 0 && (
+          <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-muted">
+            {quality.tips.map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ul>
+        )}
+        {autoCount > 0 && (
+          <p className="mt-3 text-xs text-muted">
+            {autoCount} answer{autoCount === 1 ? ' was' : 's were'} filled automatically — each is labelled with its source
+            below. Check them before publishing.
+          </p>
+        )}
+      </div>
       {S.STEPS.slice(0, 7).map((step, i) => {
         const keys = S.activeFieldKeys(c, st.d, i),
           allStepKeys = [...new Set(step.sections.flatMap((section) => section.fields || []))] as string[],
@@ -963,6 +1081,7 @@ export function ReviewSummary({ ed }) {
                     <div key={key} className="grid gap-1 text-xs sm:grid-cols-[minmax(0,180px)_1fr_auto]">
                       <dt className="text-muted">
                         {label}
+                        <SourceChip source={sourceOf(key)} />
                         <span className="ml-1 text-2xs">
                           (
                           {[
@@ -971,9 +1090,7 @@ export function ReviewSummary({ ed }) {
                             'floorDisplay',
                             'portfolio',
                             'promotion',
-                            'scheduleDate',
                             'overrideContact',
-                            'mediaRights',
                             'authType',
                             'authExpiry',
                             'finSource',

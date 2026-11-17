@@ -1,6 +1,9 @@
 'use client';
 
+import { useContext } from 'react';
 import { EditorSection } from './EditorSection';
+import { AiReviewContext } from '@/components/ui/AiAssist';
+import { Icon } from '@/components/ui/Icon';
 import { listingSchema as S } from './designer-schema';
 import { DesignerField } from './DesignerFields';
 import { VideoManager } from './VideoManager';
@@ -19,8 +22,10 @@ import {
   ReviewSummary,
   TermsWidget,
 } from './DesignerWidgets';
+import { AreaUnitToggle, MarketStatusWidget, TranslateWidget, UnitTypePicker } from './AutofillWidgets';
 
 export function DesignerStep({ ed, step, preview, ready }) {
+  const aiReview = useContext(AiReviewContext);
   const d = ed.L.editor.d,
     c = S.ctxOf(d),
     definition = S.STEPS[step - 1];
@@ -40,9 +45,9 @@ export function DesignerStep({ ed, step, preview, ready }) {
         >
           <DesignerField ed={ed} fieldKey="tourUrl" />
         </EditorSection>
-        <div className="mt-6 border-t border-line pt-5">
-          <DesignerField ed={ed} fieldKey="mediaRights" />
-        </div>
+        <p className="mt-6 border-t border-line pt-5 text-xs text-muted">
+          You confirm your rights to use these photos, videos and documents in the declarations at Review &amp; publish.
+        </p>
       </>
     );
   const sections = S.activeSections(step - 1, c, d);
@@ -80,7 +85,9 @@ export function DesignerStep({ ed, step, preview, ready }) {
               (section.fields || []).some((key) => !!ed.errors[key]) || !!ed.errors[S.WIDGET_ERRKEY[section.kind]]
             }
             title={
-              section.title === 'Broker licence & brokerage' && ed.isDeveloper
+              section.kind === 'market' && (aiReview.states['designer-devStatus'] === 'filled' || aiReview.states['designer-txn'] === 'filled') ? (
+                <span className="inline-flex items-center gap-2">{section.title}<span className="inline-flex h-5 items-center gap-1 rounded bg-[#ecebff] px-1.5 text-[10px] font-semibold text-[#4338a8]"><Icon name="stars" />AI-filled</span></span>
+              ) : section.title === 'Broker licence & brokerage' && ed.isDeveloper
                 ? 'Developer credentials'
                 : section.id === 'mk-notes' && ed.isDeveloper
                   ? 'Internal developer notes'
@@ -102,11 +109,17 @@ export function DesignerStep({ ed, step, preview, ready }) {
                 Platform reference: {ed.L.ref || 'Assigned on first save'}. Your CRM reference stays private.
               </p>
             )}
+            {section.kind === 'market' && <MarketStatusWidget ed={ed} />}
+            {section.kind === 'translate' && <TranslateWidget ed={ed} />}
             {section.kind === 'areaBasis' && (
-              <p className="mb-4 text-xs text-muted">
-                Unit, built-up, plot and balcony areas are recorded separately. Price per area uses the appropriate area
-                for this property type.
-              </p>
+              <>
+                <UnitTypePicker ed={ed} />
+                <AreaUnitToggle ed={ed} />
+                <p className="mb-4 text-xs text-muted">
+                  Unit, built-up, plot and balcony areas are recorded separately. Price per area uses the appropriate
+                  area for this property type.
+                </p>
+              </>
             )}
             {section.kind === 'amen' && <AmenitiesWidget ed={ed} />}
             {section.kind === 'custom' && <AdditionalFeatures ed={ed} />}
@@ -128,7 +141,9 @@ export function DesignerStep({ ed, step, preview, ready }) {
             )}
             {section.kind === 'review' && <ReviewSummary ed={ed} />}
             <div className="grid gap-4 sm:grid-cols-2">
-              {(section.fields || []).filter((key) => !(section.kind === 'community' && key === 'subcommunity')).map((key) => (
+              {(section.fields || [])
+                .filter((key) => !(section.kind === 'community' && key === 'subcommunity') && !S.FIELDS[key]?.hide)
+                .map((key) => (
                 <DesignerField key={key} ed={ed} fieldKey={key} />
               ))}
             </div>
