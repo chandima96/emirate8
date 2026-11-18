@@ -11,6 +11,8 @@ import './ai-credits.css';
 export type AiCredits = { allowance: number; used: number; remaining: number; resetsAt: string; shared: boolean; enforced: boolean };
 
 let state: AiCredits | null = null;
+/** True once a load finished without a balance (signed out, network error): stop showing the placeholder. */
+let failed = false;
 let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
@@ -18,6 +20,7 @@ const emit = () => listeners.forEach((fn) => fn());
 export function setAiCredits(next: unknown) {
   if (!next || typeof next !== 'object' || typeof (next as AiCredits).remaining !== 'number') return;
   state = next as AiCredits;
+  failed = false;
   emit();
 }
 
@@ -26,7 +29,10 @@ export function refreshAiCredits() {
     .then((r) => (r.ok ? r.json() : null))
     .then((json) => setAiCredits(json?.credits))
     .catch(() => {})
-    .finally(() => { loading = null; });
+    .finally(() => {
+      loading = null;
+      if (!state && !failed) { failed = true; emit(); }
+    });
   return loading;
 }
 
@@ -37,16 +43,50 @@ export async function readAiResponse(response: Response) {
   return json;
 }
 
+const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
+
 export function useAiCredits() {
-  const credits = useSyncExternalStore(
-    (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
-    () => state,
-    () => null,
-  );
+  const credits = useSyncExternalStore(subscribe, () => state, () => null);
+  const loadFailed = useSyncExternalStore(subscribe, () => failed, () => false);
   useEffect(() => {
     if (!state) refreshAiCredits();
   }, []);
-  return { credits, out: Boolean(credits && credits.enforced && credits.remaining <= 0) };
+  return {
+    credits,
+    /** No balance yet and the load hasn't failed: show the placeholder. */
+    pending: !credits && !loadFailed,
+    out: Boolean(credits && credits.enforced && credits.remaining <= 0),
+  };
+}
+
+/** Placeholder ring shown until the balance arrives: a gradient arc spinning around the track. */
+function AiCreditsRingLoading({ size = 64, stroke = 7 }: { size?: number; stroke?: number }) {
+  const id = useId().replace(/:/g, '');
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <span className="aic-ring aic-ring--loading" style={{ width: size, height: size }} aria-hidden="true">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <defs>
+          <linearGradient id={'aic-l' + id} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="var(--aic-sky)" stopOpacity="0" />
+            <stop offset="60%" stopColor="var(--aic-indigo)" />
+            <stop offset="100%" stopColor="var(--aic-violet)" />
+          </linearGradient>
+        </defs>
+        <circle className="aic-ring__track" cx={size / 2} cy={size / 2} r={r} strokeWidth={stroke} />
+        <circle
+          className="aic-ring__spin"
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          strokeWidth={stroke}
+          stroke={`url(#aic-l${id})`}
+          strokeDasharray={`${c * 0.28} ${c}`}
+        />
+      </svg>
+    </span>
+  );
 }
 
 const fmt = (n: number) => Math.max(0, Math.round(n)).toLocaleString('en-US');
@@ -148,9 +188,28 @@ function describe(c: AiCredits) {
 
 /** Glass card for the top-right corner of an AI banner (the banner must be position: relative). */
 export function AiCreditsCard() {
-  const { credits } = useAiCredits();
+  const { credits, pending } = useAiCredits();
   const remaining = useCountUp(credits?.remaining ?? 0);
-  if (!credits) return null;
+  if (!credits) {
+    if (!pending) return null;
+    // Same box as the real card, so the balance swaps in place without a jump or a second entrance.
+    return (
+      <div className="aic aic-card is-loading" role="status" aria-live="polite" aria-busy="true" aria-label="Loading AI credits">
+        <AiCreditsRingLoading />
+        <div>
+          <p className="aic-card__label">
+            <Icon name="stars" /> AI credits
+          </p>
+          <p className="aic-card__value">
+            <span className="aic-skel" style={{ width: 74, height: 16 }} />
+          </p>
+          <p className="aic-card__meta">
+            <span className="aic-skel" style={{ width: 58, height: 8 }} />
+          </p>
+        </div>
+      </div>
+    );
+  }
   const level = levelOf(credits);
   return (
     <div className={'aic aic-card is-' + level} role="status" aria-live="polite" aria-label={describe(credits)} title={describe(credits)}>
@@ -182,8 +241,16 @@ export function AiCreditsCard() {
 
 /** Compact line with a small ring, for places without room for the card (translate button, upload panel). */
 export function AiCreditsBadge({ className = '' }: { className?: string }) {
-  const { credits } = useAiCredits();
-  if (!credits) return null;
+  const { credits, pending } = useAiCredits();
+  if (!credits) {
+    if (!pending) return null;
+    return (
+      <p className={'aic aic-inline is-loading ' + className} role="status" aria-busy="true" aria-label="Loading AI credits">
+        <AiCreditsRingLoading size={22} stroke={4} />
+        <span className="aic-skel" style={{ width: 210, height: 10 }} />
+      </p>
+    );
+  }
   const level = levelOf(credits);
   return (
     <p className={'aic aic-inline is-' + level + ' ' + className} role="status" aria-live="polite" title={describe(credits)}>
