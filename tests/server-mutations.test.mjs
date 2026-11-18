@@ -99,6 +99,64 @@ test('invalid public submissions fail validation before creating records', async
   assert.equal((await load('enquiries').createEnquiry({ name: 'Test' }, new Headers())).status, 400);
 });
 
+function enquiryPayload(members, created) {
+  return {
+    auth: async () => ({ user: null }),
+    find: async ({ collection, where }) => {
+      if (collection === 'members') return { docs: members.filter((m) => String(m.id) === String(where.id.equals)) };
+      if (collection === 'agencies') return { docs: String(where.id.equals) === '7' ? [{ id: 7, name: 'Elite Realty' }] : [] };
+      return { docs: [] };
+    },
+    create: async ({ data }) => {
+      created.data = data;
+      return { id: 1, ...data };
+    },
+  };
+}
+const enquiryBody = { name: 'Buyer', email: 'b@example.com', message: 'Is this still available?' };
+
+test('enquiries to an independent broker go to that broker only', async () => {
+  const created = {};
+  const load = services(enquiryPayload([{ id: 5, profile: {} }], created));
+  const response = await load('enquiries').createEnquiry({ ...enquiryBody, brokerId: 5 }, new Headers());
+  assert.equal(response.status, 201);
+  assert.equal(created.data.brokerMember, 5);
+  assert.equal(created.data.agency, undefined);
+  assert.equal(created.data.agencyName, '');
+});
+
+test('enquiries to an agency broker are also routed to their agency', async () => {
+  const created = {};
+  const members = [{ id: 6, profile: { agency: { agencyId: 7, agencyRole: 'agency_broker' } } }];
+  const load = services(enquiryPayload(members, created));
+  await load('enquiries').createEnquiry({ ...enquiryBody, brokerId: '6' }, new Headers());
+  assert.equal(created.data.brokerMember, 6);
+  assert.equal(created.data.agency, 7);
+  assert.equal(created.data.agencyName, 'Elite Realty');
+});
+
+test('agency admins read agency enquiries; agency brokers only read their own', async () => {
+  const queries = [];
+  const forUser = (user) =>
+    services({
+      auth: async () => ({ user: { collection: 'members', ...user } }),
+      find: async (options) => {
+        queries.push(options.where.or);
+        return { docs: [{ id: 3, brokerMember: { id: 6, name: 'Sara', email: 's@x.com' }, agency: 7, agencyName: 'Elite Realty' }] };
+      },
+    });
+  const admin = await forUser({ id: 9, profile: { agency: { agencyId: 7, agencyRole: 'agency_admin' } } })('enquiries').getEnquiries(new Headers());
+  assert.equal(JSON.stringify(queries[0][2]), JSON.stringify({ agency: { equals: '7' } }));
+  assert.equal(admin.data.enquiries[0].scope, 'agency');
+  assert.equal(admin.data.enquiries[0].brokerName, 'Sara');
+  assert.equal(admin.data.enquiries[0].brokerEmail, 's@x.com');
+
+  const broker = await forUser({ id: 6, profile: { agency: { agencyId: 7, agencyRole: 'agency_broker' } } })('enquiries').getEnquiries(new Headers());
+  assert.equal(queries[1].length, 2);
+  assert.equal(broker.data.enquiries[0].scope, 'direct');
+  assert.equal(broker.data.enquiries[0].agencyName, 'Elite Realty');
+});
+
 test('login creates an HTTP-only cookie and excludes its token from the action result', async () => {
   const load = services(
     {

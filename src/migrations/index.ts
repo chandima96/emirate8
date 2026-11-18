@@ -1,4 +1,5 @@
 import * as aiCredits from './20261118_000000_ai_credits';
+import * as enquiryAgency from './20261118_000001_enquiry_agency';
 import * as membershipBilling from './20261111_000001_membership_billing';
 import * as membershipPricing from './20261111_000000_membership_pricing';
 import * as migration_20261026_000002_listing_fields from './20261026_000002_listing_fields';
@@ -87,4 +88,5 @@ export const migrations = [
   { up: membershipPricing.up, down: membershipPricing.down, name: '20261111_000000_membership_pricing' },
   { up: membershipBilling.up, down: membershipBilling.down, name: '20261111_000001_membership_billing' },
   { up: aiCredits.up, down: aiCredits.down, name: '20261118_000000_ai_credits' },
+  { up: enquiryAgency.up, down: enquiryAgency.down, name: '20261118_000001_enquiry_agency' },
 ];

@@ -51,8 +51,8 @@ export function Enquiries() {
       <p className="mt-5 flex items-start gap-2 rounded-lg border border-line bg-mist px-4 py-3 text-[13px]">
         <Icon name="info-circle" className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          Enquiries sent to you from your public portfolio and listings. Your inbox is synced with your account.
-          included. Try sending one from{' '}
+          Enquiries sent to you from your public portfolio and listings. If you manage an agency, enquiries sent to
+          your agency&apos;s brokers also appear here. Try sending one from{' '}
           <Link className="link" href="/brokers/me">
             your portfolio
           </Link>
@@ -95,12 +95,36 @@ export function Enquiries() {
                     {replied ? 'Replied' : 'New'}
                   </span>
                 </div>
+                {e.scope === 'agency' ? (
+                  <p className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted">
+                    <span className="badge badge-muted">
+                      <Icon name="person" className="mr-1 h-3 w-3" />
+                      For {e.brokerName || 'your broker'}
+                    </span>
+                    {e.brokerEmail && (
+                      <a className="link" href={'mailto:' + e.brokerEmail}>
+                        {e.brokerEmail}
+                      </a>
+                    )}
+                  </p>
+                ) : (
+                  e.agencyName && (
+                    <p className="mt-3 text-[13px] text-muted">
+                      <span className="badge badge-muted">
+                        <Icon name="building" className="mr-1 h-3 w-3" />
+                        Shared with {e.agencyName}
+                      </span>
+                    </p>
+                  )
+                )}
                 <p className="mt-3 text-[13px] text-muted">
                   {e.kind === 'viewing' && <span className="badge badge-sage mr-1">Viewing request</span>}
                   {e.propertyId ? (
                     <Link className="link" href={routes.property({ id: e.propertyId })}>
                       {e.propertyTitle}
                     </Link>
+                  ) : e.scope === 'agency' ? (
+                    'General enquiry from the broker portfolio'
                   ) : (
                     'General enquiry from your portfolio'
                   )}
