@@ -1,5 +1,6 @@
 import { isIP } from 'node:net';
 import { listingAiFieldSpec } from '@/lib/listingAutofill';
+import { dropUnsupported as dropUnsupportedBy, type Evidence } from '@/lib/aiEvidence';
 
 /* Server-only helpers for /api/listing-autofill: reading a public listing page and the extraction prompt. */
 
@@ -126,49 +127,14 @@ export function extractionPrompt(allowPrivate: boolean) {
   ].join('\n\n');
 }
 
-/* Evidence check. Text sources (pages, pasted text, .txt files) can be checked: an answer whose quote
- * isn't in its source was not read from it. PDFs and images have no text here, so they are not checked.
- * Quotes are compared on letters and digits only, so spacing, punctuation and markdown don't matter. */
+/* Evidence check (shared with profile autofill, see aiEvidence.ts). Free text the model writes is not
+ * quote-checked; the classification is read from the page as a whole ("for sale" is rarely a phrase of
+ * its own) and cross-checked on portal pages, so a partial quote is enough for it. */
 const FREE_TEXT_KEYS = ['title', 'description', 'locHighlights', 'otherInfo', 'plannedSpec', 'incentives'];
 const CLASSIFICATION_KEYS = ['purpose', 'category', 'ptype', 'devStatus', 'txn'];
-const compact = (value: string) => value.normalize('NFKC').replace(/&amp;/gi, '&').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+export { evidenceIn } from '@/lib/aiEvidence';
 
-// A quote may stitch several fragments of the page together ("swimming pools, Rooftop Lounge"), so it is
-// split into fragments and each is looked up. Commas inside numbers ("4,400,000") don't split.
-const FRAGMENT_SPLIT = /\s*(?:\||;|\n|…|\.{3}|,(?!\d))\s*/;
-
-export function evidenceIn(evidence: string, sourceText: string) {
-  const parts = String(evidence || '').split(FRAGMENT_SPLIT).map(compact).filter((part) => part.length >= 2);
-  const source = compact(sourceText);
-  const found = parts.filter((part) => source.includes(part)).length;
-  return { all: parts.length > 0 && found === parts.length, any: found > 0 };
+/** Removes listing answers a text source does not support. Returns the keys (or key:value) removed. */
+export function dropUnsupported(suggestions: Record<string, any>, evidence: Evidence, sourceText: string) {
+  return dropUnsupportedBy(suggestions, evidence, sourceText, { skip: FREE_TEXT_KEYS, lenient: CLASSIFICATION_KEYS });
 }
-
-/** Removes answers a text source does not support. Returns the keys (or key:value for list items) removed. */
-export function dropUnsupported(suggestions: Record<string, any>, evidence: Record<string, string | string[]>, sourceText: string) {
-  const removed: string[] = [];
-  for (const key of Object.keys(suggestions)) {
-    if (FREE_TEXT_KEYS.includes(key)) continue;
-    const value = suggestions[key];
-    const quotes = evidence[key];
-    // One quote per list value: keep exactly the values whose own quote is in the source.
-    if (Array.isArray(value) && Array.isArray(quotes) && quotes.length === value.length) {
-      const kept = value.filter((item, i) => {
-        if (evidenceIn(quotes[i], sourceText).all) return true;
-        removed.push(`${key}:${item}`);
-        return false;
-      });
-      if (kept.length) suggestions[key] = kept; else delete suggestions[key];
-      continue;
-    }
-    const check = evidenceIn(Array.isArray(quotes) ? quotes.join(' | ') : quotes || '', sourceText);
-    // A list given with one shared quote (or a payment plan) is kept when the quote matches in part;
-    // the cleaner still limits it to known option values. So is the classification, which is read from
-    // the page as a whole ("for sale" is rarely a phrase of its own) and cross-checked on portal pages.
-    if (Array.isArray(value) || CLASSIFICATION_KEYS.includes(key) ? check.any : check.all) continue;
-    delete suggestions[key];
-    removed.push(key);
-  }
-  return removed;
-}
-
