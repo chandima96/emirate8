@@ -227,6 +227,7 @@ const loadPublicData = unstable_cache(async () => {
         seats: plan.seats ?? null,
         listings: plan.listings ?? null,
         selections: plan.selections ?? 0,
+        aiCredits: plan.aiCredits ?? PLAN_CATALOG[plan.slug].aiCredits,
         features: (plan.features || []).map((feature: any) => feature.feature).filter(Boolean),
         highlighted: Boolean(plan.highlighted),
     })),

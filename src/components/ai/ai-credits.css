@@ -1,0 +1,173 @@
+/* AI-credit ring + corner card. Colours follow the AI theme in profiles.css (--ai-gradient: sky -> indigo -> violet). */
+.aic {
+  --aic-sky: #38bdf8;
+  --aic-indigo: #6366f1;
+  --aic-violet: #a855f7;
+  --aic-ink: #1e2a6b;
+  --aic-muted: #4b5d7a;
+  --aic-track: rgba(99, 102, 241, 0.14);
+  --aic-warn: #b45309;
+  --aic-danger: #b42318;
+  --aic-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  color: var(--aic-ink);
+}
+
+/* ---- ring ---- */
+.aic-ring {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+}
+.aic-ring svg {
+  display: block;
+  transform: rotate(-90deg);
+  overflow: visible;
+}
+.aic-ring__track {
+  fill: none;
+  stroke: var(--aic-track);
+}
+.aic-ring__arc {
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1.2s var(--aic-ease);
+  filter: drop-shadow(0 2px 6px rgba(99, 102, 241, 0.35));
+}
+.aic-ring__glint {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-linecap: round;
+  /* A short highlight that runs along the remaining arc, start to end. */
+  animation: aic-glint 3.4s var(--aic-ease) 1.2s infinite;
+}
+.aic-ring__center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.aic.is-low .aic-ring__arc { filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.35)); }
+.aic.is-out .aic-ring__track { stroke: rgba(180, 35, 24, 0.16); }
+.aic.is-out .aic-ring__center { color: var(--aic-danger); }
+
+@keyframes aic-glint {
+  0% { stroke-dashoffset: 0; opacity: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  80%, 100% { stroke-dashoffset: calc(-1 * var(--aic-run, 0px)); opacity: 0; }
+}
+@keyframes aic-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- corner card (top-right of an AI banner) ---- */
+.aic-card {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 8px 11px 8px 8px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.78));
+  box-shadow:
+    0 1px 2px rgba(30, 58, 138, 0.06),
+    0 18px 36px -20px rgba(37, 99, 235, 0.45),
+    inset 0 0 0 1px rgba(147, 197, 253, 0.35);
+  backdrop-filter: blur(10px);
+  animation: aic-in 0.5s var(--aic-ease) both;
+}
+.aic-card__label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--aic-muted);
+}
+.aic-card__label .bi { color: var(--aic-indigo); }
+.aic-card__value {
+  margin: 3px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.aic-card__value small {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--aic-muted);
+}
+.aic-card__meta {
+  margin: 3px 0 0;
+  font-size: 10px;
+  color: var(--aic-muted);
+}
+.aic-card__meta a { color: inherit; font-weight: 600; text-decoration: underline; }
+.aic.is-low .aic-card__label,
+.aic.is-low .aic-card__label .bi { color: var(--aic-warn); }
+.aic.is-out .aic-card__label,
+.aic.is-out .aic-card__label .bi { color: var(--aic-danger); }
+.aic.is-out .aic-card__meta a { color: var(--aic-danger); }
+
+/* ---- compact inline version (translate button, upload panel) ---- */
+.aic-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--aic-muted);
+}
+.aic-inline b { color: var(--aic-ink); font-variant-numeric: tabular-nums; }
+.aic-inline a { color: inherit; font-weight: 600; text-decoration: underline; }
+.aic-inline.is-low { color: var(--aic-warn); }
+.aic-inline.is-out { color: var(--aic-danger); }
+.aic-inline.is-out b { color: var(--aic-danger); }
+
+/* Leave room for the card: drop the banner's orb a little lower while the card is shown. */
+@media (min-width: 641px) {
+  .e8p .aif-banner:has(.aic-card) .ai-orb-wrap { top: 64%; }
+}
+@media (max-width: 900px) {
+  /* The illustration column narrows to ~190px: shrink the card to fit inside it. */
+  .aic-card { bottom: 12px; right: 12px; min-width: 0; gap: 8px; padding: 7px 9px 7px 7px; }
+  .aic-card .aic-ring,
+  .aic-card .aic-ring svg { width: 48px; height: 48px; }
+  .aic-card .aic-ring__center { font-size: 12px !important; }
+  .aic-card__value { font-size: 17px; }
+  .aic-card__meta { display: none; }
+}
+@media (max-width: 640px) {
+  /* Stacked banner: the card joins the flow above the illustration instead of covering the text. */
+  .aic-card {
+    position: relative;
+    top: auto;
+    right: auto;
+    order: -2;
+    justify-self: stretch;
+    margin: 14px 14px 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aic-ring__arc { transition: none; }
+  .aic-ring__glint { animation: none; opacity: 0; }
+  .aic-card { animation: none; }
+}

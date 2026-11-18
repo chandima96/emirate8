@@ -7,6 +7,7 @@ import { AiField as Field, AiReviewContext } from '@/components/ui/AiAssist';
 import { Field as PlainField } from '@/components/ui/Field';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
+import { AiCreditsBadge, readAiResponse, useAiCredits } from '@/components/ai/AiCredits';
 import { listingSchema as S } from './designer-schema';
 import { SOURCE_LABEL } from './listing-derive';
 
@@ -401,12 +402,13 @@ export function AreaUnitToggle({ ed }) {
 export function TranslateWidget({ ed }) {
   const d = ed.L.editor.d;
   const [busy, setBusy] = useState(false);
+  const { out: noCredits } = useAiCredits();
   return (
     <div className="mb-4">
       <button
         type="button"
         className="btn btn-outline btn-sm"
-        disabled={busy || (blank(d.title) && blank(d.description))}
+        disabled={busy || noCredits || (blank(d.title) && blank(d.description))}
         onClick={async () => {
           if (
             (!blank(d.altTitle) || !blank(d.altDesc)) &&
@@ -426,7 +428,7 @@ export function TranslateWidget({ ed }) {
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ title: d.title, description: d.description, language: d.altLang || 'ar' }),
             });
-            const json = await response.json().catch(() => ({}));
+            const json = await readAiResponse(response);
             if (!response.ok) throw new Error(json.error || 'The text could not be translated.');
             ed.update((prev) => ({
               ...prev,
@@ -447,6 +449,7 @@ export function TranslateWidget({ ed }) {
         <Icon name="translate" />
         {busy ? 'Translating…' : 'Translate title & description with AI'}
       </button>
+      <AiCreditsBadge />
     </div>
   );
 }

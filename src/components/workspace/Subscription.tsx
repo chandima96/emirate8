@@ -7,6 +7,7 @@ import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
 import { counts, currentUser, fmtDate, fmtNumber, log, plan, plans, saveUser } from '@/lib/store';
 import { trialLeft } from './shared';
+import { useAiCredits } from '@/components/ai/AiCredits';
 
 const Check = () => <Icon name="check-lg" className="h-4 w-4" />;
 /** Plan, usage and demo billing (old subscription.html + dashboard.js subscription part). */
@@ -19,6 +20,7 @@ export function Subscription() {
   const roleAudience = user?.type === 'owner' ? 'developer' : user?.type || 'broker';
   const availablePlans = Object.values(plans()).filter((item) => item.roleAudience === roleAudience);
   const c = counts(user);
+  const { credits: ai } = useAiCredits();
   const usage = [
     ['Published listings', c.published, p.listings],
     ['Selected properties', c.selected, p.selections],
@@ -80,7 +82,8 @@ export function Subscription() {
     { label: 'User seats', values: availablePlans.map((item) => item.seats == null ? 'Flexible' : fmtNumber(item.seats)) },
     { label: 'Active listings', values: availablePlans.map((item) => item.listings == null ? 'Flexible' : fmtNumber(item.listings)) },
     { label: 'Network selections', values: availablePlans.map((item) => item.selections == null ? 'Flexible' : fmtNumber(item.selections)) },
-    ...featureNames.map((feature) => ({ label: feature, values: availablePlans.map((item) => (item.features || []).includes(feature)) })),
+    { label: 'AI credits / month', values: availablePlans.map((item) => (item.aiCredits == null ? '—' : fmtNumber(item.aiCredits))) },
+    ...featureNames.filter((feature) => !/AI credits \/ month$/.test(feature)).map((feature) => ({ label: feature, values: availablePlans.map((item) => (item.features || []).includes(feature)) })),
   ];
 
   return (
@@ -139,7 +142,7 @@ export function Subscription() {
           <h2 id="us-title" className="h4">
             Usage
           </h2>
-          <div className="mt-5 grid gap-5 sm:grid-cols-3">
+          <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
             {usage.map(([label, used, limit]) => (
               <div key={label}>
                 <div className="flex items-end justify-between">
@@ -156,6 +159,22 @@ export function Subscription() {
                 </p>
               </div>
             ))}
+            {ai && (
+              <div>
+                <div className="flex items-end justify-between">
+                  <p className="text-xs text-muted">AI credits{ai.shared ? ' (agency pool)' : ''}</p>
+                  <p className="text-xs font-semibold text-ink">
+                    {fmtNumber(ai.used)} / {fmtNumber(ai.allowance)}
+                  </p>
+                </div>
+                <div className="meter mt-2">
+                  <span style={{ width: (ai.allowance ? Math.min(100, (ai.used / ai.allowance) * 100) : 100) + '%' }} />
+                </div>
+                <p className={'mt-1.5 text-2xs ' + (ai.enforced && ai.remaining <= 0 ? 'text-danger' : 'text-muted')}>
+                  {fmtNumber(ai.remaining)} remaining · resets {new Date(ai.resetsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Dubai' })}
+                </p>
+              </div>
+            )}
           </div>
           <p className="mt-5 border-t border-line pt-4 text-xs text-muted">
             Limits are provisional until confirmed by Emirate08. Selected properties that become unavailable still use a

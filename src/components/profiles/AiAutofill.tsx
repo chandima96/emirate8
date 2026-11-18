@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
+import { AiCreditsBadge, AiCreditsCard, readAiResponse, useAiCredits } from '@/components/ai/AiCredits';
 import './profiles.css';
 
 /* "Fill Profile with AI" / "Create Listing with AI" — React port of UI_Changes/emirate8-page-updates/js/ai-autofill.js.
@@ -112,6 +113,7 @@ function collectCandidates(sources: { label: string; suggestions: Record<string,
 
 export function AiAutofill({ context, current, onApply, onReview, onUndo, onManual, hideSummary = false, id = 'ai-autofill', defaultOpen = false }: Props) {
   const C = COPY[context];
+  const { out: noCredits } = useAiCredits();
   const [open, setOpen] = useState(defaultOpen);
   const [entering, setEntering] = useState(false);
   const [res, setRes] = useState<Res[]>([]);
@@ -274,7 +276,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
       if (body) form.set('text', body.slice(0, 20000));
       form.set('profile', JSON.stringify(current || {}));
       const response = await fetch(context === 'listing' ? '/api/listing-autofill' : '/api/profile-autofill', { method: 'POST', body: form, credentials: 'same-origin', signal: controller.signal });
-      const out = await response.json().catch(() => ({}));
+      const out = await readAiResponse(response);
       if (controller.signal.aborted) return;
       if (!response.ok) throw new Error(out.error || 'Could not analyze those resources.');
       const sources = (Array.isArray(out.sources) ? out.sources : []).filter((s: any) => s && typeof s.label === 'string' && s.suggestions && typeof s.suggestions === 'object');
@@ -344,7 +346,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
       setTimeout(() => urlIn.current?.focus(), 0);
     } else fileIn.current?.click();
   };
-  const canGo = !busy && (!!text.trim() || !!valid.length || (urlOpen && !!url.trim()));
+  const canGo = !busy && !noCredits && (!!text.trim() || !!valid.length || (urlOpen && !!url.trim()));
 
   const tag = (cls: string, icon: string, label: ReactNode) => (
     <li className={'ai-tag ' + cls + ' is-static'}>
@@ -357,6 +359,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
     <div className={'e8p e8p--ai' + (open ? ' is-open' : '') + (busy ? ' is-busy' : '')} data-ai-autofill={context}>
       <section className="ai-banner ai-banner--listing aif-banner" aria-labelledby={id + '-bt'}>
         <div className="ai-banner__aura" aria-hidden="true" />
+        <AiCreditsCard />
         <div className="ai-banner__content">
           <div className="ai-banner__badges">
             <span className="ai-badge ai-badge--new">
@@ -595,6 +598,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
         <p className="aif-limits">
           Up to {MAX_ITEMS} items ({MAX_LINKS} links) · 20 MB per file · 50 MB in total. Pasted text is input for extraction, not a message.
         </p>
+        <AiCreditsBadge className="aif-credits" />
 
         {steps && (
           <div className="aif-progress">
