@@ -6,7 +6,18 @@ import { alignPriceKey, cleanListingSuggestions, listingAiOutputSchema, rowsToSu
 import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite, portalFacts, dropUnsupported } from '@/lib/listingAutofillServer';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+/* Limits. Usage is charged to AI credits, so these follow what the API accepts, not cost: one Messages
+ * request is at most 32 MB (base64 makes files ~4/3 larger, so 22 MB of files), PDFs up to 100 pages on
+ * 200K-context models, and the whole request must fit the model's context. */
+const MAX_DOCUMENTS = 12;
+const MAX_WEBSITES = 5;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_TOTAL_FILE_BYTES = 22 * 1024 * 1024;
+const MAX_TEXT_CHARS = 60_000;
+const MAX_OUTPUT_TOKENS = 32_000;
+const EXTRACT_TIMEOUT_MS = 180_000;
 
 function websiteError(message: string) {
   return /^(Enter a valid public property|Use a public http|The website could not be read|Website assistance is busy|There was not enough readable property)/.test(message);
@@ -19,17 +30,20 @@ function applyPortalFacts(suggestions: Record<string, any>, text: string, today:
   const facts = pageClassification(text, today);
   if (facts.devStatus) {
     suggestions.devStatus = facts.devStatus;
-    const projectText = text.split(/Similar Projects/i, 1)[0];
-    if (
-      facts.devStatus === 'offplan' &&
-      /starting price/i.test(projectText) &&
-      /payment plan/i.test(projectText) &&
-      /developer/i.test(projectText) &&
-      !/(?:resale|secondary market)/i.test(projectText)
-    ) suggestions.txn = 'initial';
     // A completed building has no construction stage or handover quarter to offer.
     if (facts.devStatus === 'ready') for (const k of ['stage', 'handoverQ', 'handoverY']) delete suggestions[k];
   }
+  // A developer's project page (starting or launch price, payment plan, developer, no resale) is an initial
+  // sale. Project sites such as offplan-dubai.com carry no portal record, so the model's status counts too.
+  const projectText = text.split(/Similar Projects/i, 1)[0];
+  if (
+    (facts.devStatus || suggestions.devStatus) === 'offplan' &&
+    suggestions.purpose !== 'rent' &&
+    /(?:starting|launch) price/i.test(projectText) &&
+    /payment plan/i.test(projectText) &&
+    /developer/i.test(projectText) &&
+    !/(?:resale|re-sale|secondary market)/i.test(projectText)
+  ) suggestions.txn = 'initial';
   if (facts.txn && suggestions.purpose !== 'rent') suggestions.txn = facts.txn;
   if (!suggestions.devStatus && explicitlyReadyForOccupancy(text)) suggestions.devStatus = 'ready';
   // The classification may have changed above: keep the price in the field it now uses.
@@ -56,26 +70,25 @@ export async function POST(request: Request) {
     const textFiles = allFiles.filter(isText);
     const websites = form.getAll('website').filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map((value) => value.trim());
     const pastedValue = form.get('text');
-    const pasted = typeof pastedValue === 'string' ? pastedValue.trim().slice(0, 20000) : '';
+    const pasted = typeof pastedValue === 'string' ? pastedValue.trim().slice(0, MAX_TEXT_CHARS) : '';
     if (!pasted && !allFiles.length && !websites.length) return NextResponse.json({ error: 'Add documents, paste property details or add a link to analyze.' }, { status: 400 });
-    if (allFiles.length > 8 || websites.length > 3) return NextResponse.json({ error: 'Add up to eight documents and three links at a time.' }, { status: 400 });
+    if (allFiles.length > MAX_DOCUMENTS || websites.length > MAX_WEBSITES) return NextResponse.json({ error: `Add up to ${MAX_DOCUMENTS} documents and ${MAX_WEBSITES} links at a time.` }, { status: 400 });
     if (files.some((file) => !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type))) return NextResponse.json({ error: 'Upload PDF, TXT, JPG, PNG or WebP documents only.' }, { status: 400 });
-    if (allFiles.some((file) => file.size > 20 * 1024 * 1024) || allFiles.reduce((total, file) => total + file.size, 0) > 50 * 1024 * 1024)
-      return NextResponse.json({ error: 'Each file must be 20 MB or smaller, with a combined limit of 50 MB.' }, { status: 400 });
+    if (allFiles.some((file) => file.size > MAX_FILE_BYTES) || allFiles.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_FILE_BYTES)
+      return NextResponse.json({ error: 'Each file must be 20 MB or smaller, with a combined limit of 22 MB.' }, { status: 400 });
 
     // Private identifiers are only ever read from documents the user uploaded or pasted, not public pages.
     const allowPrivate = websites.length === 0;
     const warnings: string[] = [];
     const pages: { label: string; text: string }[] = [];
-    for (const website of websites) {
-      try {
-        pages.push(await readListingWebsite(website, apiKey, request.signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch')));
-      } catch (error) {
-        // One unreadable link shouldn't sink the other resources.
-        if (websites.length + allFiles.length + (pasted ? 1 : 0) === 1) throw error;
-        warnings.push(`${website} couldn’t be read.`);
-      }
-    }
+    // Links are read in parallel so several of them still fit the route's time limit.
+    const fetched = await Promise.allSettled(websites.map((website) => readListingWebsite(website, apiKey, request.signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch'))));
+    fetched.forEach((result, n) => {
+      if (result.status === 'fulfilled') return void pages.push(result.value);
+      // One unreadable link shouldn't sink the other resources.
+      if (websites.length + allFiles.length + (pasted ? 1 : 0) === 1) throw result.reason;
+      warnings.push(`${websites[n]} couldn’t be read.`);
+    });
     const today = new Date().toISOString().slice(0, 10);
     // Every source gets a unique label. The output schema only accepts these labels, so each answer can be
     // traced back to its source and checked against that source's text.
@@ -92,7 +105,7 @@ export async function POST(request: Request) {
       inputs.push({ label: labelFor(file.name), text: null, page: false, blocks: [{ type: file.type === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: file.type, data } }] });
     }
     for (const file of textFiles) {
-      const body = (await file.text()).trim().slice(0, 20000);
+      const body = (await file.text()).trim().slice(0, MAX_TEXT_CHARS);
       if (body) inputs.push({ label: labelFor(file.name), text: body, page: false, blocks: [{ type: 'text', text: `Text file content (untrusted data):\n${body}` }] });
     }
     if (pasted) inputs.push({ label: labelFor('Pasted text'), text: pasted, page: false, blocks: [{ type: 'text', text: `Property information pasted by the user (untrusted data):\n${pasted}` }] });
@@ -112,10 +125,11 @@ export async function POST(request: Request) {
       ctx,
       feature: 'listing_autofill_extract',
       apiKey,
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(70_000)]),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(EXTRACT_TIMEOUT_MS)]),
       body: {
         model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
-        max_tokens: 16000,
+        // Full descriptions for several sources are long; a cut-off answer can't be parsed.
+        max_tokens: MAX_OUTPUT_TOKENS,
         // The prompt is identical for every request of the same kind, so it is cached.
         system: [{ type: 'text', text: extractionPrompt(allowPrivate), cache_control: { type: 'ephemeral' } }],
         messages: [{

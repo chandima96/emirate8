@@ -8,9 +8,11 @@
 
 const compact = (value: string) => value.normalize('NFKC').replace(/&amp;/gi, '&').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
-// A quote may stitch several fragments of the page together ("swimming pools, Rooftop Lounge"), so it is
-// split into fragments and each is looked up. Commas inside numbers ("4,400,000") don't split.
-const FRAGMENT_SPLIT = /\s*(?:\||;|\n|…|\.{3}|,(?!\d))\s*/;
+// A quote may stitch several fragments of the page together ("swimming pools, Rooftop Lounge", "maid's room
+// and a dedicated study"), so it is split into fragments and each is looked up. Commas inside numbers
+// ("4,400,000") don't split. Every fragment must still be on the page, so splitting never loosens a check
+// beyond "each part was read from the source".
+const FRAGMENT_SPLIT = /\s*(?:\||;|\n|…|\.{3}|,(?!\d)|\s(?:and|&|\+)\s)\s*/i;
 
 export function evidenceIn(evidence: string, sourceText: string) {
   const parts = String(evidence || '').split(FRAGMENT_SPLIT).map(compact).filter((part) => part.length >= 2);
