@@ -272,3 +272,112 @@ test('page classification trusts the portal record over agent tags', async () =>
   // A nav link or a description word alone forces nothing.
   assert.deepEqual(pageClassification('[Buy][Rent][Off-plan]\nGreat resale value in this ready community.', '2026-11-17'), { devStatus: '', txn: '', delivery: '' });
 });
+
+test('AI field spec carries a hint per field and options for every kind of listing', async () => {
+  const { listingAiFieldSpec, LISTING_AI_FIELDS, LISTING_AI_PRIVATE_FIELDS } = await import('../src/lib/listingAutofill');
+  const spec = listingAiFieldSpec(true);
+  const byKey = Object.fromEntries(spec.map((field) => [field.key, field]));
+  for (const key of [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS, 'milestones']) assert.ok(byKey[key]?.hint, `hint for ${key}`);
+  // Options are gathered across contexts: rent payers and commercial / land types are listed too.
+  assert.ok(byKey.commPayer.options?.tenant && byKey.commPayer.options?.buyer);
+  assert.ok(byKey.ptype.options?.office && byKey.ptype.options?.residential_plot);
+  assert.equal(byKey.floorBand.options?.mid, 'Mid floor');
+  // Non-answers are never offered.
+  assert.equal(byKey.bedrooms.options?.custom, undefined);
+  assert.equal(byKey.parking.options?.unknown, undefined);
+  // Private fields are only in the spec for uploaded documents.
+  assert.ok(!listingAiFieldSpec(false).some((field) => LISTING_AI_PRIVATE_FIELDS.includes(field.key)));
+});
+
+test('AI output schema only accepts known keys and the supplied source labels', async () => {
+  const { listingAiOutputSchema } = await import('../src/lib/listingAutofill');
+  const schema: any = listingAiOutputSchema(false, ['brochure.pdf', 'Pasted text']);
+  const source = schema.properties.sources.items;
+  assert.deepEqual(source.properties.label.enum, ['brochure.pdf', 'Pasted text']);
+  const keys = source.properties.fields.items.properties.key.enum;
+  assert.ok(keys.includes('askingPrice') && keys.includes('unitPriceMax') && keys.includes('milestones'));
+  assert.ok(!keys.includes('permitNo'));
+  // Structured outputs need every object closed and every property required.
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'object') {
+      assert.equal(node.additionalProperties, false);
+      assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort());
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(schema);
+});
+
+test('AI answers without evidence in a text source are dropped', async () => {
+  const { rowsToSuggestions, cleanListingSuggestions } = await import('../src/lib/listingAutofill');
+  const { dropUnsupported, evidenceIn } = await import('../src/lib/listingAutofillServer');
+  const page = 'Dubai > Palm Jumeirah > Golden Mile\n**AED 2.46M**\n3 Beds | 2 Baths\nAmenities: Shared Pool, Covered Parking';
+  const { suggestions, evidence } = rowsToSuggestions([
+    { key: 'communityId', value: 'Palm Jumeirah', evidence: 'Dubai > Palm  Jumeirah' },
+    { key: 'askingPrice', value: '2460000', evidence: 'AED 2.46M' },
+    { key: 'bathrooms', value: '4', evidence: '4 Baths' }, // not on the page
+    { key: 'parking', value: '1', evidence: '' }, // no quote at all
+    { key: 'amenities', value: ['sh_pool', 'covered_parking', 'sh_gym'], evidence: 'Shared Pool | Covered Parking | Shared Gym' },
+    { key: 'description', value: 'A rewritten description.', evidence: 'something else' },
+    { key: 'communityId', value: 'Ignored duplicate', evidence: 'x' },
+  ]);
+  assert.equal(suggestions.communityId, 'Palm Jumeirah');
+  assert.deepEqual(dropUnsupported(suggestions, evidence, page).sort(), ['bathrooms', 'parking']);
+  // Lists are kept on a partial match; free text is not quote-checked.
+  assert.ok(suggestions.amenities && suggestions.description);
+  assert.deepEqual(evidenceIn('3 Beds … 2 Baths', page), { all: true, any: true });
+  assert.equal(cleanListingSuggestions(suggestions).askingPrice, '2460000');
+});
+
+test('list answers are checked one value at a time; stitched quotes are checked per fragment', async () => {
+  const { rowsToSuggestions } = await import('../src/lib/listingAutofill');
+  const { dropUnsupported } = await import('../src/lib/listingAutofillServer');
+  // offplan-dubai.com style project page: shared facilities in a bulleted list.
+  const page = 'Amenities\n- Rooftop Lounge\n- Sky Infinity Pool\n- Indoor Padel Court\n- Spa & Sauna Rooms\nStarting Price AED 4,400,000';
+  const one = rowsToSuggestions([
+    { key: 'amenities', value: 'lounge', evidence: 'Rooftop Lounge' },
+    { key: 'amenities', value: 'sh_pool', evidence: 'Sky Infinity Pool' },
+    { key: 'amenities', value: 'sh_pool', evidence: '25-Metre Outdoor Swimming Pool' }, // same value twice
+    { key: 'amenities', value: 'lift', evidence: 'Lift' }, // not on the page
+    { key: 'unitPrice', value: '4400000', evidence: 'Starting Price AED 4,400,000' },
+    { key: 'unitPrice', value: '1', evidence: 'x' }, // a repeated single-value field keeps its first answer
+    { key: 'purpose', value: 'sale', evidence: 'Starting Price, available for sale' }, // inferred: partial match is enough
+  ]);
+  assert.deepEqual(one.suggestions.amenities, ['lounge', 'sh_pool', 'lift']);
+  assert.deepEqual(dropUnsupported(one.suggestions, one.evidence, page), ['amenities:lift']);
+  assert.deepEqual(one.suggestions.amenities, ['lounge', 'sh_pool']);
+  assert.equal(one.suggestions.unitPrice, '4400000');
+  assert.equal(one.suggestions.purpose, 'sale');
+  // The whole list with one quote stitched from several bullets is still accepted.
+  const all = rowsToSuggestions([{ key: 'amenities', value: ['lounge', 'courts', 'sauna'], evidence: 'Rooftop Lounge, Indoor Padel Court; Spa & Sauna Rooms' }]);
+  assert.deepEqual(dropUnsupported(all.suggestions, all.evidence, page), []);
+});
+
+test('the booking step of an AI payment plan also fills the booking amount', () => {
+  const plan = [
+    { name: 'On Booking', mode: 'pct', value: '5', trigger: 'booking', when: '' },
+    { name: 'During construction', mode: 'pct', value: '55', trigger: 'construction', when: '' },
+    { name: 'On handover', mode: 'pct', value: '40', trigger: 'handover', when: '' },
+  ];
+  const base = { purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'offplan', txn: 'initial', milestones: plan };
+  const out = cleanListingSuggestions(base);
+  assert.equal(out.booking, '5');
+  assert.equal(out.bookingBasis, 'pct');
+  // A booking amount the source states itself is kept; only its missing basis is taken from the plan.
+  const stated = cleanListingSuggestions({ ...base, booking: '5' });
+  assert.equal(stated.bookingBasis, 'pct');
+  const other = cleanListingSuggestions({ ...base, booking: '50000', bookingBasis: 'aed' });
+  assert.deepEqual([other.booking, other.bookingBasis], ['50000', 'aed']);
+  // No booking step, no booking amount.
+  assert.equal(cleanListingSuggestions({ ...base, milestones: plan.slice(1) }).booking, undefined);
+});
+
+test('portal facts are passed to the model as a short line', async () => {
+  const { portalFacts, extractionPrompt } = await import('../src/lib/listingAutofillServer');
+  assert.equal(portalFacts('Initial Sale\nCompletion\nOff-Plan\nHandover date\nQ1 2028\n', '2026-11-17'), 'devStatus offplan; txn initial (sale only); delivery / handover date 2028-03-31');
+  assert.equal(portalFacts('Nothing structured here.', '2026-11-17'), '');
+  // The system prompt has no date in it, so it is the same for every request and can be cached.
+  assert.equal(extractionPrompt(false), extractionPrompt(false));
+  assert.doesNotMatch(extractionPrompt(true), /\d{4}-\d{2}-\d{2}/);
+});

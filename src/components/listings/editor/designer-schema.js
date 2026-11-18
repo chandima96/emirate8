@@ -1285,8 +1285,9 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
       },
       ph: 'e.g. 9am–7pm, Mon–Sat',
     }),
+    // Optional: unanswered behaves like Hidden (publicListing publishes the floor only for exact / band).
     F('floorDisplay', 'Public floor display', 'seg', {
-      req: true,
+      help: 'Leave unselected to keep the floor hidden on the public listing.',
       when: function (c) {
         return c.unitLike;
       },

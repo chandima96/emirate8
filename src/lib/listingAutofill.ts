@@ -51,29 +51,269 @@ export function listingAiLabel(key: string) {
   return key.endsWith('Max') ? `${name} (upper value)` : key.endsWith('Multi') ? `${name} (all options)` : name;
 }
 
-export function listingAiFieldSpec(includePrivate = false) {
-  const d = { ...S.defaultData(), purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'ready' };
-  const c = S.ctxOf(d);
+/* Instructions for each field, sent next to the field in the prompt. Rules that apply to every field
+ * (scope, untrusted sources, conflicts, evidence) stay in the prompt itself. */
+export const LISTING_AI_HINTS: Record<string, string> = {
+  // Classification
+  purpose: 'sale when the property is offered for sale, rent when it is offered for rent or lease.',
+  category: 'From the property type: homes are residential; offices, shops, showrooms, warehouses and similar are commercial; plots are land.',
+  ptype: 'Type of the advertised unit. For a project offering several types (e.g. apartments and townhouses) return an array.',
+  devStatus: 'ready when the property is explicitly completed, handed over or ready to move in; offplan when explicitly off-plan or under construction. The portal\'s structured completion fact wins over any tag or headline: Bayut "Completion status: Ready", a Property Finder "Project information" badge "Completed", or a delivery / handover date before today all mean ready, even if a tag says "Offplan". A project overview that calls itself off-plan stays offplan even if construction has not started. For-sale status alone does not establish this. Omit for land.',
+  stage: 'Off-plan only: construction stage as stated. Omit for a ready property.',
+  txn: 'Sale only. resale when the page says resale or secondary market (off-plan units can be resales; Property Finder "Offplan: Re-Sale", a Bayut "Resale" line); initial when sold directly by the developer or at a project launch (Property Finder "Offplan: Primary", a Bayut "Initial Sale" line). A developer project page with starting prices, a payment plan and a future handover is initial unless it explicitly says resale. Words in a description ("great resale value") do not count.',
+  // Location
+  emirate: 'The emirate named in the source location, e.g. the first breadcrumb level. Dubai is not a default: omit when the source does not establish the emirate.',
+  communityId: 'The main community name, e.g. Palm Jumeirah, Dubai Hills Estate, Downtown Dubai, Al Raha Beach. Breadcrumbs run emirate > community > subcommunity > building: "Dubai > Palm Jumeirah > Golden Mile > Golden Mile 4" gives Palm Jumeirah. Never combine levels.',
+  subcommunity: 'The cluster or project inside the community, e.g. Golden Mile, Park Lane, Opera District, Al Seef. Never guess a missing level.',
+  buildingName: 'The specific building or tower, e.g. Golden Mile 4, Park Lane Building 2b, Lamar Residences.',
+  tower: 'A tower or block within the building or project, only when stated separately from the building name.',
+  developer: 'The developer of this building or project ("Developed by", "Developer").',
+  masterDeveloper: 'The master developer of the community, only when stated.',
+  street: 'Street name or address line, only when stated.',
+  mapLocation: 'Only an exact Google Maps URL explicitly present in the source for this property. Never create or infer one.',
+  // Size & layout
+  bedrooms: 'Bedrooms of the advertised unit. "Studio, 1 & 2 bedroom apartments" gives ["studio","1","2"].',
+  bathrooms: 'Bathrooms of the advertised unit, only when stated.',
+  parking: 'Number of parking spaces for the unit, only when a number is stated. "Covered parking" without a number is an amenity, not this field.',
+  extraRooms: 'Maid\'s room, study and driver\'s room explicitly mentioned for this unit.',
+  layoutCode: 'Unit layout or type code as printed, e.g. "Type 2B" or "A1".',
+  totalFloors: 'Total floors of the building, only when stated.',
+  unitArea: 'Apartment, office or shop unit size. For an apartment a single stated size ("4,442 sqft") is unitArea. Never substitute builtUpArea, plotArea or balconyArea.',
+  builtUpArea: 'Only an area explicitly labelled BUA or built-up area, typical for villas and townhouses: "BUA 1,647 sqft" gives 1647. Never substitute unitArea or plotArea.',
+  plotArea: 'Plot or land area only: "plot 1,828 sqft" gives 1828.',
+  balconyArea: 'Balcony or terrace area only.',
+  floorBand: 'Only when explicitly stated: "Mid Floor" gives mid, "High floor" gives high.',
+  storeys: 'Number of storeys of a villa or townhouse, only when stated.',
+  amenities: 'Features stated for this property, as amenity IDs, one row per amenity. This includes the shared facilities the page lists for the building or project: swimming / infinity / family pools give sh_pool, a kids\' pool gives kids_pool, gym or fitness deck gives sh_gym, kids\' play zones give play, sauna or spa sauna gives sauna, padel / tennis / sports courts give courts, rooftop or residents\' lounge gives lounge, concierge gives concierge, coworking gives cowork, landscaped or communal gardens give communal. Never add a facility the page does not list (no lift, security, reception or steam room just because it is a tower or has a spa). Parking features ("Covered Parking" gives covered_parking, basement parking gives basement_parking), storage and laundry rooms (storage, laundry), kitchen appliances (appliances), "Built in Wardrobes" (wardrobes), "Balcony" (balcony), "Shared Pool" (sh_pool), "Shared Gym" (sh_gym), "Children\'s Play Area" (play) and "Security" (sec) are amenities. "See all amenities (13)" means the list shown is partial: never invent the hidden ones.',
+  // Condition, views & specification
+  furnishing: 'As stated. "Furnished or unfurnished" gives ["furnished","unfurnished"].',
+  condition: '"Upgraded: Yes" gives renovated; brand_new only for a new, never-occupied unit stated as such.',
+  occupancy: 'Ready property only. vacant only when currently vacant (a promise of vacant on transfer is not current vacancy), owner for owner occupied, tenanted for currently rented.',
+  completionYear: 'Ready property: the year it was completed or delivered ("Delivery Date: Q3 2023" gives 2023).',
+  handoverQ: 'Off-plan only: the handover quarter, "Q4 2028" gives 4.',
+  handoverY: 'Off-plan only: the handover year, "Q4 2028" gives 2028.',
+  handoverDate: 'Off-plan only: an exact handover date published for the project, YYYY-MM-DD.',
+  plannedSpec: 'Off-plan only: the planned finishing and specification as described.',
+  tenure: 'freehold or leasehold, only when stated.',
+  leaseTerm: 'Leasehold only: the lease term as stated, e.g. "99 years".',
+  views: 'Views explicitly stated: "View of Landmark" gives ["landmark"], sea view gives ["sea"]; "View of Water" gives ["sea"] in a beach or coastal community and ["canal"] on a canal or creek.',
+  kitchenLayout: 'Only when the kitchen is described as open, closed or semi-open.',
+  pets: 'Only when the source states the pet policy.',
+  cooling: '"District cooling" gives district; "Central A/C" or central AC gives central; split units gives split.',
+  officeFit: 'Offices only: shell-and-core, fitted or furnished as stated.',
+  fitOut: 'Retail and industrial units only: shell-and-core or fitted as stated.',
+  otherInfo: 'Remaining factual details about this property that fit no other field, in plain text.',
+  // Price & terms
+  askingPrice: 'Sale price for a ready property or a resale (including off-plan resales): the advertised price, e.g. the large "AED 25,387,028" at the top of a Bayut or Property Finder listing. Always return it when the page shows one.',
+  negotiable: 'Only when the source says the price is negotiable or fixed.',
+  unitPrice: 'Sale price for an initial developer sale (devStatus offplan and txn initial): the advertised or starting price, even on a portal.',
+  annualRent: 'Yearly rent. Convert a monthly rent only if the page also states the yearly figure.',
+  serviceCharge: 'Service charge amount. With serviceBasis per_sqft when stated per sq ft, per_year when a yearly total.',
+  serviceBasis: 'per_sqft when the service charge is stated per sq ft, per_year for a yearly total.',
+  possession: 'Sale only. "Vacant on transfer" gives on_transfer, "available now" gives now, "subject to tenancy" gives subject_tenancy. expected only with an explicit future "Available from" date. Do not infer possession from occupancy alone.',
+  possessionDate: 'Only with possession expected: the "Available from" date, YYYY-MM-DD.',
+  rentalIncome: 'Tenanted sale only: the current yearly rent the tenant pays.',
+  tenancyExpiry: 'Tenanted property only: the end date of the current tenancy, YYYY-MM-DD.',
+  bookingBasis: 'Off-plan sale only, with booking: pct when the booking or down payment is a percentage, aed when an amount.',
+  booking: 'Off-plan sale only: the booking or down payment of the payment plan. A "Down payment" in a project card for a completed building, or in a mortgage calculator, is not a booking amount.',
+  incentives: 'Developer or seller incentives stated, e.g. DLD fee waiver or service-charge holiday.',
+  availability: 'Rent only: "available now" gives now, "Available from" a date gives from.',
+  availableFrom: 'Rent only, with availability from: the date, YYYY-MM-DD.',
+  minTenancy: 'Rent only: minimum tenancy as stated.',
+  cheques: 'Rent only: the cheque options offered, e.g. "1-4 cheques" gives ["1","2","3","4"].',
+  depositBasis: 'Rent only, with deposit: pct when the deposit is a percentage of the rent, aed when an amount.',
+  deposit: 'Rent only: the security deposit.',
+  utilities: 'Rent only: utilities included in the rent.',
+  milestones: 'Only when the listing states a payment plan, milestones in order. "20% on booking, 50% during construction, 30% on handover" gives [{"name":"On booking","mode":"pct","value":"20","trigger":"booking","when":""},{"name":"During construction","mode":"pct","value":"50","trigger":"construction","when":"During construction"},{"name":"On handover","mode":"pct","value":"30","trigger":"handover","when":""}]. "60/40" means 60% before and 40% on handover. Post-handover instalments use trigger post. A booking or down-payment step uses trigger booking, and the same amount also answers booking and bookingBasis. when is YYYY-MM-DD for trigger date, otherwise short text or "".',
+  // Marketing
+  title: 'The listing headline in plain text.',
+  description: 'The full property description, keeping every factual detail, with phone numbers, emails, URLs, agent names, permit and reference numbers removed.',
+  locHighlights: 'A summary of nearby places and travel times mentioned for this property.',
+  // Private (uploaded documents only)
+  unitNo: 'Unit number from a title deed, permit or SPA.',
+  floorNo: 'Floor number from a title deed, permit or SPA.',
+  permitNo: 'Advertising permit number (Trakheesi / Madhmoun) from a permit document.',
+  permitExpiry: 'Advertising permit expiry date, YYYY-MM-DD.',
+  authType: 'From a seller–broker agreement (Dubai Form A): owner_agreement.',
+  authExpiry: 'End date of the seller–broker agreement, YYYY-MM-DD.',
+  exclusive: 'From the seller–broker agreement: exclusive or non_exclusive.',
+  commBasis: 'From the agreement: pct when commission is a percentage, aed when an amount.',
+  commission: 'The agreed commission from the agreement.',
+  commPayer: 'Who pays the commission according to the agreement.',
+  originalPrice: 'From a developer statement of account or Oqood: the original purchase price.',
+  paidToDev: 'From a developer statement of account: the amount paid to the developer so far.',
+  outstanding: 'From a developer statement of account: the outstanding balance.',
+  payToSeller: 'Amount the buyer pays the seller, only when stated in the documents.',
+  nextInstDate: 'From a developer statement of account: the next instalment date, YYYY-MM-DD.',
+  nextInstAmt: 'From a developer statement of account: the next instalment amount.',
+  transferElig: 'Transfer eligibility as stated in the documents.',
+  nocStatus: 'Developer NOC status as stated in the documents.',
+};
+
+const RETURNS: Record<string, string> = {
+  int: 'whole number as a string, e.g. "12"',
+  dec: 'number as a string, e.g. "4.5"',
+  money: 'AED amount as a plain numeric string without currency or separators: "AED 2.46M" is "2460000"',
+  pct: 'percentage as a plain numeric string, e.g. "10"',
+  date: 'date YYYY-MM-DD',
+  year: 'year YYYY',
+  area: 'object {"raw":"1200","rawMax":"","unit":"sqft"}; unit is sqft or sqm',
+  text: 'plain text',
+  textarea: 'plain text',
+};
+
+/* Option lists can depend on the listing (commission payer differs for rent and sale, property types per
+ * category). The spec lists every option any listing can have; the cleaner then checks each answer
+ * against the classification the AI suggested. */
+let contextSamples: any[] | null = null;
+function allContexts() {
+  if (contextSamples) return contextSamples;
+  contextSamples = [];
+  for (const purpose of ['sale', 'rent']) for (const category of Object.keys(S.PTYPES)) for (const [ptype] of S.PTYPES[category])
+    for (const devStatus of ['ready', 'offplan']) for (const txn of ['initial', 'resale']) {
+      const d = { ...S.defaultData(), purpose, category, ptype, devStatus, txn };
+      contextSamples.push({ d, c: S.ctxOf(d) });
+    }
+  return contextSamples;
+}
+function allOptions(f: any) {
+  const out = new Map<string, string>();
+  for (const { c, d } of allContexts()) {
+    let options: any[] = [];
+    try { options = S.optsOf(f, c, d); } catch { /* option list not valid for this context */ }
+    for (const option of options) if (!out.has(String(option.v))) out.set(String(option.v), String(option.l ?? option.v));
+  }
+  for (const excluded of S.MULTI_EXCLUDED) out.delete(excluded);
+  return Object.fromEntries(out);
+}
+
+export type ListingAiField = { key: string; label: string; returns: string; options?: Record<string, string>; hint?: string; multiple?: string; range?: string };
+
+export function listingAiFieldSpec(includePrivate = false): ListingAiField[] {
   const keys = includePrivate ? [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS] : LISTING_AI_FIELDS;
-  const fields: any[] = keys.map((key) => {
-    if (key === 'amenities') return { key, label: 'Features and amenities', kind: 'array', options: Object.values(S.AMENITY).map((item: any) => ({ value: item.id, label: item.l })) };
+  const fields: ListingAiField[] = keys.map((key) => {
+    const hint = LISTING_AI_HINTS[key];
+    if (key === 'amenities') return { key, label: 'Features and amenities', returns: 'array of amenity IDs', options: Object.fromEntries(Object.values(S.AMENITY).map((item: any) => [item.id, item.l])), hint };
+    if (key === 'emirate') return { key, label: listingAiLabel(key), returns: 'emirate name', options: Object.fromEntries(Object.keys(S.EMIRATE_BOUNDS).map((name) => [name, name])), hint };
+    if (key === 'ptype') return { key, label: listingAiLabel(key), returns: 'option value, or an array of option values', options: Object.fromEntries(Object.values(S.PTYPES).flat().map((item: any) => [item[0], item[1]])), hint };
     const f = S.FIELDS[key];
-    const options = key === 'ptype' ? Object.values(S.PTYPES).flat().map((item: any) => item[0])
-      : f ? S.optsOf(f, c, d).map((option) => option.v) : [];
-    const kind = f?.kind === 'amt' ? `number (amount; AED or % according to ${f.basisKey})` : f?.kind || 'text';
+    const options = f?.opts ? allOptions(f) : {};
+    const hasOptions = Object.keys(options).length > 0;
+    const returns = f?.kind === 'multi' ? 'array of option values'
+      : hasOptions ? (f?.multiOk ? 'option value, or an array of option values' : 'option value')
+      : f?.kind === 'amt' ? `plain numeric string; AED amount or percentage according to ${f.basisKey}`
+      : RETURNS[f?.kind] || 'plain text';
     return {
-      key, label: listingAiLabel(key), kind,
-      ...(options.length ? { options } : {}),
-      ...(f?.kind === 'multi' ? { returns: 'array of option values' } : {}),
-      ...(f?.multiOk ? { multiple: 'Return an array of option values only when the source offers several for this listing (e.g. 1, 2 and 3 bedroom units).' } : {}),
-      ...(f?.rangeOk ? { range: f.kind === 'area' ? 'Add "rawMax" when the source gives a range for this listing.' : `Add "${key}Max" with the upper value when the source gives a range for this listing.` } : {}),
+      key, label: listingAiLabel(key), returns,
+      ...(hasOptions ? { options } : {}),
+      ...(hint ? { hint } : {}),
+      ...(f?.multiOk ? { multiple: 'Return an array only when the source offers several for this listing (e.g. 1, 2 and 3 bedroom units).' } : {}),
+      ...(f?.rangeOk ? { range: f.kind === 'area' ? 'Set "rawMax" when the source gives a range for this listing.' : `Return "${key}Max" as a separate field with the upper value when the source gives a range for this listing.` } : {}),
     };
   });
   fields.push({
-    key: 'milestones', label: 'Payment plan', kind: 'array',
-    returns: 'array of {"name":"On booking","mode":"pct" or "aed","value":"20","trigger":"booking|date|construction|handover|post","when":"YYYY-MM-DD for date, otherwise short text such as 50% construction or 24 months after handover"}',
+    key: 'milestones', label: 'Payment plan', hint: LISTING_AI_HINTS.milestones,
+    returns: 'array of {"name","mode":"pct"|"aed","value":"20","trigger":"booking"|"date"|"construction"|"handover"|"post","when"}',
   });
   return fields;
+}
+
+/** Every key the model may answer: the spec's fields plus the upper value of money ranges. */
+export function listingAiKeys(includePrivate = false) {
+  const keys = listingAiFieldSpec(includePrivate).map((field) => field.key);
+  const ranges = keys.filter((key) => S.FIELDS[key]?.rangeOk && S.FIELDS[key]?.kind === 'money').map((key) => key + 'Max');
+  return [...keys, ...ranges];
+}
+
+/* JSON schema for structured outputs. Each answer is a {key, value, evidence} row rather than an object
+ * with ~90 optional properties, which keeps the schema small and makes evidence part of every answer. */
+const VALUE_SCHEMA = {
+  anyOf: [
+    { type: 'string' },
+    { type: 'array', items: { type: 'string' } },
+    {
+      type: 'object', additionalProperties: false, required: ['raw', 'rawMax', 'unit'],
+      properties: { raw: { type: 'string' }, rawMax: { type: 'string' }, unit: { type: 'string', enum: ['sqft', 'sqm'] } },
+    },
+    {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false, required: ['name', 'mode', 'value', 'trigger', 'when'],
+        properties: {
+          name: { type: 'string' }, mode: { type: 'string', enum: ['pct', 'aed'] }, value: { type: 'string' },
+          trigger: { type: 'string', enum: MILESTONE_TRIGGERS }, when: { type: 'string' },
+        },
+      },
+    },
+  ],
+};
+
+export function listingAiOutputSchema(includePrivate: boolean, labels: string[]) {
+  const key = { type: 'string', enum: listingAiKeys(includePrivate) };
+  return {
+    type: 'object', additionalProperties: false, required: ['sources'],
+    properties: {
+      sources: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: ['label', 'fields', 'conflicts'],
+          properties: {
+            label: { type: 'string', enum: labels },
+            fields: {
+              type: 'array',
+              items: {
+                type: 'object', additionalProperties: false, required: ['key', 'value', 'evidence'],
+                properties: { key, value: VALUE_SCHEMA, evidence: { type: 'string' } },
+              },
+            },
+            conflicts: {
+              type: 'array',
+              items: {
+                type: 'object', additionalProperties: false, required: ['key', 'values'],
+                properties: { key, values: { type: 'array', items: VALUE_SCHEMA } },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Fields whose answer can be a list of option values. */
+function isListKey(key: string) {
+  const f = S.FIELDS[key];
+  return key === 'amenities' || key === 'ptype' || f?.kind === 'multi' || !!f?.multiOk;
+}
+
+/** Turns the model's {key, value, evidence} rows into the suggestions object the cleaner expects.
+ * A list field may come as one row per value (each with its own quote): those rows are joined into one
+ * list, and `evidence[key]` is then an array with one quote per value. Any other repeated key keeps its
+ * first answer. */
+export function rowsToSuggestions(rows: unknown) {
+  const suggestions: Record<string, any> = {};
+  const evidence: Record<string, string | string[]> = {};
+  const quote = (row: any) => (typeof row.evidence === 'string' ? row.evidence : '');
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row.key !== 'string') continue;
+    const { key, value } = row;
+    if (!Object.prototype.hasOwnProperty.call(suggestions, key)) {
+      suggestions[key] = value;
+      evidence[key] = quote(row);
+      continue;
+    }
+    if (!isListKey(key) || typeof value !== 'string') continue;
+    // Second value for a list field: switch to one quote per value.
+    if (!Array.isArray(evidence[key])) {
+      if (typeof suggestions[key] !== 'string') continue; // first row already held a whole list
+      suggestions[key] = [suggestions[key]];
+      evidence[key] = [evidence[key] as string];
+    }
+    if (suggestions[key].includes(value)) continue;
+    suggestions[key].push(value);
+    (evidence[key] as string[]).push(quote(row));
+  }
+  return { suggestions, evidence };
 }
 
 /** Model output for numbers is not always bare digits: "25,387,028", "AED 25,387,028", "2.46M", "10%".
@@ -169,7 +409,18 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
     }
   }
   const milestones = cleanMilestones(source.milestones);
-  if (milestones) out.milestones = milestones;
+  if (milestones) {
+    out.milestones = milestones;
+    // The booking step of the payment plan is also the listing's booking amount. The model often fills
+    // only the plan, so the booking fields are taken from it (the schedule counts the booking once).
+    const step = milestones.find((m) => m.trigger === 'booking');
+    if (step && !out.booking) {
+      out.booking = step.value;
+      out.bookingBasis = step.mode;
+    } else if (step && out.booking && !out.bookingBasis && Number(out.booking) === Number(step.value)) {
+      out.bookingBasis = step.mode;
+    }
+  }
 
   // Validate options against the proposed classification, not the old draft.
   const d = { ...S.defaultData(), ...out };
