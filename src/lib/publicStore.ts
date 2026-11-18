@@ -128,6 +128,7 @@ export type PublicPlan = {
   seats?: number | null;
   listings?: number | null;
   selections?: number;
+  aiCredits?: number;
   features?: string[];
   highlighted?: boolean;
 };

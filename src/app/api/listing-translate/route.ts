@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/server/session';
+import { creditsAfter, startAiRequest } from '@/lib/server/aiCredits';
+import { callClaude } from '@/lib/server/anthropic';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -21,13 +23,17 @@ export async function POST(request: Request) {
   const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 5000) : '';
   const language = LANGUAGES[body?.language] || LANGUAGES.ar;
   if (!title && !description) return NextResponse.json({ error: 'Add an English title or description first.' }, { status: 400 });
+  const gate = await startAiRequest(user.id);
+  if (gate.blocked) return gate.blocked;
+  const ctx = gate.ctx;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    const { response, payload: result } = await callClaude({
+      ctx,
+      feature: 'listing_translate',
+      apiKey,
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]),
-      body: JSON.stringify({
+      body: {
         model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 8000,
         system: [
@@ -37,9 +43,8 @@ export async function POST(request: Request) {
           'Return ONLY JSON {"title":"...","description":"..."}; use an empty string for a part that was not supplied.',
         ].join('\n'),
         messages: [{ role: 'user', content: JSON.stringify({ title, description }) }],
-      }),
+      },
     });
-    const result = await response.json().catch(() => null);
     if (!response.ok) {
       console.error('[listing-translate] Provider request failed:', response.status, result?.error?.type);
       return NextResponse.json(
@@ -58,7 +63,7 @@ export async function POST(request: Request) {
     // The editor's own validation still rejects contact details or links in the translated text.
     const clean = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
     return NextResponse.json(
-      { title: title ? clean(parsed?.title, 100) : '', description: description ? clean(parsed?.description, 5000) : '' },
+      { title: title ? clean(parsed?.title, 100) : '', description: description ? clean(parsed?.description, 5000) : '', credits: await creditsAfter(ctx) },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {

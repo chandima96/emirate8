@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/server/session';
+import { creditsAfter, startAiRequest } from '@/lib/server/aiCredits';
+import { callClaude, claudeCaller } from '@/lib/server/anthropic';
 import { alignPriceKey, cleanListingSuggestions, listingAiOutputSchema, rowsToSuggestions } from '@/lib/listingAutofill';
 import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite, portalFacts, dropUnsupported } from '@/lib/listingAutofillServer';
 
@@ -41,6 +43,9 @@ export async function POST(request: Request) {
   if (!['broker', 'agency', 'developer', 'owner'].includes(user.type)) return NextResponse.json({ error: 'Your account cannot create listings.' }, { status: 403 });
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'Document assistance is currently unavailable. You can continue entering details manually.' }, { status: 503 });
+  const gate = await startAiRequest(user.id);
+  if (gate.blocked) return gate.blocked;
+  const ctx = gate.ctx;
 
   try {
     const form = await request.formData();
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
     const pages: { label: string; text: string }[] = [];
     for (const website of websites) {
       try {
-        pages.push(await readListingWebsite(website, apiKey, request.signal));
+        pages.push(await readListingWebsite(website, apiKey, request.signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch')));
       } catch (error) {
         // One unreadable link shouldn't sink the other resources.
         if (websites.length + allFiles.length + (pasted ? 1 : 0) === 1) throw error;
@@ -103,11 +108,12 @@ export async function POST(request: Request) {
       });
     }
     if (!inputs.length) return NextResponse.json({ error: 'None of those resources could be read.' }, { status: 422 });
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    const { response, payload: result } = await callClaude({
+      ctx,
+      feature: 'listing_autofill_extract',
+      apiKey,
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(70_000)]),
-      body: JSON.stringify({
+      body: {
         model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
         max_tokens: 16000,
         // The prompt is identical for every request of the same kind, so it is cached.
@@ -121,9 +127,8 @@ export async function POST(request: Request) {
         }],
         // Structured outputs: the reply always matches this schema, so it always parses.
         output_config: { format: { type: 'json_schema', schema: listingAiOutputSchema(allowPrivate, inputs.map((input) => input.label)) } },
-      }),
+      },
     });
-    const result = await response.json();
     if (!response.ok) {
       console.error('[listing-autofill] Provider request failed:', response.status, result?.error?.type, result?.error?.message?.slice?.(0, 300));
       return NextResponse.json({ error: response.status === 429 ? 'Document assistance is busy. Please try again shortly.' : 'The documents could not be analyzed. Try a clearer or smaller document.' }, { status: response.status === 429 ? 429 : 502 });
@@ -176,8 +181,9 @@ export async function POST(request: Request) {
     }
     cleaned.push(...alternatives);
     const supported = cleaned.filter((source: any) => Object.keys(source.suggestions).length);
-    if (!supported.length) return NextResponse.json({ error: 'No supported property details were found. Try another link or a clearer document, or enter the details manually.' }, { status: 422 });
-    return NextResponse.json({ sources: supported, warnings }, { headers: { 'Cache-Control': 'no-store' } });
+    const credits = await creditsAfter(ctx);
+    if (!supported.length) return NextResponse.json({ error: 'No supported property details were found. Try another link or a clearer document, or enter the details manually.', credits }, { status: 422 });
+    return NextResponse.json({ sources: supported, warnings, credits }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
     return NextResponse.json({ error: timedOut ? 'Reading the source took too long. Try again or continue manually.' : error instanceof Error && websiteError(error.message) ? error.message : 'Could not read that source. Please try again.' }, { status: timedOut ? 504 : 400 });

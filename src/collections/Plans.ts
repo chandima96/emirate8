@@ -26,6 +26,7 @@ export const Plans: CollectionConfig = {
     { name: 'seats', type: 'number', label: 'User Seats (null = unlimited)' },
     { name: 'listings', type: 'number', label: 'Active Listings Limit (null = unlimited)' },
     { name: 'selections', type: 'number', label: 'Network Selections Limit' },
+    { name: 'aiCredits', type: 'number', min: 0, label: 'AI Credits per Month', admin: { description: '1 credit ≈ 1,000 input tokens (output counts 5×). Agency and developer seats share the account allowance.' } },
     {
       name: 'features',
       type: 'array',

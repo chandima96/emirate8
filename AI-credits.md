@@ -106,3 +106,22 @@ Each operation was run once against the live API on `claude-haiku-4-5-20251001`,
 ## 6. Open items for later
 - Top-up packs (needs a payment flow).
 - Cost cuts: send the website text once instead of twice, add prompt caching on the ~5k-token extraction system prompt (cache reads cost 0.1×), and consider Haiku 5.5.
+
+## 7. Implementation status (2026-11-18)
+
+Built (Phases 1–3 together, with enforcement on):
+
+| Part | Where |
+|---|---|
+| Usage ledger (one row per Claude call) | `src/collections/AiUsage.ts` (`ai-usage`), migration `src/migrations/20261118_000000_ai_credits.ts` |
+| Monthly allowance per plan (`aiCredits`) | `src/collections/Plans.ts`, `src/config/plans.ts` (Bronze/Silver/Gold: broker 1,000 / 3,000 / 8,000; agency and developer 3,000 / 8,000 / 25,000) |
+| Credit maths and Dubai-time month | `src/lib/aiCreditMath.ts` (tests: `tests/ai-credits.test.ts`) |
+| Balance, agency pool, 402 gate, recording | `src/lib/server/aiCredits.ts` |
+| Single Claude caller that charges every call | `src/lib/server/anthropic.ts`, used by listing autofill (fetch + extract), translation, and profile autofill (fetch + extract) |
+| Balance API | `GET /api/ai-credits` |
+| Credits left shown where AI is used | `src/components/ai/AiCredits.tsx` badge: on the autofill banner and composer (`AiAutofill.tsx`, listing and profile) and under the translate button (`AutofillWidgets.tsx`); AI buttons disable at zero |
+| Subscription page | AI credits meter in Usage, plus an "AI credits / month" row in the plan comparison |
+
+Settings: `AI_CREDITS_ENFORCE=false` keeps recording usage without blocking. If the ledger is unavailable, AI keeps working and the error is logged.
+
+Still to do: admin credit grants (`ai-credit-grants`), per-seat breakdown for agencies, and the usage report script.
