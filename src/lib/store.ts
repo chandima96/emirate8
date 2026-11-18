@@ -1059,8 +1059,9 @@ export function enquiries() {
 export function inbox(user = undefined) {
   user = user || currentUser();
   if (!user) return [];
+  // Own enquiries, plus (for agency admins/managers) enquiries sent to the agency's brokers.
   return read('enquiries', []).filter(function (q) {
-    return String(q.brokerId) === String(user.id);
+    return q.scope === 'agency' || String(q.brokerId) === String(user.id);
   });
 }
 export function setEnquiryStatus(id, status) {

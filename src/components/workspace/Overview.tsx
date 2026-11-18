@@ -9,6 +9,7 @@ import { STATUS } from '@/config/reference';
 import { routes } from '@/lib/routes';
 import { bi, credText, trialLeft } from './shared';
 import { ContactModal, NetworkCard, useSelectToggle } from './network/NetworkBits';
+import { PropertyCardBones } from './PageSkeletons';
 
 function greeting() {
   const h = new Date().getHours();
@@ -310,7 +311,7 @@ export function Overview() {
             <NetworkCard key={property.id} n={property} onToggle={toggle} onContact={() => {}} developer />
           ))}
           {opportunityTab === 'brokers' && net.length === 0 && <p className="col-span-full py-6 text-center text-sm text-muted">No published broker properties are available right now.</p>}
-          {opportunityTab === 'developers' && developerPropertiesLoading && <p className="col-span-full py-6 text-center text-sm text-muted">Loading developer properties…</p>}
+          {opportunityTab === 'developers' && developerPropertiesLoading && <PropertyCardBones count={3} label="Loading developer properties…" />}
           {opportunityTab === 'developers' && !developerPropertiesLoading && developerProperties.length === 0 && <p className="col-span-full py-6 text-center text-sm text-muted">No published developer properties are available right now.</p>}
         </div>
       </section>

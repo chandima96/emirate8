@@ -4,7 +4,7 @@ export const Enquiries: CollectionConfig = {
   slug: 'enquiries',
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'email', 'property', 'broker', 'type', 'createdAt'],
+    defaultColumns: ['name', 'email', 'property', 'brokerMember', 'agency', 'type', 'createdAt'],
   },
   access: {
     // Public creation and member inbox access go through scoped server routes.
@@ -48,6 +48,15 @@ export const Enquiries: CollectionConfig = {
       relationTo: 'members',
       label: 'Member Broker',
     },
+    {
+      name: 'agency',
+      type: 'relationship',
+      relationTo: 'agencies',
+      label: 'Broker Agency',
+      index: true,
+      admin: { description: "The recipient broker's agency when the enquiry was sent. Empty for independent brokers." },
+    },
+    { name: 'agencyName', type: 'text', label: 'Agency Name' },
     {
       name: 'fromMember',
       type: 'relationship',
