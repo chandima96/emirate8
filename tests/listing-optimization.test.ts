@@ -272,3 +272,69 @@ test('page classification trusts the portal record over agent tags', async () =>
   // A nav link or a description word alone forces nothing.
   assert.deepEqual(pageClassification('[Buy][Rent][Off-plan]\nGreat resale value in this ready community.', '2026-11-17'), { devStatus: '', txn: '', delivery: '' });
 });
+
+test('AI field spec carries a hint per field and options for every kind of listing', async () => {
+  const { listingAiFieldSpec, LISTING_AI_FIELDS, LISTING_AI_PRIVATE_FIELDS } = await import('../src/lib/listingAutofill');
+  const spec = listingAiFieldSpec(true);
+  const byKey = Object.fromEntries(spec.map((field) => [field.key, field]));
+  for (const key of [...LISTING_AI_FIELDS, ...LISTING_AI_PRIVATE_FIELDS, 'milestones']) assert.ok(byKey[key]?.hint, `hint for ${key}`);
+  // Options are gathered across contexts: rent payers and commercial / land types are listed too.
+  assert.ok(byKey.commPayer.options?.tenant && byKey.commPayer.options?.buyer);
+  assert.ok(byKey.ptype.options?.office && byKey.ptype.options?.residential_plot);
+  assert.equal(byKey.floorBand.options?.mid, 'Mid floor');
+  // Non-answers are never offered.
+  assert.equal(byKey.bedrooms.options?.custom, undefined);
+  assert.equal(byKey.parking.options?.unknown, undefined);
+  // Private fields are only in the spec for uploaded documents.
+  assert.ok(!listingAiFieldSpec(false).some((field) => LISTING_AI_PRIVATE_FIELDS.includes(field.key)));
+});
+
+test('AI output schema only accepts known keys and the supplied source labels', async () => {
+  const { listingAiOutputSchema } = await import('../src/lib/listingAutofill');
+  const schema: any = listingAiOutputSchema(false, ['brochure.pdf', 'Pasted text']);
+  const source = schema.properties.sources.items;
+  assert.deepEqual(source.properties.label.enum, ['brochure.pdf', 'Pasted text']);
+  const keys = source.properties.fields.items.properties.key.enum;
+  assert.ok(keys.includes('askingPrice') && keys.includes('unitPriceMax') && keys.includes('milestones'));
+  assert.ok(!keys.includes('permitNo'));
+  // Structured outputs need every object closed and every property required.
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'object') {
+      assert.equal(node.additionalProperties, false);
+      assert.deepEqual([...node.required].sort(), Object.keys(node.properties).sort());
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(schema);
+});
+
+test('AI answers without evidence in a text source are dropped', async () => {
+  const { rowsToSuggestions, cleanListingSuggestions } = await import('../src/lib/listingAutofill');
+  const { dropUnsupported, evidenceIn } = await import('../src/lib/listingAutofillServer');
+  const page = 'Dubai > Palm Jumeirah > Golden Mile\n**AED 2.46M**\n3 Beds | 2 Baths\nAmenities: Shared Pool, Covered Parking';
+  const { suggestions, evidence } = rowsToSuggestions([
+    { key: 'communityId', value: 'Palm Jumeirah', evidence: 'Dubai > Palm  Jumeirah' },
+    { key: 'askingPrice', value: '2460000', evidence: 'AED 2.46M' },
+    { key: 'bathrooms', value: '4', evidence: '4 Baths' }, // not on the page
+    { key: 'parking', value: '1', evidence: '' }, // no quote at all
+    { key: 'amenities', value: ['sh_pool', 'covered_parking', 'sh_gym'], evidence: 'Shared Pool | Covered Parking | Shared Gym' },
+    { key: 'description', value: 'A rewritten description.', evidence: 'something else' },
+    { key: 'communityId', value: 'Ignored duplicate', evidence: 'x' },
+  ]);
+  assert.equal(suggestions.communityId, 'Palm Jumeirah');
+  assert.deepEqual(dropUnsupported(suggestions, evidence, page).sort(), ['bathrooms', 'parking']);
+  // Lists are kept on a partial match; free text is not quote-checked.
+  assert.ok(suggestions.amenities && suggestions.description);
+  assert.deepEqual(evidenceIn('3 Beds … 2 Baths', page), { all: true, any: true });
+  assert.equal(cleanListingSuggestions(suggestions).askingPrice, '2460000');
+});
+
+test('portal facts are passed to the model as a short line', async () => {
+  const { portalFacts, extractionPrompt } = await import('../src/lib/listingAutofillServer');
+  assert.equal(portalFacts('Initial Sale\nCompletion\nOff-Plan\nHandover date\nQ1 2028\n', '2026-11-17'), 'devStatus offplan; txn initial (sale only); delivery / handover date 2028-03-31');
+  assert.equal(portalFacts('Nothing structured here.', '2026-11-17'), '');
+  // The system prompt has no date in it, so it is the same for every request and can be cached.
+  assert.equal(extractionPrompt(false), extractionPrompt(false));
+  assert.doesNotMatch(extractionPrompt(true), /\d{4}-\d{2}-\d{2}/);
+});
