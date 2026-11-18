@@ -330,6 +330,49 @@ test('AI answers without evidence in a text source are dropped', async () => {
   assert.equal(cleanListingSuggestions(suggestions).askingPrice, '2460000');
 });
 
+test('list answers are checked one value at a time; stitched quotes are checked per fragment', async () => {
+  const { rowsToSuggestions } = await import('../src/lib/listingAutofill');
+  const { dropUnsupported } = await import('../src/lib/listingAutofillServer');
+  // offplan-dubai.com style project page: shared facilities in a bulleted list.
+  const page = 'Amenities\n- Rooftop Lounge\n- Sky Infinity Pool\n- Indoor Padel Court\n- Spa & Sauna Rooms\nStarting Price AED 4,400,000';
+  const one = rowsToSuggestions([
+    { key: 'amenities', value: 'lounge', evidence: 'Rooftop Lounge' },
+    { key: 'amenities', value: 'sh_pool', evidence: 'Sky Infinity Pool' },
+    { key: 'amenities', value: 'sh_pool', evidence: '25-Metre Outdoor Swimming Pool' }, // same value twice
+    { key: 'amenities', value: 'lift', evidence: 'Lift' }, // not on the page
+    { key: 'unitPrice', value: '4400000', evidence: 'Starting Price AED 4,400,000' },
+    { key: 'unitPrice', value: '1', evidence: 'x' }, // a repeated single-value field keeps its first answer
+    { key: 'purpose', value: 'sale', evidence: 'Starting Price, available for sale' }, // inferred: partial match is enough
+  ]);
+  assert.deepEqual(one.suggestions.amenities, ['lounge', 'sh_pool', 'lift']);
+  assert.deepEqual(dropUnsupported(one.suggestions, one.evidence, page), ['amenities:lift']);
+  assert.deepEqual(one.suggestions.amenities, ['lounge', 'sh_pool']);
+  assert.equal(one.suggestions.unitPrice, '4400000');
+  assert.equal(one.suggestions.purpose, 'sale');
+  // The whole list with one quote stitched from several bullets is still accepted.
+  const all = rowsToSuggestions([{ key: 'amenities', value: ['lounge', 'courts', 'sauna'], evidence: 'Rooftop Lounge, Indoor Padel Court; Spa & Sauna Rooms' }]);
+  assert.deepEqual(dropUnsupported(all.suggestions, all.evidence, page), []);
+});
+
+test('the booking step of an AI payment plan also fills the booking amount', () => {
+  const plan = [
+    { name: 'On Booking', mode: 'pct', value: '5', trigger: 'booking', when: '' },
+    { name: 'During construction', mode: 'pct', value: '55', trigger: 'construction', when: '' },
+    { name: 'On handover', mode: 'pct', value: '40', trigger: 'handover', when: '' },
+  ];
+  const base = { purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'offplan', txn: 'initial', milestones: plan };
+  const out = cleanListingSuggestions(base);
+  assert.equal(out.booking, '5');
+  assert.equal(out.bookingBasis, 'pct');
+  // A booking amount the source states itself is kept; only its missing basis is taken from the plan.
+  const stated = cleanListingSuggestions({ ...base, booking: '5' });
+  assert.equal(stated.bookingBasis, 'pct');
+  const other = cleanListingSuggestions({ ...base, booking: '50000', bookingBasis: 'aed' });
+  assert.deepEqual([other.booking, other.bookingBasis], ['50000', 'aed']);
+  // No booking step, no booking amount.
+  assert.equal(cleanListingSuggestions({ ...base, milestones: plan.slice(1) }).booking, undefined);
+});
+
 test('portal facts are passed to the model as a short line', async () => {
   const { portalFacts, extractionPrompt } = await import('../src/lib/listingAutofillServer');
   assert.equal(portalFacts('Initial Sale\nCompletion\nOff-Plan\nHandover date\nQ1 2028\n', '2026-11-17'), 'devStatus offplan; txn initial (sale only); delivery / handover date 2028-03-31');

@@ -113,7 +113,7 @@ export function extractionPrompt(allowPrivate: boolean) {
     `PROPERTY FINDER LAYOUT: the breadcrumb ("Apartments for sale in Abu Dhabi > Al Raha Beach > Al Seef > Lamar Residences") and the "Location" line give the location; the large number under the photos is the price; "Property details" gives Property Type, Bedrooms, Bathrooms, Area (unitArea for an apartment), Furnishing, "Available from" and "Upgraded"; "Project information" is the portal's own record of the building: its status badge ("Completed", "Under construction"), "Developed by" (developer), "Delivery Date" and the project's unit mix; "Amenities" is the feature list. The tag near the photos such as "Offplan: Re-Sale" or "Offplan: Primary" is chosen by the agent: use it for txn but NOT for devStatus when "Project information" or a delivery date says otherwise. Ignore "Prices & trends", "About <building>" (building averages, price range, listing counts), the mortgage calculator, "Provided by", "Regulatory information" and "Explore Listings".`,
     'FIELDS ONLY WHEN STATED: Answer a field only when the source supports it. When the source does not state a value (for example it never mentions bathrooms or parking), leave the field out. Never answer "custom" or "unknown". Do not guess missing details, prices, ownership, contact information, permits or approvals. A hint that names a purpose or status ("Rent only", "Off-plan only") means the field does not apply otherwise.',
     'RANGES & SEVERAL OPTIONS: Only when the advertised listing itself offers a range (typically an off-plan project or a developer launch with several unit types), capture it: the lower value in the field and the upper value in "<field>Max" for money fields or "rawMax" inside an area object, e.g. "From AED 1.2M to AED 3.5M" gives unitPrice "1200000" and unitPriceMax "3500000"; "750 - 2,100 sqft" gives unitArea {"raw":"750","rawMax":"2100","unit":"sqft"}. "Starting from AED X" with no upper value is just the value. For fields with "multiple", return an array when several are offered. Never build ranges or arrays from building statistics or similar listings.',
-    'EVIDENCE: Every answer carries "evidence": a short verbatim quote (a few words, copied exactly, not paraphrased or translated) from that source showing the value, e.g. "AED 2.46M" for askingPrice "2460000" or "Dubai > Palm Jumeirah" for communityId. For an array, quote each value\'s text separated by " | ". For title, description and locHighlights quote the opening words. If you cannot quote the source for a value, do not answer that field.',
+    'EVIDENCE: Every answer carries "evidence": a short verbatim quote (a few words, copied exactly, not paraphrased or translated) from that source showing the value, e.g. "AED 2.46M" for askingPrice "2460000" or "Dubai > Palm Jumeirah" for communityId. For a list field (amenities, views, extraRooms, cheques, utilities, or several bedrooms or property types) return one row per value, each with the quote for that value, e.g. {"key":"amenities","value":"sh_pool","evidence":"Sky Infinity Pool"} and {"key":"amenities","value":"sauna","evidence":"Spa & Sauna Rooms"}; the rows are joined into one list. For a payment plan quote the plan as written. For title, description and locHighlights quote the opening words. If you cannot quote the source for a value, do not answer that field.',
     'CONFLICTS: Pages often contradict themselves, e.g. a summary box says "Size Range 850 – 3,200 sq.ft" while the text says "covered areas range from 2,328.6 to 4,921.4 sq. ft.". Never resolve such a conflict silently. Answer the value stated most specifically for this property in "fields", and list every other value stated for the same field in "conflicts" in the same value format. The user chooses between them.',
     ...(allowPrivate
       ? [
@@ -130,24 +130,42 @@ export function extractionPrompt(allowPrivate: boolean) {
  * isn't in its source was not read from it. PDFs and images have no text here, so they are not checked.
  * Quotes are compared on letters and digits only, so spacing, punctuation and markdown don't matter. */
 const FREE_TEXT_KEYS = ['title', 'description', 'locHighlights', 'otherInfo', 'plannedSpec', 'incentives'];
+const CLASSIFICATION_KEYS = ['purpose', 'category', 'ptype', 'devStatus', 'txn'];
 const compact = (value: string) => value.normalize('NFKC').replace(/&amp;/gi, '&').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
+// A quote may stitch several fragments of the page together ("swimming pools, Rooftop Lounge"), so it is
+// split into fragments and each is looked up. Commas inside numbers ("4,400,000") don't split.
+const FRAGMENT_SPLIT = /\s*(?:\||;|\n|…|\.{3}|,(?!\d))\s*/;
+
 export function evidenceIn(evidence: string, sourceText: string) {
-  const parts = String(evidence || '').split(/\s*(?:\||…|\.{3})\s*/).map(compact).filter((part) => part.length >= 2);
+  const parts = String(evidence || '').split(FRAGMENT_SPLIT).map(compact).filter((part) => part.length >= 2);
   const source = compact(sourceText);
   const found = parts.filter((part) => source.includes(part)).length;
   return { all: parts.length > 0 && found === parts.length, any: found > 0 };
 }
 
-/** Removes answers a text source does not support. Returns the keys it removed. */
-export function dropUnsupported(suggestions: Record<string, any>, evidence: Record<string, string>, sourceText: string) {
+/** Removes answers a text source does not support. Returns the keys (or key:value for list items) removed. */
+export function dropUnsupported(suggestions: Record<string, any>, evidence: Record<string, string | string[]>, sourceText: string) {
   const removed: string[] = [];
   for (const key of Object.keys(suggestions)) {
     if (FREE_TEXT_KEYS.includes(key)) continue;
-    const check = evidenceIn(evidence[key] || '', sourceText);
-    // A list answer (amenities, views, bedrooms offered) is kept when its quote matches in part;
-    // the cleaner still limits it to known option values.
-    if (Array.isArray(suggestions[key]) ? check.any : check.all) continue;
+    const value = suggestions[key];
+    const quotes = evidence[key];
+    // One quote per list value: keep exactly the values whose own quote is in the source.
+    if (Array.isArray(value) && Array.isArray(quotes) && quotes.length === value.length) {
+      const kept = value.filter((item, i) => {
+        if (evidenceIn(quotes[i], sourceText).all) return true;
+        removed.push(`${key}:${item}`);
+        return false;
+      });
+      if (kept.length) suggestions[key] = kept; else delete suggestions[key];
+      continue;
+    }
+    const check = evidenceIn(Array.isArray(quotes) ? quotes.join(' | ') : quotes || '', sourceText);
+    // A list given with one shared quote (or a payment plan) is kept when the quote matches in part;
+    // the cleaner still limits it to known option values. So is the classification, which is read from
+    // the page as a whole ("for sale" is rarely a phrase of its own) and cross-checked on portal pages.
+    if (Array.isArray(value) || CLASSIFICATION_KEYS.includes(key) ? check.any : check.all) continue;
     delete suggestions[key];
     removed.push(key);
   }
