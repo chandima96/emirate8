@@ -8,6 +8,7 @@ import { PropertyCard } from '@/components/property/PropertyCard';
 import { notificationPropertyHref } from '@/lib/notificationLinks';
 import { routes } from '@/lib/routes';
 import { useRouter } from 'next/navigation';
+import { KpiValueBone, PropertyCardBones, RowBones } from './PageSkeletons';
 
 async function loadWorkspace(query = '') {
   const response = await fetch(`/api/role-workspace${query}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -52,6 +53,7 @@ export function DeveloperDashboard() {
     });
     if (response.ok) load();
   };
+  const loading = !data && !message;
   const properties = data?.properties || [];
   const claims = data?.claims || [];
   return (
@@ -78,7 +80,7 @@ export function DeveloperDashboard() {
               {label}
               <Icon name={icon} className="h-4 w-4" />
             </div>
-            <p className="mt-3 font-display text-3xl font-semibold">{value}</p>
+            {loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">{value}</p>}
           </div>
         ))}
       </div>
@@ -100,9 +102,13 @@ export function DeveloperDashboard() {
           <h2 className="h3">Recent properties</h2>
           <Link href="/listings" className="arrow-link text-xs">View all<Icon name="arrow-right" /></Link>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {properties.slice(0, 6).map((property) => <DashboardPropertyCard key={property.id} property={property} user={user} />)}
-          {!properties.length && <p className="text-sm text-muted">No properties yet.</p>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={loading}>
+          {loading ? (
+            <PropertyCardBones count={3} />
+          ) : (
+            properties.slice(0, 6).map((property) => <DashboardPropertyCard key={property.id} property={property} user={user} />)
+          )}
+          {!loading && !properties.length && <p className="text-sm text-muted">No properties yet.</p>}
         </div>
       </section>
       <section>
@@ -110,6 +116,7 @@ export function DeveloperDashboard() {
           <h2 className="h3">Broker claim requests</h2>
         </div>
         <div className="mt-4 space-y-3">
+          {loading && <RowBones count={2} actions={2} label="Loading claim requests…" />}
           {claims
             .filter((claim) => claim.status === 'pending')
             .map((claim) => (
@@ -128,7 +135,7 @@ export function DeveloperDashboard() {
                 </div>
               </div>
             ))}
-          {!claims.some((claim) => claim.status === 'pending') && (
+          {!loading && !claims.some((claim) => claim.status === 'pending') && (
             <p className="text-sm text-muted">No pending claim requests.</p>
           )}
         </div>
@@ -196,15 +203,15 @@ export function AgencyDashboard() {
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="kpi">
           <p className="text-xs text-muted">Properties</p>
-          {loading ? <div className="mt-3 h-9 w-14 animate-pulse rounded bg-line/60" aria-hidden="true" /> : <p className="mt-3 font-display text-3xl font-semibold">{data?.properties?.length || 0}</p>}
+          {loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">{data?.properties?.length || 0}</p>}
         </div>
         <div className="kpi">
           <p className="text-xs text-muted">Team members</p>
-          {loading ? <div className="mt-3 h-9 w-14 animate-pulse rounded bg-line/60" aria-hidden="true" /> : <p className="mt-3 font-display text-3xl font-semibold">{members.length}</p>}
+          {loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">{members.length}</p>}
         </div>
         <div className="kpi">
           <p className="text-xs text-muted">Notifications</p>
-          {loading ? <div className="mt-3 h-9 w-14 animate-pulse rounded bg-line/60" aria-hidden="true" /> : <p className="mt-3 font-display text-3xl font-semibold">
+          {loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">
             {data?.notifications?.filter((item) => !item.read).length || 0}
           </p>}
         </div>
@@ -263,17 +270,7 @@ export function AgencyDashboard() {
         <h2 className="h3">Recent properties</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={loading}>
           {loading
-            ? Array.from({ length: 3 }, (_, index) => (
-                <div className="card overflow-hidden" key={`property-skeleton-${index}`} aria-hidden="true">
-                  <div className="aspect-[4/3] animate-pulse bg-line/60" />
-                  <div className="space-y-3 p-4">
-                    <div className="h-5 w-1/2 animate-pulse rounded bg-line/60" />
-                    <div className="h-4 w-4/5 animate-pulse rounded bg-line/60" />
-                    <div className="h-4 w-2/3 animate-pulse rounded bg-line/60" />
-                    <div className="h-4 w-1/3 animate-pulse rounded bg-line/60" />
-                  </div>
-                </div>
-              ))
+            ? <PropertyCardBones count={3} />
             : (data?.properties || []).slice(0, 6).map((property) => (
                 <DashboardPropertyCard property={property} user={user} key={property.id} />
               ))}
@@ -294,6 +291,7 @@ export function AgencyTeamDashboard() {
   const brokerSearchRequest = useRef(0);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const loading = data === null && !message;
   const members = data?.team || [];
   const invitations = (data?.invitations || []).filter((item: any) => item.status === 'pending');
   const load = () => loadWorkspace('?agencyTeam=1').then(setData).catch((error) => setMessage(error.message));
@@ -351,8 +349,8 @@ export function AgencyTeamDashboard() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="kpi"><p className="text-xs text-muted">Team members</p><p className="mt-3 font-display text-3xl font-semibold">{members.length}</p></div>
-        <div className="kpi"><p className="text-xs text-muted">Pending invitations</p><p className="mt-3 font-display text-3xl font-semibold">{invitations.length}</p></div>
+        <div className="kpi"><p className="text-xs text-muted">Team members</p>{loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">{members.length}</p>}</div>
+        <div className="kpi"><p className="text-xs text-muted">Pending invitations</p>{loading ? <KpiValueBone /> : <p className="mt-3 font-display text-3xl font-semibold">{invitations.length}</p>}</div>
         <div className="kpi"><p className="text-xs text-muted">Agency account</p><p className="mt-3 truncate font-display text-xl font-semibold">{user?.name || 'Agency'}</p></div>
       </div>
 
@@ -372,7 +370,7 @@ export function AgencyTeamDashboard() {
         <p className="eyebrow">Broker network</p><h2 className="h3 mt-2">Find an independent broker</h2>
         <p className="mt-1 text-sm text-muted">Search registered brokers by name and invite them to join the agency.</p>
         <input className="input mt-5 max-w-xl" aria-label="Search brokers by name" placeholder="Search broker name" value={search} onChange={(event) => void searchBrokers(event.target.value)} />
-        {searching && <p className="mt-3 text-sm text-muted" role="status">Searching brokers…</p>}
+        {searching && <div className="mt-3"><RowBones count={2} label="Searching brokers…" /></div>}
         {!searching && search.trim().length >= 2 && matches.length === 0 && <p className="mt-3 text-sm text-muted">No independent brokers found for that name.</p>}
         <div className="mt-3 space-y-2">{matches.map((broker) => <div key={broker.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3"><div><p className="font-semibold">{broker.name}</p><p className="text-xs text-muted">{broker.email}</p></div><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => void inviteBroker(broker)}>Invite broker</button></div>)}</div>
       </section>
@@ -380,9 +378,10 @@ export function AgencyTeamDashboard() {
       <section className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Agency roster</p><h2 className="h3 mt-2">Members and invitations</h2></div><Link href="/account" className="btn btn-outline btn-sm">Agency profile</Link></div>
         <div className="mt-5 space-y-2">
+          {loading && <RowBones count={3} label="Loading team members…" />}
           {members.map((item: any) => <div key={`member-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-muted">{item.email}</p></div><span className="badge badge-muted capitalize">{String(item.agencyRole || 'agency_broker').replace('agency_', '')}</span></div>)}
           {invitations.map((item: any) => <div key={`invite-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-line p-3"><div><p className="font-semibold">{item.name || item.email}</p><p className="text-xs text-muted">Pending invitation · {item.email}</p></div><div className="flex items-center gap-2"><span className="badge badge-muted capitalize">{String(item.role || 'agency_broker').replace('agency_', '')}</span><button type="button" className="btn btn-outline btn-sm" onClick={() => void cancel(item.id)}>Cancel</button></div></div>)}
-          {!members.length && !invitations.length && <p className="text-sm text-muted">No team members or pending invitations yet.</p>}
+          {!loading && !members.length && !invitations.length && <p className="text-sm text-muted">No team members or pending invitations yet.</p>}
         </div>
       </section>
     </div>
@@ -392,10 +391,13 @@ export function AgencyTeamDashboard() {
 export function NotificationsCenter() {
   const router = useRouter();
   const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     fetch('/api/role-workspace?notifications=1', { credentials: 'same-origin', cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : { notifications: [] }))
-      .then((data) => setItems(data.notifications || []));
+      .then((data) => setItems(data.notifications || []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   }, []);
   const read = async (id) => {
     await fetch('/api/role-workspace', {
@@ -428,7 +430,8 @@ export function NotificationsCenter() {
             )}
           </li>
         ))}
-        {!items.length && <li className="p-5 text-sm text-muted">No notifications yet.</li>}
+        {loading && <li className="p-4"><RowBones count={3} label="Loading notifications…" /></li>}
+        {!loading && !items.length && <li className="p-5 text-sm text-muted">No notifications yet.</li>}
       </ul>
     </div>
   );

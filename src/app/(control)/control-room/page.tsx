@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { MembershipManagement } from './membership-management/MembershipManagement';
 import { Wordmark } from '@/components/layout/Wordmark';
 import { Icon } from '@/components/ui/Icon';
+import { ControlRoomOverviewBones, ControlRoomSkeleton } from '@/components/workspace/PageSkeletons';
 
 type Stats = Record<string, number>;
 type Member = {
@@ -171,13 +172,18 @@ export default function ControlRoomPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
 
   const loadDashboard = async () => {
-    const dashboard = await control('dashboard');
-    if (dashboard.stats) setStats(dashboard.stats);
-    setMembers(dashboard.members || []);
-    setStaff(dashboard.staff || []);
-    setProperties(dashboard.properties || []);
+    try {
+      const dashboard = await control('dashboard');
+      if (dashboard.stats) setStats(dashboard.stats);
+      setMembers(dashboard.members || []);
+      setStaff(dashboard.staff || []);
+      setProperties(dashboard.properties || []);
+    } finally {
+      setDashboardLoaded(true);
+    }
   };
 
   useEffect(() => {
@@ -241,7 +247,7 @@ export default function ControlRoomPage() {
     await loadDashboard();
   };
 
-  if (!user) return <main className="min-h-screen bg-ink-deep" aria-busy="true" />;
+  if (!user) return <ControlRoomSkeleton />;
 
   const verified = stats ? Math.max(0, stats.members - stats.pendingMembers) : 0;
   const verificationRate = stats?.members ? Math.round((verified / stats.members) * 100) : 0;
@@ -341,7 +347,14 @@ export default function ControlRoomPage() {
 
         {section === 'membership' && user.role !== 'verifier' && <MembershipManagement />}
 
-        {section === 'overview' && (
+        {section === 'overview' && !dashboardLoaded && (
+          <div role="status" aria-busy="true">
+            <span className="sr-only">Loading platform overview…</span>
+            <ControlRoomOverviewBones />
+          </div>
+        )}
+
+        {section === 'overview' && dashboardLoaded && (
           <>
             <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {cards.map(([key, label, icon]) => (

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Wordmark } from '@/components/layout/Wordmark';
 import { Icon } from '@/components/ui/Icon';
-import { CardSkeletons } from '@/components/ui/CardSkeletons';
+import { WorkspacePageSkeleton } from './PageSkeletons';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useSession } from '@/components/providers/SessionProvider';
 import { useStoreVersion } from '@/hooks/useStore';
@@ -373,13 +373,7 @@ export function AppShell({ children }) {
         </div>
       </header>
       <main id="main" className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        {allowed ? (
-          children
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <CardSkeletons count={6} variant="summary" />
-          </div>
-        )}
+        {allowed ? children : <WorkspacePageSkeleton pathname={pathname} role={role} />}
       </main>
     </div>
   );

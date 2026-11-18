@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { NetworkCard, useSelectToggle } from './network/NetworkBits';
 import { useStoreVersion } from '@/hooks/useStore';
+import { DeveloperNetworkSkeleton } from './PageSkeletons';
 
 async function loadDeveloperNetwork() {
   const response = await fetch('/api/role-workspace?developerNetwork=1', { credentials: 'same-origin', cache: 'no-store' });
@@ -74,7 +75,18 @@ export function DeveloperNetwork() {
     [data],
   );
   const properties = data?.developerProperties || [];
-  if (!data || !['broker', 'agency'].includes(data.role)) return null;
+  if (!data && !message) return <DeveloperNetworkSkeleton />;
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-[1100px] rounded-lg border border-dashed border-line bg-white p-10 text-center" role="alert">
+        <p className="font-display text-[16px] font-semibold text-ink">{message}</p>
+        <button type="button" className="btn btn-outline btn-sm mt-4" onClick={() => { setMessage(''); void load(); }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+  if (!['broker', 'agency'].includes(data.role)) return null;
 
   return (
     <div className="mx-auto max-w-[1100px]">
