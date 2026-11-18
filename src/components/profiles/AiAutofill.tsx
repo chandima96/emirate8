@@ -78,7 +78,8 @@ const COPY = {
 };
 const TYPES: Record<string, string> = { pdf: 'PDF', txt: 'Text', jpg: 'Image', jpeg: 'Image', png: 'Image', webp: 'Image' };
 const TYPE_ICON: Record<string, string> = { PDF: 'file-earmark-pdf', Text: 'file-earmark-text', Image: 'file-earmark-image' };
-const MAX_FILE = 20 * 1048576, MAX_TOTAL = 50 * 1048576, MAX_ITEMS = 8, MAX_LINKS = 3;
+// Matches the server limits in /api/listing-autofill and /api/profile-autofill (22 MB keeps one request under 32 MB).
+const MAX_FILE = 20 * 1048576, MAX_TOTAL = 22 * 1048576, MAX_ITEMS = 12, MAX_LINKS = 5, MAX_TEXT = 60000;
 
 type Res = { id: string; kind: 'file' | 'link'; name: string; size?: number; type?: string; file?: File; url?: string; state: 'ready' | 'error' | 'processing' | 'read' | 'used' | 'notread'; msg?: string };
 type StepState = 'wait' | 'run' | 'ok' | 'warn' | 'err' | 'skip';
@@ -178,7 +179,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
       const total = next.reduce((s, x) => s + (x.state !== 'error' ? x.size || 0 : 0), 0);
       if (!type) Object.assign(r, { state: 'error', msg: 'Unsupported format. Use ' + C.typeHint.split(' — ')[0] + '.' });
       else if (f.size > MAX_FILE) Object.assign(r, { state: 'error', msg: 'Larger than 20 MB.' });
-      else if (total + f.size > MAX_TOTAL) Object.assign(r, { state: 'error', msg: 'Attachments can total up to 50 MB.' });
+      else if (total + f.size > MAX_TOTAL) Object.assign(r, { state: 'error', msg: 'Attachments can total up to 22 MB.' });
       next.push(r);
     });
     setRes(next);
@@ -273,7 +274,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
       const form = new FormData();
       for (const r of files) form.append('files', r.file as File);
       for (const r of links) form.append('website', r.url as string);
-      if (body) form.set('text', body.slice(0, 20000));
+      if (body) form.set('text', body.slice(0, MAX_TEXT));
       form.set('profile', JSON.stringify(current || {}));
       const response = await fetch(context === 'listing' ? '/api/listing-autofill' : '/api/profile-autofill', { method: 'POST', body: form, credentials: 'same-origin', signal: controller.signal });
       const out = await readAiResponse(response);
@@ -596,7 +597,7 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
           />
         </form>
         <p className="aif-limits">
-          Up to {MAX_ITEMS} items ({MAX_LINKS} links) · 20 MB per file · 50 MB in total. Pasted text is input for extraction, not a message.
+          Up to {MAX_ITEMS} items ({MAX_LINKS} links) · 20 MB per file · 22 MB in total. Pasted text is input for extraction, not a message.
         </p>
         <AiCreditsBadge className="aif-credits" />
 

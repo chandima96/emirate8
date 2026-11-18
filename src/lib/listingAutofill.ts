@@ -57,25 +57,25 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   // Classification
   purpose: 'sale when the property is offered for sale, rent when it is offered for rent or lease.',
   category: 'From the property type: homes are residential; offices, shops, showrooms, warehouses and similar are commercial; plots are land.',
-  ptype: 'Type of the advertised unit. For a project offering several types (e.g. apartments and townhouses) return an array.',
+  ptype: 'Type of the advertised unit. A studio is an apartment (studio is a bedrooms value, never a ptype). Land or plots for sale, villa plots included, are residential_plot (or commercial_plot, industrial_plot, mixed_use_plot) with category land. For a project offering several types (e.g. apartments and duplexes) return an array.',
   devStatus: 'ready when the property is explicitly completed, handed over or ready to move in; offplan when explicitly off-plan or under construction. The portal\'s structured completion fact wins over any tag or headline: Bayut "Completion status: Ready", a Property Finder "Project information" badge "Completed", or a delivery / handover date before today all mean ready, even if a tag says "Offplan". A project overview that calls itself off-plan stays offplan even if construction has not started. For-sale status alone does not establish this. Omit for land.',
-  stage: 'Off-plan only: construction stage as stated. Omit for a ready property.',
-  txn: 'Sale only. resale when the page says resale or secondary market (off-plan units can be resales; Property Finder "Offplan: Re-Sale", a Bayut "Resale" line); initial when sold directly by the developer or at a project launch (Property Finder "Offplan: Primary", a Bayut "Initial Sale" line). A developer project page with starting prices, a payment plan and a future handover is initial unless it explicitly says resale. Words in a description ("great resale value") do not count.',
+  stage: 'Off-plan only: construction stage, only when the source states it ("Construction Started" with a past date or "under construction" gives under_construction; "construction has not started" gives not_started). A future handover date alone does not establish the stage. Omit for a ready property.',
+  txn: 'Sale only. resale when the page says resale or secondary market (off-plan units can be resales; Property Finder "Offplan: Re-Sale", a Bayut "Resale" line); initial when sold directly by the developer or at a project launch (Property Finder "Offplan: Primary" or "First Sale", a Bayut "Initial Sale" line). A developer project page (a new-projects or off-plan project page with a developer, a starting or launch price and a payment plan) is initial unless it explicitly says resale. Words in a description ("great resale value") do not count.',
   // Location
   emirate: 'The emirate named in the source location, e.g. the first breadcrumb level. Dubai is not a default: omit when the source does not establish the emirate.',
-  communityId: 'The main community name, e.g. Palm Jumeirah, Dubai Hills Estate, Downtown Dubai, Al Raha Beach. Breadcrumbs run emirate > community > subcommunity > building: "Dubai > Palm Jumeirah > Golden Mile > Golden Mile 4" gives Palm Jumeirah. Never combine levels.',
-  subcommunity: 'The cluster or project inside the community, e.g. Golden Mile, Park Lane, Opera District, Al Seef. Never guess a missing level.',
-  buildingName: 'The specific building or tower, e.g. Golden Mile 4, Park Lane Building 2b, Lamar Residences.',
+  communityId: 'The main community name, e.g. Palm Jumeirah, Dubai Hills Estate, Downtown Dubai, Al Raha Beach, Dubai Islands. Breadcrumbs run emirate > community > subcommunity > building: "Dubai > Palm Jumeirah > Golden Mile > Golden Mile 4" gives Palm Jumeirah. Never combine levels.',
+  subcommunity: 'The cluster or project inside the community, e.g. Golden Mile, Park Lane, Opera District, Al Seef. Each location level holds a different name: never repeat the communityId or buildingName here, leave it out when the source names no separate level. Never guess a missing level.',
+  buildingName: 'The specific building, tower or project, e.g. Golden Mile 4, Park Lane Building 2b, Lamar Residences, Arancia Yards 2. Never repeat the communityId or subcommunity name.',
   tower: 'A tower or block within the building or project, only when stated separately from the building name.',
-  developer: 'The developer of this building or project ("Developed by", "Developer").',
+  developer: 'The developer of this building or project: "Developed by", "Developer", or the description ("by Dubai Properties", "developed by Emaar").',
   masterDeveloper: 'The master developer of the community, only when stated.',
   street: 'Street name or address line, only when stated.',
   mapLocation: 'Only an exact Google Maps URL explicitly present in the source for this property. Never create or infer one.',
   // Size & layout
   bedrooms: 'Bedrooms of the advertised unit. "Studio, 1 & 2 bedroom apartments" gives ["studio","1","2"].',
   bathrooms: 'Bathrooms of the advertised unit, only when stated.',
-  parking: 'Number of parking spaces for the unit, only when a number is stated. "Covered parking" without a number is an amenity, not this field.',
-  extraRooms: 'Maid\'s room, study and driver\'s room explicitly mentioned for this unit.',
+  parking: 'Number of parking spaces for the unit, only when a number is stated ("six covered parking slots" gives 6, "2 Parking" gives 2). "Allocated Covered Parking" or "Parking Spaces" without a number are amenities, not this field.',
+  extraRooms: 'Maid\'s room, study and driver\'s room stated for this unit, e.g. "4BR + Maid\'s", "5 Beds + Maid", "Maids Room", "Study Room", "a dedicated study". One row per room.',
   layoutCode: 'Unit layout or type code as printed, e.g. "Type 2B" or "A1".',
   totalFloors: 'Total floors of the building, only when stated.',
   unitArea: 'Apartment, office or shop unit size. For an apartment a single stated size ("4,442 sqft") is unitArea. Never substitute builtUpArea, plotArea or balconyArea.',
@@ -83,8 +83,8 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   plotArea: 'Plot or land area only: "plot 1,828 sqft" gives 1828.',
   balconyArea: 'Balcony or terrace area only.',
   floorBand: 'Only when explicitly stated: "Mid Floor" gives mid, "High floor" gives high.',
-  storeys: 'Number of storeys of a villa or townhouse, only when stated.',
-  amenities: 'Features stated for this property, as amenity IDs, one row per amenity. This includes the shared facilities the page lists for the building or project: swimming / infinity / family pools give sh_pool, a kids\' pool gives kids_pool, gym or fitness deck gives sh_gym, kids\' play zones give play, sauna or spa sauna gives sauna, padel / tennis / sports courts give courts, rooftop or residents\' lounge gives lounge, concierge gives concierge, coworking gives cowork, landscaped or communal gardens give communal. Never add a facility the page does not list (no lift, security, reception or steam room just because it is a tower or has a spa). Parking features ("Covered Parking" gives covered_parking, basement parking gives basement_parking), storage and laundry rooms (storage, laundry), kitchen appliances (appliances), "Built in Wardrobes" (wardrobes), "Balcony" (balcony), "Shared Pool" (sh_pool), "Shared Gym" (sh_gym), "Children\'s Play Area" (play) and "Security" (sec) are amenities. "See all amenities (13)" means the list shown is partial: never invent the hidden ones.',
+  storeys: 'Number of storeys of a villa or townhouse, only when stated: "G+2" gives 3, "G+1" gives 2, "spans two floors" gives 2.',
+  amenities: 'Features stated for this property, as amenity IDs, ONE ROW PER AMENITY, each quoting the words that name it. This includes the shared facilities the page lists for the building or project. Map by meaning: swimming / infinity / family / lap pools give sh_pool; kids_pool only for a named children\'s or kids\' pool; gym, fitness centre or fitness zone gives sh_gym; kids\' play areas or playgrounds give play; sauna only when a sauna is named (a spa, jacuzzi or wellness facility is not a sauna); steam only for a named steam room; padel / tennis / basketball / multi-sport courts give courts; lounge only for a residents\', rooftop or movie lounge; concierge for concierge; coworking or business centre gives cowork; landscaped or communal gardens, lawns or parks give communal; "Lobby in Building", "Reception" or "Welcome Center" give reception; lifts or elevators give lift; security, security staff or CCTV give sec; "Covered Parking" gives covered_parking; "Allocated Parking" or "Parking Spaces" give allocated_parking; basement parking gives basement_parking; storage areas give storage; laundry rooms give laundry; kitchen appliances give appliances; "Built in Wardrobes" give wardrobes; "Walk-in Closet" gives walkin; "Central A/C" gives central_ac; "Balcony" gives balcony; a terrace gives terrace; a private garden gives garden; a private pool gives priv_pool (a private jacuzzi is not a pool); a private gym gives priv_gym; barbecue gives bbq. Never add a facility the page does not name: no balcony, lift, security, reception, sauna or lounge just because it is a tower, has a spa or is luxury. "See all amenities (13)" means the list shown is partial: never invent the hidden ones.',
   // Condition, views & specification
   furnishing: 'As stated. "Furnished or unfurnished" gives ["furnished","unfurnished"].',
   condition: '"Upgraded: Yes" gives renovated; brand_new only for a new, never-occupied unit stated as such.',
@@ -92,21 +92,21 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   completionYear: 'Ready property: the year it was completed or delivered ("Delivery Date: Q3 2023" gives 2023).',
   handoverQ: 'Off-plan only: the handover quarter, "Q4 2028" gives 4.',
   handoverY: 'Off-plan only: the handover year, "Q4 2028" gives 2028.',
-  handoverDate: 'Off-plan only: an exact handover date published for the project, YYYY-MM-DD.',
+  handoverDate: 'Off-plan only: an exact handover or completion day printed in the source, YYYY-MM-DD (e.g. "Expected Completion June 1, 2029"). Never derive one from a quarter, month or year: "Q1 2028" or "June 2029" give handoverQ and handoverY only.',
   plannedSpec: 'Off-plan only: the planned finishing and specification as described.',
-  tenure: 'freehold or leasehold, only when stated.',
+  tenure: 'freehold or leasehold, only when stated ("Freehold" in a feature list, "Ownership type: Freehold", "a freehold property").',
   leaseTerm: 'Leasehold only: the lease term as stated, e.g. "99 years".',
-  views: 'Views explicitly stated: "View of Landmark" gives ["landmark"], sea view gives ["sea"]; "View of Water" gives ["sea"] in a beach or coastal community and ["canal"] on a canal or creek.',
+  views: 'Views explicitly stated: "View of Landmark" gives ["landmark"], sea view gives ["sea"], "views towards the skyline" gives ["skyline"], "On the Park", "facing the park" or "in front of the garden" gives ["park"]; "View of Water" gives ["sea"] in a beach or coastal community and ["canal"] on a canal or creek. A beachfront location without a stated view is not a view.',
   kitchenLayout: 'Only when the kitchen is described as open, closed or semi-open.',
-  pets: 'Only when the source states the pet policy.',
-  cooling: '"District cooling" gives district; "Central A/C" or central AC gives central; split units gives split.',
+  pets: 'Only when the source states the pet policy: "Pets Allowed" in a feature list gives allowed.',
+  cooling: '"District cooling" gives district; "Central A/C", "Centrally Air-Conditioned" or "central air conditioning" gives central; split units gives split.',
   officeFit: 'Offices only: shell-and-core, fitted or furnished as stated.',
   fitOut: 'Retail and industrial units only: shell-and-core or fitted as stated.',
-  otherInfo: 'Remaining factual details about this property that fit no other field, in plain text.',
+  otherInfo: 'Remaining factual details about this property that fit no other field, in plain text, e.g. corner unit, single row, Vastu-compliant, beach access, number of buildings or residences, government / DLD fee, NOC fee, original price and discount on a resale. Never repeat what other fields already hold.',
   // Price & terms
-  askingPrice: 'Sale price for a ready property or a resale (including off-plan resales): the advertised price, e.g. the large "AED 25,387,028" at the top of a Bayut or Property Finder listing. Always return it when the page shows one.',
+  askingPrice: 'Sale price for a ready property or a resale (including off-plan resales): the advertised price, e.g. the large "AED 25,387,028" at the top of a Bayut or Property Finder listing. Always return it when the page shows one. "TBA", "on request", "expected to start below AED 2 million" or "around" a figure are not a price: omit the field.',
   negotiable: 'Only when the source says the price is negotiable or fixed.',
-  unitPrice: 'Sale price for an initial developer sale (devStatus offplan and txn initial): the advertised or starting price, even on a portal.',
+  unitPrice: 'Sale price for an initial developer sale (devStatus offplan and txn initial): the advertised starting or launch price ("Starting Price AED 2,710,000", "Launch price 1.2M AED"), even on a portal. With several unit types priced, the lowest starting price, with unitPriceMax the highest price shown. "Starting Price TBA", "on request" or "expected to start below AED 2 million" are not a price: omit the field.',
   annualRent: 'Yearly rent. Convert a monthly rent only if the page also states the yearly figure.',
   serviceCharge: 'Service charge amount. With serviceBasis per_sqft when stated per sq ft, per_year when a yearly total.',
   serviceBasis: 'per_sqft when the service charge is stated per sq ft, per_year for a yearly total.',
@@ -115,7 +115,7 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   rentalIncome: 'Tenanted sale only: the current yearly rent the tenant pays.',
   tenancyExpiry: 'Tenanted property only: the end date of the current tenancy, YYYY-MM-DD.',
   bookingBasis: 'Off-plan sale only, with booking: pct when the booking or down payment is a percentage, aed when an amount.',
-  booking: 'Off-plan sale only: the booking or down payment of the payment plan. A "Down payment" in a project card for a completed building, or in a mortgage calculator, is not a booking amount.',
+  booking: 'Off-plan sale only: the booking or down payment of the payment plan ("On Booking 20%", "10% Down payment"). A plan without a booking or down-payment step (e.g. "50% during construction, 50% on completion") has no booking. A "Down payment" in a project card for a completed building, or in a mortgage calculator, is not a booking amount.',
   incentives: 'Developer or seller incentives stated, e.g. DLD fee waiver or service-charge holiday.',
   availability: 'Rent only: "available now" gives now, "Available from" a date gives from.',
   availableFrom: 'Rent only, with availability from: the date, YYYY-MM-DD.',
@@ -126,9 +126,9 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   utilities: 'Rent only: utilities included in the rent.',
   milestones: 'Only when the listing states a payment plan, milestones in order. "20% on booking, 50% during construction, 30% on handover" gives [{"name":"On booking","mode":"pct","value":"20","trigger":"booking","when":""},{"name":"During construction","mode":"pct","value":"50","trigger":"construction","when":"During construction"},{"name":"On handover","mode":"pct","value":"30","trigger":"handover","when":""}]. "60/40" means 60% before and 40% on handover. Post-handover instalments use trigger post. A booking or down-payment step uses trigger booking, and the same amount also answers booking and bookingBasis. when is YYYY-MM-DD for trigger date, otherwise short text or "".',
   // Marketing
-  title: 'The listing headline in plain text.',
-  description: 'The full property description, keeping every factual detail, with phone numbers, emails, URLs, agent names, permit and reference numbers removed.',
-  locHighlights: 'A summary of nearby places and travel times mentioned for this property.',
+  title: 'The listing headline in plain text: the page\'s main heading or the project name. Always return it.',
+  description: 'The full property description as written by the agent or developer, from its first line to its last: keep the opening facts and bullet lists (unit details, sizes, prices, payment plan, features, community, connectivity), keep line breaks between paragraphs and "- " bullets. Do not start in the middle or summarize. For a project page, the project overview and highlights. Remove phone numbers, emails, URLs, agent and agency names, permit and reference numbers, and "contact us" calls to action. Never include similar listings, mortgage widgets or site navigation.',
+  locHighlights: 'Nearby places and travel times mentioned for this property, one per line, e.g. "5 mins – Global Village".',
   // Private (uploaded documents only)
   unitNo: 'Unit number from a title deed, permit or SPA.',
   floorNo: 'Floor number from a title deed, permit or SPA.',
@@ -336,6 +336,7 @@ function choiceValues(f: any, c: any, d: any, value: unknown) {
 }
 
 function cleanArea(value: any) {
+  value = decodeJson(value);
   if (!value || typeof value !== 'object' || !['sqft', 'sqm'].includes(value.unit)) return null;
   const raw = String(value.raw ?? '').trim();
   if (!NUMBER.test(raw) || !(Number(raw.replace(/,/g, '')) > 0)) return null;
@@ -345,7 +346,15 @@ function cleanArea(value: any) {
   return out;
 }
 
+/** The output schema allows a plain string for every value, and the model sometimes returns an object or
+ * list as its JSON text ("[{\"name\":\"On Booking\",…}]"). Decodes that; anything else is returned as is. */
+function decodeJson(value: unknown) {
+  if (typeof value !== 'string' || !/^\s*[[{]/.test(value)) return value;
+  try { return JSON.parse(value); } catch { return value; }
+}
+
 function cleanMilestones(value: unknown) {
+  value = decodeJson(value);
   if (!Array.isArray(value)) return null;
   const rows = value.slice(0, 20).flatMap((row: any, index) => {
     if (!row || typeof row !== 'object') return [];
@@ -375,7 +384,10 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
     const f = S.FIELDS[key];
     if (key === 'amenities') {
       if (Array.isArray(value)) {
-        const ids = [...new Set(value.filter((id): id is string => typeof id === 'string' && Object.prototype.hasOwnProperty.call(S.AMENITY, id)))];
+        // The value schema is a union; now and then the model answers in the payment-plan row shape
+        // ({"name":"sh_pool","value":"Swimming Pool",…}), where the amenity ID is in "name".
+        const named = value.map((item: any) => (item && typeof item === 'object' && typeof item.name === 'string' ? item.name : item));
+        const ids = [...new Set(named.filter((id): id is string => typeof id === 'string' && Object.prototype.hasOwnProperty.call(S.AMENITY, id)))];
         if (ids.length) out[key] = ids;
       }
       continue;
@@ -421,6 +433,13 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
       out.bookingBasis = step.mode;
     }
   }
+
+  // The property type is the more specific answer: "residential_plot" with category "residential" is a plot,
+  // so the category follows the type instead of the type being dropped as invalid for that category.
+  const types = (Array.isArray(out.ptype) ? out.ptype : [out.ptype]).filter((t: unknown) => typeof t === 'string');
+  const categoryOf = (t: string) => Object.keys(S.PTYPES).find((cat) => S.PTYPES[cat].some((item: any) => item[0] === t));
+  const typeCategory = types.length ? categoryOf(types[0]) : undefined;
+  if (typeCategory && types.every((t: string) => categoryOf(t) === typeCategory) && out.category !== typeCategory) out.category = typeCategory;
 
   // Validate options against the proposed classification, not the old draft.
   const d = { ...S.defaultData(), ...out };

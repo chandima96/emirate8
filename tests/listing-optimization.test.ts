@@ -6,6 +6,7 @@ import { hydrateEditor, projectListing, validateEditorStep } from '../src/compon
 import { blankListing, prepare } from '../src/components/listings/editor/model';
 import { buildCatalogue, searchCatalogue } from '../src/lib/listingCatalogue';
 import { aiNumber, cleanListingSuggestions } from '../src/lib/listingAutofill';
+import { evidenceIn } from '../src/lib/aiEvidence';
 import { publicListing } from '../src/lib/publicListing';
 import { listingJsonLd } from '../src/lib/listingJsonLd';
 
@@ -380,4 +381,38 @@ test('portal facts are passed to the model as a short line', async () => {
   // The system prompt has no date in it, so it is the same for every request and can be cached.
   assert.equal(extractionPrompt(false), extractionPrompt(false));
   assert.doesNotMatch(extractionPrompt(true), /\d{4}-\d{2}-\d{2}/);
+});
+
+test('a plot type sets the land category instead of being dropped', () => {
+  const out = cleanListingSuggestions({ purpose: 'sale', category: 'residential', ptype: 'residential_plot' });
+  assert.equal(out.category, 'land');
+  assert.equal(out.ptype, 'residential_plot');
+  // Mixed residential types keep the residential category.
+  assert.deepEqual(cleanListingSuggestions({ purpose: 'sale', category: 'residential', ptype: ['apartment', 'duplex'] }).ptypeMulti, ['apartment', 'duplex']);
+});
+
+test('evidence stitched with "and" is checked part by part', () => {
+  const page = "featuring a dedicated study for quiet work. A maid's room and a walk-in closet add utility.";
+  assert.equal(evidenceIn("maid's room and a dedicated study", page).all, true);
+  assert.equal(evidenceIn("maid's room and a private cinema", page).all, false);
+});
+
+test('a payment plan or area returned as JSON text is decoded', () => {
+  const plan = JSON.stringify([{ name: 'On Booking', mode: 'pct', value: '20', trigger: 'booking', when: '' }, { name: 'During Construction', mode: 'pct', value: '80', trigger: 'construction', when: '' }]);
+  const out = cleanListingSuggestions({ purpose: 'sale', category: 'residential', ptype: 'apartment', devStatus: 'offplan', txn: 'initial', milestones: plan, unitArea: '{"raw":"750","rawMax":"1700","unit":"sqft"}' });
+  assert.equal(out.milestones.length, 2);
+  assert.equal(out.booking, '20');
+  assert.deepEqual(out.unitArea, { raw: '750', rawMax: '1700', unit: 'sqft' });
+});
+
+test('a parking count needs a number in its quote, and amenities in row shape are kept', async () => {
+  const { dropUnsupported } = await import('../src/lib/listingAutofillServer');
+  const page = 'Allocated Covered Parking. With six covered parking slots. 2 Baths.';
+  const a: Record<string, any> = { parking: '1', bathrooms: '2' };
+  assert.deepEqual(dropUnsupported(a, { parking: 'Allocated Covered Parking', bathrooms: '2 Baths' }, page), ['parking']);
+  assert.deepEqual(a, { bathrooms: '2' });
+  const b: Record<string, any> = { parking: '6' };
+  assert.deepEqual(dropUnsupported(b, { parking: 'six covered parking slots' }, page), []);
+  const out = cleanListingSuggestions({ amenities: [{ name: 'sh_pool', mode: 'pct', value: 'Swimming Pool', trigger: 'booking', when: '' }, 'sh_gym'] });
+  assert.deepEqual(out.amenities, ['sh_pool', 'sh_gym']);
 });
