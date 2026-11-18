@@ -84,7 +84,7 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   balconyArea: 'Balcony or terrace area only.',
   floorBand: 'Only when explicitly stated: "Mid Floor" gives mid, "High floor" gives high.',
   storeys: 'Number of storeys of a villa or townhouse, only when stated.',
-  amenities: 'Features explicitly stated for this property, as amenity IDs; never infer shared amenities. Parking features ("Covered Parking" gives covered_parking, basement parking gives basement_parking), storage and laundry rooms (storage, laundry), kitchen appliances (appliances), "Built in Wardrobes" (wardrobes), "Balcony" (balcony), "Shared Pool" (sh_pool), "Shared Gym" (sh_gym), "Children\'s Play Area" (play) and "Security" (sec) are amenities. "See all amenities (13)" means the list shown is partial: never invent the hidden ones.',
+  amenities: 'Features stated for this property, as amenity IDs, one row per amenity. This includes the shared facilities the page lists for the building or project: swimming / infinity / family pools give sh_pool, a kids\' pool gives kids_pool, gym or fitness deck gives sh_gym, kids\' play zones give play, sauna or spa sauna gives sauna, padel / tennis / sports courts give courts, rooftop or residents\' lounge gives lounge, concierge gives concierge, coworking gives cowork, landscaped or communal gardens give communal. Never add a facility the page does not list (no lift, security, reception or steam room just because it is a tower or has a spa). Parking features ("Covered Parking" gives covered_parking, basement parking gives basement_parking), storage and laundry rooms (storage, laundry), kitchen appliances (appliances), "Built in Wardrobes" (wardrobes), "Balcony" (balcony), "Shared Pool" (sh_pool), "Shared Gym" (sh_gym), "Children\'s Play Area" (play) and "Security" (sec) are amenities. "See all amenities (13)" means the list shown is partial: never invent the hidden ones.',
   // Condition, views & specification
   furnishing: 'As stated. "Furnished or unfurnished" gives ["furnished","unfurnished"].',
   condition: '"Upgraded: Yes" gives renovated; brand_new only for a new, never-occupied unit stated as such.',
@@ -124,7 +124,7 @@ export const LISTING_AI_HINTS: Record<string, string> = {
   depositBasis: 'Rent only, with deposit: pct when the deposit is a percentage of the rent, aed when an amount.',
   deposit: 'Rent only: the security deposit.',
   utilities: 'Rent only: utilities included in the rent.',
-  milestones: 'Only when the listing states a payment plan, milestones in order. "20% on booking, 50% during construction, 30% on handover" gives [{"name":"On booking","mode":"pct","value":"20","trigger":"booking","when":""},{"name":"During construction","mode":"pct","value":"50","trigger":"construction","when":"During construction"},{"name":"On handover","mode":"pct","value":"30","trigger":"handover","when":""}]. "60/40" means 60% before and 40% on handover. Post-handover instalments use trigger post. when is YYYY-MM-DD for trigger date, otherwise short text or "".',
+  milestones: 'Only when the listing states a payment plan, milestones in order. "20% on booking, 50% during construction, 30% on handover" gives [{"name":"On booking","mode":"pct","value":"20","trigger":"booking","when":""},{"name":"During construction","mode":"pct","value":"50","trigger":"construction","when":"During construction"},{"name":"On handover","mode":"pct","value":"30","trigger":"handover","when":""}]. "60/40" means 60% before and 40% on handover. Post-handover instalments use trigger post. A booking or down-payment step uses trigger booking, and the same amount also answers booking and bookingBasis. when is YYYY-MM-DD for trigger date, otherwise short text or "".',
   // Marketing
   title: 'The listing headline in plain text.',
   description: 'The full property description, keeping every factual detail, with phone numbers, emails, URLs, agent names, permit and reference numbers removed.',
@@ -280,14 +280,38 @@ export function listingAiOutputSchema(includePrivate: boolean, labels: string[])
   };
 }
 
-/** Turns the model's {key, value, evidence} rows into the suggestions object the cleaner expects. */
+/** Fields whose answer can be a list of option values. */
+function isListKey(key: string) {
+  const f = S.FIELDS[key];
+  return key === 'amenities' || key === 'ptype' || f?.kind === 'multi' || !!f?.multiOk;
+}
+
+/** Turns the model's {key, value, evidence} rows into the suggestions object the cleaner expects.
+ * A list field may come as one row per value (each with its own quote): those rows are joined into one
+ * list, and `evidence[key]` is then an array with one quote per value. Any other repeated key keeps its
+ * first answer. */
 export function rowsToSuggestions(rows: unknown) {
   const suggestions: Record<string, any> = {};
-  const evidence: Record<string, string> = {};
+  const evidence: Record<string, string | string[]> = {};
+  const quote = (row: any) => (typeof row.evidence === 'string' ? row.evidence : '');
   for (const row of Array.isArray(rows) ? rows : []) {
-    if (!row || typeof row.key !== 'string' || Object.prototype.hasOwnProperty.call(suggestions, row.key)) continue;
-    suggestions[row.key] = row.value;
-    evidence[row.key] = typeof row.evidence === 'string' ? row.evidence : '';
+    if (!row || typeof row.key !== 'string') continue;
+    const { key, value } = row;
+    if (!Object.prototype.hasOwnProperty.call(suggestions, key)) {
+      suggestions[key] = value;
+      evidence[key] = quote(row);
+      continue;
+    }
+    if (!isListKey(key) || typeof value !== 'string') continue;
+    // Second value for a list field: switch to one quote per value.
+    if (!Array.isArray(evidence[key])) {
+      if (typeof suggestions[key] !== 'string') continue; // first row already held a whole list
+      suggestions[key] = [suggestions[key]];
+      evidence[key] = [evidence[key] as string];
+    }
+    if (suggestions[key].includes(value)) continue;
+    suggestions[key].push(value);
+    (evidence[key] as string[]).push(quote(row));
   }
   return { suggestions, evidence };
 }
@@ -385,7 +409,18 @@ export function cleanListingSuggestions(input: unknown, opts: { allowPrivate?: b
     }
   }
   const milestones = cleanMilestones(source.milestones);
-  if (milestones) out.milestones = milestones;
+  if (milestones) {
+    out.milestones = milestones;
+    // The booking step of the payment plan is also the listing's booking amount. The model often fills
+    // only the plan, so the booking fields are taken from it (the schedule counts the booking once).
+    const step = milestones.find((m) => m.trigger === 'booking');
+    if (step && !out.booking) {
+      out.booking = step.value;
+      out.bookingBasis = step.mode;
+    } else if (step && out.booking && !out.bookingBasis && Number(out.booking) === Number(step.value)) {
+      out.bookingBasis = step.mode;
+    }
+  }
 
   // Validate options against the proposed classification, not the old draft.
   const d = { ...S.defaultData(), ...out };
