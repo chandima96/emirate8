@@ -4,7 +4,8 @@ import configPromise from '@payload-config';
 import { getPayload } from 'payload';
 import { loadPublicData } from '@/lib/server/publicData';
 import { publicBrokers } from '@/lib/server/landing';
-import { areaFacts, seoTargets, type SeoTarget } from '@/lib/seoAgent/facts';
+import { areaFacts, type SeoTarget } from '@/lib/seoAgent/facts';
+import { seoTargets } from '@/lib/seoAgent/targets';
 import { runSeoAgentFor } from './agent';
 
 /** A page whose run failed is retried after this long (or as soon as its facts change). */
@@ -34,14 +35,15 @@ export type SeoRunReport = {
 };
 
 /**
- * One pass of the SEO content agent: up to `limit` pending pages within `timeBudgetMs` (so a cron call
+ * One pass of the SEO content agent: up to `limit` pending pages within `timeBudgetMs` (so a call
  * finishes inside the route's time limit). Properties go first, newest listings first in data order.
  */
 export async function runSeoAgent({
   limit = 10,
   timeBudgetMs = 240_000,
   paths,
-}: { limit?: number; timeBudgetMs?: number; paths?: string[] } = {}): Promise<SeoRunReport> {
+  force = false,
+}: { limit?: number; timeBudgetMs?: number; paths?: string[]; force?: boolean } = {}): Promise<SeoRunReport> {
   const started = Date.now();
   const payload = await getPayload({ config: await configPromise });
   const data = await loadPublicData();
@@ -54,7 +56,8 @@ export async function runSeoAgent({
     select: { path: true, sourceHash: true, status: true, updatedAt: true },
   });
   const rows = new Map((docs as any[]).map((d) => [d.path, d as Row]));
-  const queue = pending(targets, rows);
+  // `force` (the admin "Generate SEO" button): write the given pages again even when their facts are unchanged.
+  const queue = force && paths ? targets : pending(targets, rows);
   const report: SeoRunReport = { pages: targets.length, pending: queue.length, processed: [] };
   const client = new Anthropic();
 
@@ -65,7 +68,7 @@ export async function runSeoAgent({
     }
     let result;
     try {
-      result = await runSeoAgentFor(target, target.kind === 'property' ? areaFacts(data.listings || [], target.area) : null, client);
+      result = await runSeoAgentFor(target, target.kind === 'property' ? areaFacts(data.listings || [], target.area) : null, { client });
     } catch (error) {
       // Rate limits and outages affect every page: stop and let the next run continue.
       if (error instanceof Anthropic.RateLimitError || error instanceof Anthropic.APIConnectionError || (error instanceof Anthropic.APIError && Number(error.status) >= 500)) {

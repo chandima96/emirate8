@@ -16,6 +16,12 @@ export const Brokers: CollectionConfig = {
     afterDelete: [invalidateCmsCache],
   },
   fields: [
+    // Payload admin button: runs the SEO content agent for this record's public page (no data stored here).
+    {
+      name: 'generateSeo',
+      type: 'ui',
+      admin: { position: 'sidebar', components: { Field: '@/components/payload/SeoGenerateButton#SeoGenerateButton' } },
+    },
     { name: 'appData', type: 'json', admin: { hidden: true } },
     {
       name: 'name',

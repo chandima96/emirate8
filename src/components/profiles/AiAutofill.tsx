@@ -13,12 +13,15 @@ import './profiles.css';
 
 export type AiContext = 'listing' | 'broker-profile' | 'agency-profile';
 export type AiSummary = { filled: number; missing: number; kept?: number; errors?: number; review?: number };
+/** `other`: found on the page outside the listing itself (similar listings, articles, area photos). */
+export type AiFoundPhotos = { files: File[]; links: { url: string; source: string; other?: boolean }[] };
 type Candidates = Record<string, { value: unknown; sources: string[] }[]>;
 type Props = {
   context: AiContext;
   /** Current form values, sent only so the model can avoid duplicate suggestions. */
   current: Record<string, any>;
-  onApply: (suggestions: Record<string, any>, selected: string[], candidates: Candidates) => AiSummary | Promise<AiSummary>;
+  /** `photos`: image files the user attached and photos found on the linked pages, for the page to offer. */
+  onApply: (suggestions: Record<string, any>, selected: string[], candidates: Candidates, photos: AiFoundPhotos) => AiSummary | Promise<AiSummary>;
   onReview?: () => void;
   onUndo?: () => void;
   onManual?: () => void;
@@ -294,7 +297,11 @@ export function AiAutofill({ context, current, onApply, onReview, onUndo, onManu
       st[3] = ['run', ''];
       paint();
       setRes((rs) => rs.map((r) => (r.state === 'processing' ? { ...r, state: r.kind === 'link' ? 'used' : 'read' } : r)));
-      const sum = await onApply(chosen, Object.keys(chosen), candidates);
+      const photos: AiFoundPhotos = {
+        files: files.filter((r) => r.type === 'Image' && r.file).map((r) => r.file as File),
+        links: (Array.isArray(out.images) ? out.images : []).filter((i: any) => i && typeof i.url === 'string' && /^https?:\/\//.test(i.url)).map((i: any) => ({ url: i.url, source: String(i.source || ''), other: i.other === true })),
+      };
+      const sum = await onApply(chosen, Object.keys(chosen), candidates, photos);
       const review = (sum.missing || 0) + (sum.review || 0);
       st[3] = [review || sum.errors ? 'warn' : 'ok', sum.filled + ' filled · ' + review + ' need your input' + (sum.errors ? ' · ' + sum.errors + ' error' + (sum.errors === 1 ? '' : 's') : '') + (sum.kept ? ' · ' + sum.kept + ' of your entries kept' : '')];
       paint();

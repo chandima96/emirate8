@@ -1,7 +1,8 @@
 import 'server-only';
 import Anthropic from '@anthropic-ai/sdk';
 import { listingAiOutputSchema } from '@/lib/listingAutofill';
-import { readListingWebsite, portalFacts } from '@/lib/listingAutofillServer';
+import { LISTING_PAGE_MAX_TOKENS, readListingWebsite, portalFacts } from '@/lib/listingAutofillServer';
+import { fetchPublicPage, htmlToText } from '@/lib/listingImagesServer';
 import { searchCatalogue } from '@/lib/listingCatalogue';
 import { evidenceFeedback, evidenceProblems, linkAllowed, type AgentInput } from '@/lib/listingAgent';
 import { anthropicModel, claudeCaller } from '@/lib/server/anthropic';
@@ -188,7 +189,14 @@ export async function runListingAgent(opts: Options): Promise<{ parsed: any; tur
           if (linked >= MAX_LINKED_PAGES) throw new Error(`Only ${MAX_LINKED_PAGES} linked pages can be read.`);
           if (!linkAllowed(url, inputs)) throw new Error('That URL is not written in any source. Only links that appear exactly in a source can be opened.');
           linked++;
-          const page = await readListingWebsite(url, apiKey, signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch'));
+          // Same reading as the route: web_fetch first, and the page's own HTML when web_fetch comes back
+          // empty (Property Finder does this).
+          const page = await readListingWebsite(url, apiKey, signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch')).catch(async (error) => {
+            const direct = await fetchPublicPage(url, signal);
+            const fallback = direct ? htmlToText(direct.html).slice(0, LISTING_PAGE_MAX_TOKENS * 4) : '';
+            if (fallback.length < 200) throw error;
+            return { label: url, text: fallback };
+          });
           const text = page.text.replace(/&amp;/gi, '&');
           const facts = portalFacts(text, today);
           const source: AgentInput = {

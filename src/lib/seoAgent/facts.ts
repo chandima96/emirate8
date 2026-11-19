@@ -1,9 +1,8 @@
 /*
  * Fact sheets for the SEO content agent. Everything the agent may state comes from here, built only from
- * the public (already sanitised) listing and broker records. The hash of a fact sheet tells the runner
- * when stored content no longer matches the record, and tells pages not to show it.
+ * the public (already sanitised) listing and broker records. Safe to import in the browser (the listing
+ * editor checks SEO content against them); hashing and page targets are in ./targets.ts (server).
  */
-import { createHash } from 'node:crypto';
 import { areaSlug, isPublicListing, typeLabel } from '../propertySearch';
 import { TYPES } from '../../config/reference';
 
@@ -45,23 +44,6 @@ function compact(obj: Record<string, unknown>) {
   }
   return out;
 }
-
-/** Deterministic JSON (sorted keys) so the same facts always hash the same. */
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
-  if (value && typeof value === 'object')
-    return (
-      '{' +
-      Object.keys(value as object)
-        .sort()
-        .map((k) => JSON.stringify(k) + ':' + stable((value as any)[k]))
-        .join(',') +
-      '}'
-    );
-  return JSON.stringify(value);
-}
-
-export const hashFacts = (facts: Record<string, unknown>) => createHash('sha256').update(stable(facts)).digest('hex').slice(0, 32);
 
 export const propertyPath = (slug: string) => '/property/' + encodeURIComponent(slug);
 export const brokerPath = (slug: string) => '/brokers/' + encodeURIComponent(slug);
@@ -130,24 +112,6 @@ export function brokerFacts(b: any) {
     intro: clean(b.intro || b.bio, 2000),
     certifications: list((b.certifications || []).filter((c: any) => c?.verified).map((c: any) => c.label || c.name), 10),
   });
-}
-
-/** Every public property and broker page the agent writes for, with current fact hashes. */
-export function seoTargets(data: any, brokers: any[]): SeoTarget[] {
-  const byId = new Map(brokers.map((b) => [String(b.id), b]));
-  const properties = (data?.listings || [])
-    .filter((l: any) => isPublicListing(l) && (l.slug || l.id))
-    .map((l: any) => {
-      const facts = propertyFacts(l, byId);
-      return { kind: 'property' as const, path: propertyPath(l.slug || l.id), area: String(l.area || ''), facts, hash: hashFacts(facts) };
-    });
-  const profiles = brokers
-    .filter((b) => b.slug && b.type !== 'agency')
-    .map((b) => {
-      const facts = brokerFacts(b);
-      return { kind: 'broker' as const, path: brokerPath(b.slug), area: '', facts, hash: hashFacts(facts) };
-    });
-  return [...properties, ...profiles];
 }
 
 /**

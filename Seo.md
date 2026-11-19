@@ -126,17 +126,25 @@ The agent writes a title, meta description and FAQ for every public property and
 
 `claude-opus-5-5` at medium effort, with server-side refusal fallback (`fallbacks: "default"`). Change it with `SEO_AGENT_MODEL`. It uses the official `@anthropic-ai/sdk` (pinned to 1.5.0) and `ANTHROPIC_API_KEY`.
 
-### Triggers
+### Triggers (no schedule)
 
-- **Daily cron** ([vercel.json](vercel.json), 03:00 UTC) calls `GET /api/seo-agent/run`. Each run handles up to 10 pending pages within about 4 minutes.
-- A page is pending when it has no content, when its facts changed since the content was written, or when it failed more than 7 days ago. So the daily run covers new and edited listings without a save hook.
-- **By hand**: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<site>/api/seo-agent/run?limit=5"`. Add `&path=/property/<slug>` to target one page.
-- Vercel Hobby allows daily crons only. On Pro, run it hourly to pick up edits faster.
+1. **After autofill, in the listing editor.** Autofill fills the form, then the SEO agent runs on the draft (`POST /api/listing-seo`). It writes:
+   - the listing's `seo` block (SEO title, meta description, FAQ), saved with the listing and editable in **Marketing → Title & description → Search & AI visibility**;
+   - a rewritten listing **title** and **description**. An empty field is filled directly (undone with the autofill changes); text the broker already wrote waits as a suggestion in its field (**Use** / **Keep**).
+   - Charged to the broker's AI credits (`listing_seo`).
+2. **"Generate SEO" button in the listing editor** (same panel). It runs the same step on demand, for example after editing the details.
+3. **"Generate SEO" button in Payload admin**, in the sidebar of Properties, Brokers and SEO content records. It runs the agent for that public page (`POST /api/seo-agent/run`, staff session) and stores the result in SEO content. Platform-paid (`seo_content`).
+4. Scripts and backfills: `GET /api/seo-agent/run` with `Authorization: Bearer $CRON_SECRET`. The daily cron was removed.
+
+### Which content a page shows
+
+1. The listing's own `seo` (editor), while it still passes the validator against the listing's current facts. If the price or size changes, it hides until it's regenerated; the editor panel shows why.
+2. Otherwise approved SEO content from Payload admin, while its fact hash matches.
 
 ### Setup
 
 1. `npm run migrate` (creates the `seo_content` table).
-2. Set `CRON_SECRET` (and optionally `SEO_AGENT_MODEL` and `SEO_AGENT_AUTO_APPROVE`) in the deployment.
+2. Optionally set `SEO_AGENT_MODEL` and `SEO_AGENT_AUTO_APPROVE` (admin-generated content only). `CRON_SECRET` is only needed for scripted runs.
 3. Run it once by hand, review the drafts in Payload admin → SEO content, and approve the good ones.
 
 ### Not done / next

@@ -100,6 +100,13 @@ export function validateSeoDraft(draft: SeoDraft, facts: Record<string, unknown>
       [`FAQ ${i + 1} answer`, String(f?.answer || '')],
     ]),
   ];
+  errors.push(...groundingProblems(fields, facts));
+  return errors.filter(Boolean);
+}
+
+/** Numbers, claims and contact details in each text, checked against the facts. */
+function groundingProblems(fields: [string, string][], facts: Record<string, unknown>) {
+  const errors: string[] = [];
   const known = factNumbers(facts);
   const source = factText(facts);
   for (const [label, text] of fields) {
@@ -109,5 +116,27 @@ export function validateSeoDraft(draft: SeoDraft, facts: Record<string, unknown>
     for (const [re, name] of CLAIMS) if (re.test(text) && !re.test(source)) errors.push(`The ${label} mentions ${name}, which the facts do not support.`);
     if (CONTACT.test(text)) errors.push(`The ${label} contains a link, email address or phone number; leave contact details out.`);
   }
-  return errors.filter(Boolean);
+  return errors;
+}
+
+/** Editor limits for the listing's own title and description (designer-schema: max 100 / 5000). */
+export const REWRITE_LIMITS = { listingTitle: [20, 100], listingDescription: [200, 5000] } as const;
+
+export type ListingRewrite = { listingTitle: string; listingDescription: string };
+
+/** Checks the rewritten listing title and description with the same grounding rules as the SEO text. */
+export function validateListingRewrite(rewrite: ListingRewrite, facts: Record<string, unknown>): string[] {
+  const title = String(rewrite?.listingTitle || '').trim();
+  const description = String(rewrite?.listingDescription || '').trim();
+  return [
+    lengthError('The listing title', title, REWRITE_LIMITS.listingTitle),
+    lengthError('The listing description', description, REWRITE_LIMITS.listingDescription),
+    ...groundingProblems(
+      [
+        ['listing title', title],
+        ['listing description', description],
+      ],
+      facts,
+    ),
+  ].filter(Boolean);
 }

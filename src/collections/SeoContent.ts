@@ -28,6 +28,12 @@ export const SeoContent: CollectionConfig = {
     afterDelete: [invalidateCmsCache],
   },
   fields: [
+    // Payload admin button: runs the SEO content agent for this record's public page (no data stored here).
+    {
+      name: 'generateSeo',
+      type: 'ui',
+      admin: { position: 'sidebar', components: { Field: '@/components/payload/SeoGenerateButton#SeoGenerateButton' } },
+    },
     { name: 'path', type: 'text', required: true, unique: true, index: true, admin: { readOnly: true } },
     {
       name: 'kind',

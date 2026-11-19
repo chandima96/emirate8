@@ -12,6 +12,7 @@ import { listingSchema as S } from './designer-schema';
 import { editorState, validateEditorStep } from './designer-model';
 import { BuildingPicker, SourceChip } from './AutofillWidgets';
 import { qualityScore } from './listing-derive';
+import { SeoAssistant } from './SeoAssistant';
 
 const U = S.util;
 export function coordinatesFromMapLink(value) {
@@ -746,6 +747,7 @@ export function MarketingWidget({ ed, kind }) {
           Drafts a factual title and description from the details you entered, including building facts. Edit it before
           publishing.
         </p>
+        <SeoAssistant ed={ed} />
       </div>
     );
   const rows = l.highlights || [];

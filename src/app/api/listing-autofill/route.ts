@@ -5,7 +5,8 @@ import { claudeCaller } from '@/lib/server/anthropic';
 import { ListingAgentError, runListingAgent } from '@/lib/server/listingAutofillAgent';
 import type { AgentInput } from '@/lib/listingAgent';
 import { alignPriceKey, cleanListingSuggestions, rowsToSuggestions } from '@/lib/listingAutofill';
-import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite, portalFacts, dropUnsupported } from '@/lib/listingAutofillServer';
+import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite, portalFacts, dropUnsupported, LISTING_PAGE_MAX_TOKENS } from '@/lib/listingAutofillServer';
+import { extractPagePhotos, fetchPublicPage, htmlToText, largestSizes, MAX_OTHER_IMAGES, MAX_PAGE_IMAGES, MAX_PAGE_SCAN } from '@/lib/listingImagesServer';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -85,8 +86,31 @@ export async function POST(request: Request) {
     const allowPrivate = websites.length === 0;
     const warnings: string[] = [];
     const pages: { label: string; text: string }[] = [];
-    // Links are read in parallel so several of them still fit the route's time limit.
-    const fetched = await Promise.allSettled(websites.map((website) => readListingWebsite(website, apiKey, request.signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch'))));
+    // Links are read in parallel so several of them still fit the route's time limit. Each page is also
+    // requested directly: its HTML gives the photos, and its text stands in when web_fetch comes back empty
+    // (Property Finder). Photos are only offered to the user, who confirms they may use them.
+    const [fetchedByAi, direct] = await Promise.all([
+      Promise.allSettled(websites.map((website) => readListingWebsite(website, apiKey, request.signal, claudeCaller(ctx, apiKey, 'listing_autofill_fetch')))),
+      Promise.all(websites.map((website) => fetchPublicPage(website, request.signal))),
+    ]);
+    const hostOf = (website: string) => { try { return new URL(website).hostname.replace(/^www\./, ''); } catch { return website; } };
+    const fetched = fetchedByAi.map((result, n): PromiseSettledResult<{ label: string; text: string }> => {
+      if (result.status === 'fulfilled') return result;
+      const text = direct[n] ? htmlToText(direct[n].html).slice(0, LISTING_PAGE_MAX_TOKENS * 4) : '';
+      return text.length >= 200 ? { status: 'fulfilled', value: { label: `Website - ${hostOf(websites[n])}`, text } } : result;
+    });
+    const images: { url: string; source: string; other?: boolean }[] = [];
+    websites.forEach((website, n) => {
+      // Portals such as Bayut refuse the direct request, but the page text read through web_fetch still
+      // lists the gallery URLs, so both are used. A photo either one places in the listing counts as its own.
+      const fromAi = fetchedByAi[n].status === 'fulfilled' ? extractPagePhotos(fetchedByAi[n].value.text, website, MAX_PAGE_SCAN) : [];
+      const fromHtml = direct[n] ? extractPagePhotos(direct[n].html, direct[n].url, MAX_PAGE_SCAN) : [];
+      for (const photo of largestSizes([...fromAi, ...fromHtml]).sort((a, b) => Number(!!a.other) - Number(!!b.other)))
+        if (!images.some((image) => image.url === photo.url)) images.push({ ...photo, source: hostOf(website) });
+    });
+    // The listing's own photos first; images from elsewhere on the pages after them, fewer of them.
+    const own = images.filter((image) => !image.other).slice(0, MAX_PAGE_IMAGES);
+    const others = images.filter((image) => image.other).slice(0, MAX_OTHER_IMAGES);
     fetched.forEach((result, n) => {
       if (result.status === 'fulfilled') return void pages.push(result.value);
       // One unreadable link shouldn't sink the other resources.
@@ -186,7 +210,7 @@ export async function POST(request: Request) {
     const supported = cleaned.filter((source: any) => Object.keys(source.suggestions).length);
     const credits = await creditsAfter(ctx);
     if (!supported.length) return NextResponse.json({ error: 'No supported property details were found. Try another link or a clearer document, or enter the details manually.', credits }, { status: 422 });
-    return NextResponse.json({ sources: supported, warnings, credits }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ sources: supported, warnings, credits, images: [...own, ...others] }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name);
     return NextResponse.json({ error: timedOut ? 'Reading the source took too long. Try again or continue manually.' : error instanceof Error && websiteError(error.message) ? error.message : 'Could not read that source. Please try again.' }, { status: timedOut ? 504 : 400 });

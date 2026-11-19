@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { brokerFacts, hashFacts, propertyFacts, seoTargets } from '../src/lib/seoAgent/facts';
+import { brokerFacts, propertyFacts } from '../src/lib/seoAgent/facts';
+import { hashFacts, seoTargets } from '../src/lib/seoAgent/targets';
 import { factNumbers, numbersIn, validateSeoDraft, type SeoDraft } from '../src/lib/seoAgent/validate';
 
 const listing = {
@@ -76,4 +77,24 @@ test('targets cover public listings and broker profiles only', () => {
   const targets = seoTargets({ listings: [listing, { ...listing, id: 'p2', slug: 'hidden', status: 'draft' }] }, brokers);
   assert.deepEqual(targets.map((t) => t.path), ['/property/marina-2-bed', '/brokers/sara-ali']);
   assert.equal(brokerFacts(brokers[0]).reraRegistrationVerified, true);
+});
+
+test('listing rewrites follow the same grounding rules, within the editor limits', async () => {
+  const { validateListingRewrite } = await import('../src/lib/seoAgent/validate');
+  const description =
+    'A bright 2-bedroom apartment in Marina Gate 1, Dubai Marina, with 3 bathrooms and 1,250 sq ft of living space. ' +
+    'Residents have a pool and 24/7 security. The asking price is AED 2,450,000, and the home is ready to move into.';
+  assert.deepEqual(validateListingRewrite({ listingTitle: '2-bedroom apartment for sale in Marina Gate 1', listingDescription: description }, facts), []);
+  const bad = validateListingRewrite({ listingTitle: 'Best 2-bed', listingDescription: description + ' Expect an 8% yield. Call +971 50 123 4567.' }, facts).join(' ');
+  assert.match(bad, /listing title is 10 characters/);
+  assert.match(bad, /superlatives/);
+  assert.match(bad, /rental yield/);
+  assert.match(bad, /phone number/);
+});
+
+test('saved SEO stops passing once the listing it quotes changes', () => {
+  // The public page shows a listing's own SEO only while it validates against the current facts.
+  assert.deepEqual(validateSeoDraft(good, facts), []);
+  const repriced = propertyFacts({ ...listing, price: 2300000 });
+  assert.match(validateSeoDraft(good, repriced).join(' '), /2450000.*not in the facts/);
 });
