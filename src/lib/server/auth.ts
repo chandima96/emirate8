@@ -4,6 +4,7 @@ import configPromise from '@payload-config';
 import { generateExpiredPayloadCookie, generatePayloadCookie } from 'payload/shared';
 import { getPayload } from 'payload';
 import { PLAN_CATALOG } from '@/config/plans';
+import { googlePassword, ticketFromHeaders } from './proSignup';
 
 function safeMember(user: Record<string, any>) {
   const profile = user.profile && typeof user.profile === 'object' ? user.profile : {};
@@ -168,6 +169,19 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
   }
 
   try {
+    if (body.action === 'register' && body.accountType !== 'buyer') {
+      // A professional who confirmed an email first (Google or the email check) registers with that email,
+      // whatever the browser sends. A Google sign-up gets the password the Google sign-in uses.
+      const ticket = ticketFromHeaders(requestHeaders);
+      if (ticket) {
+        body.email = ticket.email;
+        const profile = isRecord(body.profile) ? body.profile : {};
+        if (ticket.provider === 'google' && ticket.sub) {
+          body.password = googlePassword(ticket.sub);
+          body.profile = { ...profile, authProvider: 'google', googleSubject: ticket.sub, emailVerified: true };
+        }
+      }
+    }
     if (body.action === 'check-registration-email' || body.action === 'register') {
       const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
       const validEmail =

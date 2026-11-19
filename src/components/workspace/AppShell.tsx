@@ -8,10 +8,11 @@ import { Icon } from '@/components/ui/Icon';
 import { WorkspacePageSkeleton } from './PageSkeletons';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { useSession } from '@/components/providers/SessionProvider';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 import { useStoreVersion } from '@/hooks/useStore';
 import { WORKSPACE_NAV, WORKSPACE_NETWORK } from '@/config/navigation';
 import { counts, fmtNumber, plan, signOut } from '@/lib/store';
-import { cx, initialsOf } from '@/lib/utils';
+import { cx } from '@/lib/utils';
 import { notificationPropertyHref } from '@/lib/notificationLinks';
 
 const SECTIONS = [
@@ -324,9 +325,7 @@ export function AppShell({ children }) {
               menuClassName="w-52"
               button={(props) => (
                 <button type="button" className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-mist" {...props}>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sage text-xs font-semibold text-ink">
-                    {initialsOf(user.name)}
-                  </span>
+                  <UserAvatar user={user} className="h-8 w-8" />
                   <span className="hidden text-left md:block">
                     <span className="block text-xs leading-tight font-semibold text-ink">{user.name}</span>
                     <span className="block text-2xs leading-tight text-muted">

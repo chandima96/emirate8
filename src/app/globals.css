@@ -1248,3 +1248,25 @@ html.is-embed .mkt-shell {
   background-color: #e4e2ff;
   color: #2f2a8a;
 }
+
+/* ---------- Register choice (login page): panes slide in towards the chosen side ---------- */
+@keyframes regPaneIn {
+  from { opacity: 0; transform: translateX(calc(var(--reg-dir, 1) * 28px)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes regItemIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.reg-pane {
+  animation: regPaneIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.reg-item {
+  animation: regItemIn 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reg-pane,
+  .reg-item {
+    animation: none;
+  }
+}
