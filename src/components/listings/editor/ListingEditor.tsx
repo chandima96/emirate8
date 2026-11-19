@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
 import { AiField as Field, AiNotice, AiReviewContext, AiStatus, type AiFieldState, type AiSuggestion } from '@/components/ui/AiAssist';
-import { AiAutofill } from '@/components/profiles/AiAutofill';
+import { AiAutofill, type AiFoundPhotos } from '@/components/profiles/AiAutofill';
+import type { AiPhoto } from './AiPhotoSuggestions';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
 import { STATUS } from '@/config/reference';
@@ -164,6 +165,9 @@ export function ListingEditor({ id = undefined }) {
   const verified = user.credentialStatus === 'verified';
   const [developerBrokers, setDeveloperBrokers] = useState([]);
   const [agencyBrokers, setAgencyBrokers] = useState<any[]>([]);
+  // Photos AI listing found (attached image files, photos on linked pages). They stay here, outside the
+  // draft, until the user picks which to add in Photos & media.
+  const [aiPhotos, setAiPhotos] = useState<AiPhoto[]>([]);
   useEffect(() => {
     if (!isDeveloper) return;
     fetch('/api/role-workspace?editorContext=1', { credentials: 'same-origin', cache: 'no-store' })
@@ -557,9 +561,28 @@ export function ListingEditor({ id = undefined }) {
     developerBrokers,
     isAgency,
     agencyBrokers,
+    aiPhotos,
+    setAiPhotos,
   };
 
-  const applyAiSuggestions = (suggestions: Record<string, any>, selected: string[], candidates?: Record<string, { value: any; sources: string[] }[]>) => {
+  const offerAiPhotos = (photos?: AiFoundPhotos) => {
+    if (!photos) return 0;
+    const found: AiPhoto[] = [
+      ...photos.files.map((file) => ({ id: 'file:' + file.name + ':' + file.size, kind: 'file' as const, file, preview: URL.createObjectURL(file), name: file.name, source: 'Your upload' })),
+      ...photos.links.map((link) => ({ id: 'link:' + link.url, kind: 'link' as const, url: link.url, preview: '/api/listing-autofill/image?url=' + encodeURIComponent(link.url), name: decodeURIComponent(link.url.split(/[?#]/)[0].split('/').pop() || 'photo').slice(0, 80), source: link.source, other: link.other })),
+    ];
+    setAiPhotos((current) => {
+      const next = current.slice();
+      for (const photo of found) {
+        if (next.some((p) => p.id === photo.id)) { if (photo.kind === 'file') URL.revokeObjectURL(photo.preview); continue; }
+        next.push(photo);
+      }
+      return next;
+    });
+    return found.length;
+  };
+  const applyAiSuggestions = (suggestions: Record<string, any>, selected: string[], candidates?: Record<string, { value: any; sources: string[] }[]>, photos?: AiFoundPhotos) => {
+    const photoCount = offerAiPhotos(photos);
     const next = clone(Lref.current);
     const data = { ...next.editor.d };
     const changes = { ...aiChanges };
@@ -665,7 +688,7 @@ export function ListingEditor({ id = undefined }) {
     setAiChanges(changes);
     setAiSuggestions((current) => ({ ...current, ...pending }));
     aiFirstStep.current = selected.length ? Math.min(...selected.map(stepOf)) : 1;
-    toast('AI suggestions are ready in the listing fields.');
+    toast(photoCount ? `AI suggestions are ready in the listing fields. ${photoCount} photo${photoCount === 1 ? '' : 's'} found — choose which to add in Photos & media.` : 'AI suggestions are ready in the listing fields.', photoCount ? { duration: 6000 } : undefined);
     // Values that differ from what's already entered wait in the fields for the user's choice.
     return { filled, missing: 0, review: Object.keys(pending).length, kept };
   };
@@ -708,6 +731,7 @@ export function ListingEditor({ id = undefined }) {
     setAiAmenChanges({});
     setAiChanges({});
     setAiSuggestions({});
+    setAiPhotos((current) => { current.forEach((p) => p.kind === 'file' && URL.revokeObjectURL(p.preview)); return []; });
     toast('AI changes undone. Your later edits have been kept.');
   };
   const aiStates: Record<string, AiFieldState> = {};
@@ -777,6 +801,7 @@ export function ListingEditor({ id = undefined }) {
     if (JSON.stringify(L.editor.amen?.[id]) === JSON.stringify(change.applied)) bump(aiFilledByStep, stepOf('amenities'));
   if (aiPlanChange && JSON.stringify(L.editor.milestones) === JSON.stringify(aiPlanChange.applied))
     bump(aiFilledByStep, stepOf('milestones'));
+  if (aiPhotos.length) bump(aiReviewByStep, stepOf('photos'));
   for (const id of Object.keys(aiSuggestions))
     bump(aiReviewByStep, stepOf(id === 'designer-community' ? 'communityId' : id.replace(/^designer-/, '')));
   const aiReview = { ran: aiRan, states: aiStates, suggestions: aiSuggestions, use: (id: string) => applyAiSuggestion(id), keep: (id: string) => setAiSuggestions((current) => { const copy = { ...current }; delete copy[id]; return copy; }), select: (id: string, value: any) => setAiSuggestions((current) => ({ ...current, [id]: { ...current[id], value } })) };
