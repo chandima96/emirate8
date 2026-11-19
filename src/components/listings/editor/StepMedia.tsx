@@ -8,6 +8,7 @@ import { Icon } from '@/components/ui/Icon';
 import { cx, fmtBytes } from '@/lib/utils';
 import { uploadMediaDataURL, uploadMediaFile } from '@/lib/mediaClient';
 import { EditorSection } from './EditorSection';
+import { AiPhotoSuggestions } from './AiPhotoSuggestions';
 import { inspectPhoto } from './photoChecks';
 import { IMAGE_TYPES, LIBRARY, MAX_PHOTOS, readImage } from './model';
 
@@ -107,7 +108,7 @@ export function StepMedia({ ed }) {
       toast(error instanceof Error ? error.message : String(error), { icon: 'exclamation-circle' });
     }
   }
-  async function addFiles(fileList: FileList) {
+  async function addFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList || []);
     setUploading((u) => u + files.length);
     const notices = [];
@@ -279,6 +280,9 @@ export function StepMedia({ ed }) {
       <div className="mt-2">
         <AiStatus id="designer-photos" value={L.photos.length > 0} />
       </div>
+      {ed.aiPhotos && (
+        <AiPhotoSuggestions photos={ed.aiPhotos} setPhotos={ed.setAiPhotos} onAdd={addFiles} slots={Math.max(0, MAX_PHOTOS - n)} />
+      )}
       <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
         <label
           className={cx('dropzone', dropActive && 'is-drag')}
