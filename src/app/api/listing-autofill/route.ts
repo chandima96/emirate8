@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/server/session';
 import { creditsAfter, startAiRequest } from '@/lib/server/aiCredits';
-import { callClaude, claudeCaller } from '@/lib/server/anthropic';
-import { alignPriceKey, cleanListingSuggestions, listingAiOutputSchema, rowsToSuggestions } from '@/lib/listingAutofill';
+import { claudeCaller } from '@/lib/server/anthropic';
+import { ListingAgentError, runListingAgent } from '@/lib/server/listingAutofillAgent';
+import type { AgentInput } from '@/lib/listingAgent';
+import { alignPriceKey, cleanListingSuggestions, rowsToSuggestions } from '@/lib/listingAutofill';
 import { pageClassification, explicitlyReadyForOccupancy, extractionPrompt, readListingWebsite, portalFacts, dropUnsupported } from '@/lib/listingAutofillServer';
 
 export const runtime = 'nodejs';
@@ -17,7 +19,9 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 22 * 1024 * 1024;
 const MAX_TEXT_CHARS = 60_000;
 const MAX_OUTPUT_TOKENS = 32_000;
-const EXTRACT_TIMEOUT_MS = 180_000;
+// The whole agent loop (extra turns and up to 2 linked pages at ≤45 s each). With the initial page
+// fetches (≤45 s, in parallel) it stays inside maxDuration.
+const EXTRACT_TIMEOUT_MS = 220_000;
 
 function websiteError(message: string) {
   return /^(Enter a valid public property|Use a public http|The website could not be read|Website assistance is busy|There was not enough readable property)/.test(message);
@@ -92,8 +96,7 @@ export async function POST(request: Request) {
     const today = new Date().toISOString().slice(0, 10);
     // Every source gets a unique label. The output schema only accepts these labels, so each answer can be
     // traced back to its source and checked against that source's text.
-    type Input = { label: string; blocks: any[]; text: string | null; page: boolean };
-    const inputs: Input[] = [];
+    const inputs: AgentInput[] = [];
     const labelFor = (raw: string) => {
       const base = raw.trim().slice(0, 150) || 'Document';
       let label = base;
@@ -121,39 +124,24 @@ export async function POST(request: Request) {
       });
     }
     if (!inputs.length) return NextResponse.json({ error: 'None of those resources could be read.' }, { status: 422 });
-    const { response, payload: result } = await callClaude({
-      ctx,
-      feature: 'listing_autofill_extract',
-      apiKey,
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(EXTRACT_TIMEOUT_MS)]),
-      body: {
-        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
-        // Full descriptions for several sources are long; a cut-off answer can't be parsed.
-        max_tokens: MAX_OUTPUT_TOKENS,
-        // The prompt is identical for every request of the same kind, so it is cached.
-        system: [{ type: 'text', text: extractionPrompt(allowPrivate), cache_control: { type: 'ephemeral' } }],
-        messages: [{
-          role: 'user',
-          content: [
-            ...inputs.flatMap((input) => [{ type: 'text', text: `Source: ${input.label}` }, ...input.blocks]),
-            { type: 'text', text: `Today is ${today}. Answer for each source: ${inputs.map((input) => JSON.stringify(input.label)).join(', ')}.` },
-          ],
-        }],
-        // Structured outputs: the reply always matches this schema, so it always parses.
-        output_config: { format: { type: 'json_schema', schema: listingAiOutputSchema(allowPrivate, inputs.map((input) => input.label)) } },
-      },
-    });
-    if (!response.ok) {
-      console.error('[listing-autofill] Provider request failed:', response.status, result?.error?.type, result?.error?.message?.slice?.(0, 300));
-      return NextResponse.json({ error: response.status === 429 ? 'Document assistance is busy. Please try again shortly.' : 'The documents could not be analyzed. Try a clearer or smaller document.' }, { status: response.status === 429 ? 429 : 502 });
+    let parsed: any;
+    try {
+      // The agent may read pages linked from the sources; they are appended to `inputs` as sources.
+      ({ parsed } = await runListingAgent({
+        ctx,
+        apiKey,
+        inputs,
+        allowPrivate,
+        today,
+        labelFor,
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(EXTRACT_TIMEOUT_MS)]),
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+        systemPrompt: extractionPrompt(allowPrivate),
+      }));
+    } catch (error) {
+      if (!(error instanceof ListingAgentError)) throw error;
+      return NextResponse.json({ error: error.message }, { status: error.kind === 'busy' ? 429 : 502 });
     }
-    // A cut-off or declined answer may not match the schema.
-    if (result.stop_reason === 'max_tokens' || result.stop_reason === 'refusal') {
-      console.error('[listing-autofill] Incomplete answer:', result.stop_reason);
-      return NextResponse.json({ error: 'The documents could not be fully analyzed. Try fewer or smaller documents at a time.' }, { status: 502 });
-    }
-    const text = (result.content || []).filter((block: any) => block.type === 'text').map((block: any) => block.text).join('').trim();
-    const parsed = JSON.parse(text);
     const cleaned: { label: string; suggestions: Record<string, any> }[] = [];
     // Values a source contradicts itself on become extra candidates, so the form asks the user to choose
     // between them instead of silently keeping one (the same review used when two documents differ).
@@ -168,7 +156,8 @@ export async function POST(request: Request) {
         const removed = dropUnsupported(raw, evidence, input.text);
         if (removed.length) console.info(`[listing-autofill] dropped ${removed.length} answer(s) without evidence in the source: ${removed.join(', ')}`);
       }
-      const suggestions = cleanListingSuggestions(raw, { allowPrivate });
+      // A page the agent opened is a public page: private fields never come from it.
+      const suggestions = cleanListingSuggestions(raw, { allowPrivate: allowPrivate && !input.linked });
       // A map link counts only when it is literally in a text source.
       if (suggestions.mapLocation && !(input.text ?? '').includes(suggestions.mapLocation)) delete suggestions.mapLocation;
       if (input.page && input.text) applyPortalFacts(suggestions, input.text, today);

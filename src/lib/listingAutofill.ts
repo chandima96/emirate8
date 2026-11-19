@@ -248,6 +248,8 @@ const VALUE_SCHEMA = {
   ],
 };
 
+/** `labels` restricts the source labels; pass [] to allow any string (the autofill agent checks labels
+ * itself, so its tool schema stays the same across requests and the prompt prefix stays cached). */
 export function listingAiOutputSchema(includePrivate: boolean, labels: string[]) {
   const key = { type: 'string', enum: listingAiKeys(includePrivate) };
   return {
@@ -258,7 +260,7 @@ export function listingAiOutputSchema(includePrivate: boolean, labels: string[])
         items: {
           type: 'object', additionalProperties: false, required: ['label', 'fields', 'conflicts'],
           properties: {
-            label: { type: 'string', enum: labels },
+            label: labels.length ? { type: 'string', enum: labels } : { type: 'string' },
             fields: {
               type: 'array',
               items: {

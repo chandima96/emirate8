@@ -13,6 +13,8 @@ const PRIVATE = [
   '/register',
   '/saved',
   '/brokers/me',
+  // Internal crawler copy of /property/<slug> (reached by rewrite, never linked).
+  '/property-html/',
 ];
 
 /*

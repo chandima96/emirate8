@@ -38,8 +38,8 @@ File: [src/app/(portal)/property/[slug]/page.tsx](src/app/(portal)/property/[slu
 - [x] `alternates.canonical`
 - [x] `openGraph` (title, description, URL, main image) and `twitter` card
 - [x] A clean description: trimmed to about 155 characters, with no HTML
-- [ ] `robots: { index: false }` once a listing is sold, rented or expired (or return 410)
-  - Removed listings already render the not-found page with `noindex`, but with HTTP 200, because the route's `loading.tsx` streams first. A true 404 needs that skeleton removed or a slug check in Proxy.
+- [x] `robots: { index: false }` once a listing is sold, rented or expired (or return 410)
+  - Crawlers get a real 404: their requests for `/property/<slug>` are rewritten to `/property-html/<slug>` (same page without `loading.tsx`), so `notFound()` runs before anything streams. Browsers keep the loading skeleton and get the not-found page with `noindex`.
 - [x] Use the broker page's `generateMetadata` as the pattern
 
 ### 1.3 Structured data (JSON-LD)
@@ -85,79 +85,104 @@ File: [src/app/(portal)/property/[slug]/page.tsx](src/app/(portal)/property/[slu
 
 ## Part 2: SEO content agent
 
-This agent writes and maintains the content on the pages. Crawlability is handled by Part 1.
+Status: built. Needs the `seo_content` migration and `CRON_SECRET` before it runs (see "Setup").
 
-### Triggers
+The agent writes a title, meta description and FAQ for every public property and broker page. It writes only from the record's public facts, and its content goes live only after review.
 
-- When a listing or broker profile is saved: a Payload `afterChange` hook queues a job (it never runs inside the request)
-- Nightly: works through anything missing, stale or flagged
+### How it works
+
+1. **Fact sheet** ([src/lib/seoAgent/facts.ts](src/lib/seoAgent/facts.ts)): built from the same public data the pages show. Volatile fields (dates, listing counts) are left out, and the sheet is hashed.
+2. **Agent loop** ([src/lib/server/seoAgent/agent.ts](src/lib/server/seoAgent/agent.ts)): Claude reads the fact sheet and can call tools. It has at most 6 turns.
+3. **Validator** ([src/lib/seoAgent/validate.ts](src/lib/seoAgent/validate.ts)): every save is checked. Errors go back to Claude so it can fix the draft, which is why this is a loop and not a single call.
+4. **Storage**: the `seo-content` collection in Payload admin (Platform group). A new draft waits for review.
+5. **Pages**: show the content only when it is **approved** and its hash still matches the record's current facts. Editing a listing hides the old content until new content is approved.
 
 ### Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `get_listing` / `get_broker` | Read the CMS record |
-| `get_area_facts` | Community and area facts, from our own data only |
-| `check_page` | Fetch the page as served; check title, description, canonical and JSON-LD |
-| `save_seo_fields` | Write the generated fields back to the record |
+| `get_area_facts` | Qualitative area context (common types, sale/rent, off-plan). No counts or prices, which change daily. |
+| `check_page` | Fetches the live page and reports title, description, canonical, H1, structured data types, photo and word counts |
+| `save_seo_content` | Validates and saves; returns the problems to fix if it fails |
 
 ### Output per page
 
-- SEO title and meta description
-- FAQ block (3–5 questions), also output as `FAQPage` JSON-LD
-- Short neighbourhood summary
-- Alt text for images
-- A list of problems it found (missing price, thin description, broken image, and so on)
+- [x] SEO title and meta description (used in `generateMetadata` once approved)
+- [x] FAQ block (3–5 questions), visible on the page and as `FAQPage` JSON-LD
+- [x] Issues found (missing price, thin description, page problems), stored for admins only
+- [ ] ~~Short neighbourhood summary~~: dropped. Area figures change daily, so per-listing text would go stale. The Part 1 landing pages already give exact, current area figures.
+- [ ] ~~Alt text for images~~: dropped. The agent doesn't see the photos, so it would be guessing. Card alt text comes from the title and captions (Part 1). Writing alt text from the photos would need image input for every photo.
 
-### Rules
+### Rules (enforced by the validator, not just the prompt)
 
-- It may only state facts that are in the listing or broker record. No invented prices, permits, handover dates or yields.
-- A human or a validation step reviews its output before it goes live, at least at first.
-- Usage is charged through `callClaude` in [src/lib/server/anthropic.ts](src/lib/server/anthropic.ts).
+- [x] Only numbers that appear in the facts, in any format (2,450,000 / 2.45M / two).
+- [x] No yields, returns, appreciation, guarantees, mortgage or visa claims, superlatives or market comparisons, unless the record says so.
+- [x] No links, emails or UAE phone numbers.
+- [x] Length limits for title (20–60), description (70–160) and FAQ (3–5 entries).
+- [x] Human review by default; `SEO_AGENT_AUTO_APPROVE=true` publishes validated content directly.
+- [x] Usage logged in `ai-usage` as `seo_content` with no member, so no one's AI credits are charged.
 
-### How to run it
+### Model
 
-- Nightly bulk runs: the Message Batches API (half the cost; results arrive within hours)
-- Alternative: a Managed Agents scheduled deployment. Anthropic hosts it and runs it on a cron schedule; it's in beta and bills session time on top of tokens.
+`claude-opus-5-5` at medium effort, with server-side refusal fallback (`fallbacks: "default"`). Change it with `SEO_AGENT_MODEL`. It uses the official `@anthropic-ai/sdk` (pinned to 1.5.0) and `ANTHROPIC_API_KEY`.
+
+### Triggers
+
+- **Daily cron** ([vercel.json](vercel.json), 03:00 UTC) calls `GET /api/seo-agent/run`. Each run handles up to 10 pending pages within about 4 minutes.
+- A page is pending when it has no content, when its facts changed since the content was written, or when it failed more than 7 days ago. So the daily run covers new and edited listings without a save hook.
+- **By hand**: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<site>/api/seo-agent/run?limit=5"`. Add `&path=/property/<slug>` to target one page.
+- Vercel Hobby allows daily crons only. On Pro, run it hourly to pick up edits faster.
+
+### Setup
+
+1. `npm run migrate` (creates the `seo_content` table).
+2. Set `CRON_SECRET` (and optionally `SEO_AGENT_MODEL` and `SEO_AGENT_AUTO_APPROVE`) in the deployment.
+3. Run it once by hand, review the drafts in Payload admin → SEO content, and approve the good ones.
+
+### Not done / next
+
+- [ ] Message Batches for a large first backfill (half price, but results take up to 24 hours and batches can't run tool loops)
+- [ ] An admin "regenerate" button (the `?path=` parameter covers this for now)
 
 ---
 
 ## Part 3: Listing autofill agent
 
-Today [src/app/api/listing-autofill/route.ts](src/app/api/listing-autofill/route.ts) is a fixed pipeline: fetch sources → extract → `applyPortalFacts` → `dropUnsupported`. An agent helps where the next step depends on what it finds.
+Status: built. Not yet tested against the live API (see "Testing").
+
+[src/app/api/listing-autofill/route.ts](src/app/api/listing-autofill/route.ts) used to make one extraction call. It now runs a short tool loop ([src/lib/server/listingAutofillAgent.ts](src/lib/server/listingAutofillAgent.ts), up to 5 turns). The response format and the editor UI are unchanged, and all the existing post-processing still runs on the result (`dropUnsupported`, `cleanListingSuggestions`, portal facts, conflicts → alternatives).
+
+In the common case the model submits on its first turn, so a request costs about what the single call did. The sources are prompt-cached, so the extra turns re-read them at a tenth of the price.
 
 ### What the agent adds
 
-- Follows useful links (developer project page, floor plan, brochure)
-- Compares sources that disagree and picks the best-supported value
-- Matches the listing to an existing project, community or developer in the CMS
-- Asks the user for a missing required field instead of guessing
+- [x] Follows useful links (developer project page, floor plan, brochure), at most 2 per request
+- [x] Matches the building or community to the Emirate08 catalogue, for spelling only
+- [x] Fixes its own evidence: answers the evidence check would drop go back to the model once, so it can quote the source exactly instead of losing a correct value
+- [x] Compares sources that disagree: unchanged, and still the strongest part (each source answered separately, conflicts reviewed by the user)
+- [x] Asks the user for a missing field instead of guessing: already how it works. The rule "answer only what the source states" stays, and the editor marks missing required fields as **Needs Your Input**. No new UI needed.
 
 ### Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `read_website` | Existing `readListingWebsite` |
-| `read_document` | Uploaded PDFs, images and text |
-| `portal_facts` | Existing `portalFacts` / `pageClassification` |
-| `find_project_in_cms` | Match against projects, communities and developers |
-| `suggest_photos` | Existing photo suggestions (`AiPhotoSuggestions`) |
-| `submit_listing` | Final answer, using a strict schema (`listingAiOutputSchema`) |
+| `read_linked_page` | Reads a link through the existing `readListingWebsite`. Only exact URLs written in a text source, so a prompt-injected page can't make it build an exfiltration URL. |
+| `find_building` | `searchCatalogue` over the existing building catalogue ([src/lib/server/listingCatalogueData.ts](src/lib/server/listingCatalogueData.ts)). Never counts as evidence. |
+| `submit_listing` | The existing schema (`listingAiOutputSchema`) as a strict tool. Runs the evidence check and label check before accepting. |
+| ~~`read_document`~~, ~~`portal_facts`~~ | Not tools: documents and portal facts are already in the first message. |
+| ~~`suggest_photos`~~ | Dropped: the photo-suggestion code is no longer in the repo. |
 
 ### Rules
 
-- The tool loop runs in our own route and calls through `callClaude`, so AI credits are still charged.
-- Cap the turns and the time (the route's `maxDuration` is 300 s); stream progress to the editor.
-- **Keep the existing checks.** `applyPortalFacts` and `dropUnsupported` still run on the final output in code. They are what keep it accurate.
-- Every value keeps its source label so the editor can show where it came from.
-- Private identifiers are still only read from user uploads, never from public pages.
+- Linked pages are public pages: private fields (unit no., permit, agreement terms) are never taken from them, even when the user also uploaded private documents.
+- Every call is charged to the member's AI credits (`listing_autofill_extract`; page reads as `listing_autofill_fetch`), as before.
+- The model stays `ANTHROPIC_MODEL` (currently `claude-haiku-4-5-20251001`).
+- The agent loop's timeout went from 180 s to 220 s, still inside the route's 300 s limit.
 
-### Model
+### Testing
 
-- The current default is `claude-haiku-4-5` (2025). If we upgrade to a current model, test it on real listings first.
-- Newer models reject a forced `tool_choice` (`any`/`tool`). Use `auto` with a strict tool schema, or structured outputs.
-
----
+- [x] Unit tests: link allow-list, evidence feedback and the label-free schema ([tests/listing-agent.test.ts](tests/listing-agent.test.ts))
+- [ ] Live run with a demo broker account: pasted text, a portal link and a PDF
 
 ## Order of work
 
