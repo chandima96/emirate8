@@ -5,8 +5,9 @@ import { getBroker, getProperties } from '@/lib/cms';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { DEFAULT_BROKER_COVER, listJoin, profileExtras } from '@/lib/brokerProfile';
 
+import { SITE_URL as SITE } from '@/lib/siteUrl';
+
 const loading = <BrokerPortfolioSkeleton />;
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.emirate8.com').replace(/\/$/, '');
 
 function decodeSlug(value: string) {
   try {

@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload';
 import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
+import { indexNowProperty, indexNowPropertyDelete } from '@/lib/server/indexNow';
 import { notifyDeveloperSubscribers } from '@/lib/server/propertyNotifications';
 
 export const Properties: CollectionConfig = {
@@ -13,8 +14,8 @@ export const Properties: CollectionConfig = {
     read: () => true,
   },
   hooks: {
-    afterChange: [invalidateCmsCache, notifyDeveloperSubscribers],
-    afterDelete: [invalidateCmsCache],
+    afterChange: [invalidateCmsCache, notifyDeveloperSubscribers, indexNowProperty],
+    afterDelete: [invalidateCmsCache, indexNowPropertyDelete],
   },
   fields: [
     // ── Core ─────────────────────────────────────────────────

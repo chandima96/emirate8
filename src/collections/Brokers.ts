@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload';
 import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
+import { indexNowBroker } from '@/lib/server/indexNow';
 
 export const Brokers: CollectionConfig = {
   slug: 'brokers',
@@ -11,7 +12,7 @@ export const Brokers: CollectionConfig = {
     read: () => true,
   },
   hooks: {
-    afterChange: [invalidateCmsCache],
+    afterChange: [invalidateCmsCache, indexNowBroker],
     afterDelete: [invalidateCmsCache],
   },
   fields: [

@@ -228,6 +228,75 @@ export const getDeveloper = nextCache(
   { tags: ['cms'], revalidate: REVALIDATE },
 );
 
+// ── Sitemap ───────────────────────────────────────────────────────────────────
+
+/** Properties per sitemap file (the protocol allows 50,000; smaller files are quicker to build and fetch). */
+export const SITEMAP_CHUNK = 5000;
+
+const PUBLISHED_PROPERTY = {
+  and: [{ status: { equals: 'published' } }, { 'display.visible': { not_equals: false } }],
+};
+
+/** Number of property sitemap files needed. */
+export const getPropertySitemapCount = nextCache(
+  async () => {
+    try {
+      const payload = await getPayloadClient();
+      const { totalDocs } = await payload.count({ collection: 'properties', where: PUBLISHED_PROPERTY as any });
+      return Math.max(1, Math.ceil(totalDocs / SITEMAP_CHUNK));
+    } catch (err) {
+      console.error('[cms] getPropertySitemapCount error:', err);
+      return 1;
+    }
+  },
+  ['cms-sitemap-property-count'],
+  { tags: ['cms'], revalidate: REVALIDATE },
+);
+
+/** One sitemap file's worth of public property URLs (`page` is 1-based), same visibility rules as getProperties. */
+export const getPropertySitemapPage = nextCache(
+  async (page: number) => {
+    try {
+      const payload = await getPayloadClient();
+      const { docs } = await payload.find({
+        collection: 'properties',
+        where: PUBLISHED_PROPERTY as any,
+        sort: 'createdAt',
+        limit: SITEMAP_CHUNK,
+        page,
+        depth: 0,
+      });
+      return (docs as any[])
+        .map((property) => ({ ...property, ...(property?.appData || {}), updatedAt: property.updatedAt }))
+        .filter((p) => p.slug && p.isPublic !== false && p.searchable !== false)
+        .map((p) => ({ slug: String(p.slug), updatedAt: p.updatedAt as string | undefined }));
+    } catch (err) {
+      console.error('[cms] getPropertySitemapPage error:', err);
+      return [];
+    }
+  },
+  ['cms-sitemap-properties'],
+  { tags: ['cms'], revalidate: REVALIDATE },
+);
+
+/** Every public, searchable broker profile URL (getBrokers stops at 200). */
+export const getBrokerSitemap = nextCache(
+  async () => {
+    try {
+      const payload = await getPayloadClient();
+      const { docs } = await payload.find({ collection: 'brokers', limit: 0, pagination: false, depth: 0 });
+      return (docs as any[])
+        .filter((b) => b.slug && b.appData?.isPublic !== false && b.appData?.searchable !== false)
+        .map((b) => ({ slug: String(b.slug), updatedAt: b.updatedAt as string | undefined }));
+    } catch (err) {
+      console.error('[cms] getBrokerSitemap error:', err);
+      return [];
+    }
+  },
+  ['cms-sitemap-brokers'],
+  { tags: ['cms'], revalidate: REVALIDATE },
+);
+
 // ── Plans ─────────────────────────────────────────────────────────────────────
 
 export const getPlans = nextCache(

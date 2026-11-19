@@ -3,6 +3,7 @@ import { PropertyDetail } from '@/components/property/PropertyDetail';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { getProperty } from '@/lib/cms';
 import { listingJsonLd } from '@/lib/listingJsonLd';
+import { SITE_NAME, absoluteUrl, jsonLdScript, metaDescription } from '@/lib/siteUrl';
 
 function decodeSlug(value: string) {
   try {
@@ -62,11 +63,26 @@ export async function generateMetadata({ params }) {
   }
   const location = [property.community, property.area, property.emirate].filter(Boolean).join(', ');
   const purpose = property.purpose === 'rent' ? 'for rent' : 'for sale';
-  return {
-    title: `${property.title} ${purpose} in ${location || 'the UAE'}`,
-    description:
-      property.description ||
+  const title = `${property.title} ${purpose} in ${location || 'the UAE'}`;
+  const description = metaDescription(
+    property.description ||
       `${property.type || 'Property'} ${purpose} in ${location || 'the UAE'}. View photos, price, key facts, amenities and the listing broker on Emirate08.`,
+  );
+  const url = absoluteUrl('/property/' + encodeURIComponent(property.slug || slug));
+  // Photos as the page shows them (the raw record keeps them elsewhere). Data URLs can't be fetched by
+  // crawlers or link previews.
+  const listing = listingFromProperty(property);
+  const images = [...new Set([listing.featured, ...(listing.images || [])].map((src: any) => (typeof src === 'string' ? src : src?.src || '')))]
+    .filter((src: string) => src && !/^data:/.test(src))
+    .slice(0, 4)
+    .map(absoluteUrl);
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    robots: { index: true, follow: true, 'max-image-preview': 'large' },
+    openGraph: { type: 'website', siteName: SITE_NAME, title, description, url, ...(images.length ? { images } : {}) },
+    twitter: { card: images.length ? 'summary_large_image' : 'summary', title, description, ...(images.length ? { images } : {}) },
   };
 }
 
@@ -78,8 +94,7 @@ export default async function PropertyPage({ params }) {
   const listing = listingFromProperty(property);
   listing.broker = brokerFromProperty(property);
 
-  // Escape < so listing text can never close the script tag.
-  const jsonld = JSON.stringify(listingJsonLd(listing)).replace(/</g, '\\u003c');
+  const jsonld = jsonLdScript(listingJsonLd(listing));
   return (
     <div className="wrap py-5 sm:py-6">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonld }} />

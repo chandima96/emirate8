@@ -4,6 +4,7 @@ import './globals.css';
 import { SessionProvider } from '@/components/providers/SessionProvider';
 import { FeedbackProvider } from '@/components/providers/FeedbackProvider';
 import { EnquiryProvider } from '@/components/providers/EnquiryProvider';
+import { SITE_NAME, SITE_URL, jsonLdScript } from '@/lib/siteUrl';
 
 const instrument = localFont({
   src: '../fonts/instrument-sans-latin-wght-normal.woff2',
@@ -26,13 +27,45 @@ const fraunces = localFont({
 });
 
 export const metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'Emirate08 — Dubai properties from independent brokers',
     template: '%s · Emirate08',
   },
   description:
     'Search Dubai properties for sale and rent, browse broker portfolios and contact licensed independent brokers.',
+  // Search console ownership tags, set per environment.
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+    ...(process.env.BING_SITE_VERIFICATION ? { other: { 'msvalidate.01': process.env.BING_SITE_VERIFICATION } } : {}),
+  },
 };
+
+/** Site-wide structured data: who publishes the site, and how to search it. */
+export const SITE_JSON_LD = jsonLdScript({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': SITE_URL + '/#organization',
+      name: SITE_NAME,
+      url: SITE_URL + '/',
+      logo: SITE_URL + '/icon.svg',
+    },
+    {
+      '@type': 'WebSite',
+      '@id': SITE_URL + '/#website',
+      name: SITE_NAME,
+      url: SITE_URL + '/',
+      publisher: { '@id': SITE_URL + '/#organization' },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: SITE_URL + '/properties?q={search_term_string}' },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+  ],
+});
 
 export const viewport = { themeColor: '#142326' };
 
