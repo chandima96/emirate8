@@ -8,6 +8,7 @@ import { useSession } from '@/components/providers/SessionProvider';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { login, role } from '@/lib/store';
 import { cx } from '@/lib/utils';
+import { RegisterChoiceModal } from './RegisterChoiceModal';
 import { PasswordInput, FieldError, errProps, SignedInNote, afterSignIn } from './authShared';
 
 export function LoginForm() {
@@ -21,6 +22,7 @@ export function LoginForm() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(!!next);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const loginRef = useRef(null);
   const passRef = useRef(null);
   const submitRef = useRef(null);
@@ -87,9 +89,9 @@ export function LoginForm() {
           <Wordmark />
           <p className="text-[13px] text-muted">
             New to Emirate08?{' '}
-            <Link href="/register" className="link">
+            <button type="button" className="link" onClick={() => setRegisterOpen(true)}>
               Create account
-            </Link>
+            </button>
           </p>
         </div>
         <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center px-5 py-10 sm:px-0">
@@ -167,9 +169,10 @@ export function LoginForm() {
             or
             <span className="h-px flex-1 bg-line" />
           </div>
-          <Link href="/register" className="btn btn-outline btn-lg mt-6 w-full">
+          <button type="button" className="btn btn-outline btn-lg mt-6 w-full" onClick={() => setRegisterOpen(true)}>
             Create Account
-          </Link>
+          </button>
+          <RegisterChoiceModal open={registerOpen} onClose={() => setRegisterOpen(false)} next={next || ''} />
         </div>
         <p className="px-5 pb-6 text-center text-2xs text-muted sm:px-8">
           Passwords are securely managed by the account service and never stored as plain text.{' '}

@@ -8,7 +8,7 @@ import { register } from '@/lib/store';
 import { RX, cx, passwordScore } from '@/lib/utils';
 import { FieldError, PasswordInput, errProps } from './authShared';
 
-export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCancel = undefined }) {
+export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCancel = undefined, onSignIn = undefined }) {
   const router = useRouter();
   const query = useSearchParams();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -116,7 +116,7 @@ export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCanc
           {busy ? <><Icon name="arrow-repeat" className="h-4 w-4 animate-spin" /> Creating account…</> : <>Create buyer account <Icon name="arrow-right" className="h-4 w-4" /></>}
         </button>
       </form>
-      <p className="mt-5 text-center text-sm text-muted">Already registered? <Link className="link" href="/login">Sign in</Link></p>
+      <p className="mt-5 text-center text-sm text-muted">Already registered? {onSignIn ? <button type="button" className="link" onClick={onSignIn}>Sign in</button> : <Link className="link" href="/login">Sign in</Link>}</p>
     </div>
   );
 }

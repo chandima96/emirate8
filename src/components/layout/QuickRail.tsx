@@ -22,12 +22,13 @@ const ACTIVE = {
 
 /** Left shortcut rail — only for signed-in users (buyer or broker). Guests get a full-width layout. */
 export function QuickRail() {
-  const { ready, role } = useSession();
+  // The rail appears as soon as the account is known; its counts fill in once the store has loaded.
+  const { ready, accountKnown, accountRole: role } = useSession();
   const pathname = usePathname();
   useStoreVersion();
-  if (!ready || role === 'guest') return null;
+  if (!accountKnown || role === 'guest') return null;
   const items = role === 'buyer' ? RAIL_BUYER : RAIL_BROKER;
-  const counts = {
+  const counts = !ready ? {} : {
     saved: read('saved', []).length,
     enquiries: enquiries().length,
     inbox: role === 'broker' ? inbox().filter((q) => q.status !== 'replied').length : 0,

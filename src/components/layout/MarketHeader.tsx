@@ -7,10 +7,9 @@ import { Icon } from '@/components/ui/Icon';
 import { Wordmark } from './Wordmark';
 import { MEGA, LEFT_MENUS, RAIL_BUYER, RAIL_BROKER } from '@/config/navigation';
 import { useSession } from '@/components/providers/SessionProvider';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 import { signOut } from '@/lib/store';
-import { initialsOf, cx } from '@/lib/utils';
-import { AuthChoiceModal } from '@/components/auth/AuthChoiceModal';
-import { BuyerSignupModal } from '@/components/auth/BuyerSignupModal';
+import { cx } from '@/lib/utils';
 
 function MegaPanel({ id, onKeyDown }) {
   const m = MEGA[id];
@@ -81,9 +80,7 @@ function AccountMenu({ user, role }) {
         aria-label="Account menu"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sage text-xs font-semibold text-ink">
-          {user.type === 'agency' ? <Icon name="building" className="h-4 w-4" /> : initialsOf(user.name)}
-        </span>
+        <UserAvatar user={user} className="h-9 w-9" />
         <Icon name="chevron-down" className="hidden h-3.5 w-3.5 text-muted sm:inline-flex" />
       </button>
       {open && (
@@ -132,7 +129,7 @@ function AccountMenu({ user, role }) {
   );
 }
 
-function MobileMenu({ open, onClose, user, role, onSignIn }) {
+function MobileMenu({ open, onClose, user, role }) {
   const [expanded, setExpanded] = useState(null);
   const panelRef = useRef(null);
   const router = useRouter();
@@ -239,9 +236,9 @@ function MobileMenu({ open, onClose, user, role, onSignIn }) {
         <div className="grid shrink-0 gap-2 border-t border-line p-5">
           {!user ? (
             <>
-              <button type="button" className="btn btn-dark btn-lg w-full" onClick={() => { onClose(); onSignIn?.(); }}>
+              <Link href="/login" className="btn btn-dark btn-lg w-full" onClick={onClose}>
                 Sign In
-              </button>
+              </Link>
               <Link href="/register" className="btn btn-outline btn-lg w-full" onClick={onClose}>
                 Create an account
               </Link>
@@ -276,13 +273,10 @@ function MobileMenu({ open, onClose, user, role, onSignIn }) {
 
 /** Marketplace header: mega menu (hover, click, keyboard), centred logo, account menu and mobile accordion drawer. */
 export function MarketHeader() {
-  const { user, role, ready } = useSession();
+  const { account, accountRole, accountKnown } = useSession();
   const pathname = usePathname();
-  const router = useRouter();
   const [current, setCurrent] = useState(null);
   const [mobile, setMobile] = useState(false);
-  const [authChoiceOpen, setAuthChoiceOpen] = useState(false);
-  const [buyerSignupOpen, setBuyerSignupOpen] = useState(false);
   const headerRef = useRef(null);
   const timers = useRef<{ close?: ReturnType<typeof setTimeout>; hover?: ReturnType<typeof setTimeout> }>({});
   const canHover = useRef(false);
@@ -352,15 +346,6 @@ export function MarketHeader() {
     </button>
   );
   const closeMobile = useCallback(() => setMobile(false), []);
-  const openAuthChoice = useCallback(() => setAuthChoiceOpen(true), []);
-  const openBuyerSignup = useCallback(() => {
-    setAuthChoiceOpen(false);
-    setBuyerSignupOpen(true);
-  }, []);
-  const openProfessionalLogin = useCallback(() => {
-    setAuthChoiceOpen(false);
-    router.push('/login');
-  }, [router]);
   const plainHover = () => canHover.current && close(false);
   const panelKeys = (e) => {
     if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return;
@@ -414,21 +399,21 @@ export function MarketHeader() {
                 Help
               </Link>
             </div>
-            {ready && user ? (
-              <AccountMenu user={user} role={role} />
+            {!accountKnown ? (
+              <span className="ml-2 h-9 w-[76px] animate-pulse rounded-full bg-mist" aria-hidden="true" />
+            ) : account ? (
+              <AccountMenu user={account} role={accountRole} />
             ) : (
-              <button type="button" className="btn btn-dark btn-sm ml-2 h-9" onClick={openAuthChoice}>
+              <Link href="/login" className="btn btn-dark btn-sm ml-2 h-9">
                 Sign In
-              </button>
+              </Link>
             )}
           </div>
         </div>
         <div className="mega-wrap">{current && <MegaPanel id={current} onKeyDown={panelKeys} />}</div>
       </header>
       {current && <div className="mega-scrim" onClick={() => close(false)} />}
-      <MobileMenu open={mobile} onClose={closeMobile} onSignIn={openAuthChoice} user={ready ? user : null} role={role} />
-      <AuthChoiceModal open={authChoiceOpen} onClose={() => setAuthChoiceOpen(false)} onBuyer={openBuyerSignup} onProfessional={openProfessionalLogin} />
-      <BuyerSignupModal open={buyerSignupOpen} onOpenChange={setBuyerSignupOpen} />
+      <MobileMenu open={mobile} onClose={closeMobile} user={account} role={accountRole} />
     </>
   );
 }

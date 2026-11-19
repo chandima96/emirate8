@@ -193,22 +193,46 @@ async function activateUser(user) {
   }
 }
 
+let sessionRequest: Promise<any> | null = null;
+/**
+ * The signed-in member alone, without the public catalogue or workspace data. It answers quickly, so the
+ * header can show the account before the rest of the store has loaded. Shared with ensureSeed.
+ */
+export function loadSessionUser(): Promise<any> {
+  if (!sessionRequest) {
+    sessionRequest = fetch('/api/app-session', { credentials: 'same-origin', cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error('Could not load your account session.');
+        return response.json();
+      })
+      .then((result) => result?.user || null)
+      .catch((error) => {
+        sessionRequest = null;
+        throw error;
+      });
+  }
+  return sessionRequest;
+}
+
+/** The member's profile photo (an agency's logo), or '' when none is set. */
+export function userPhoto(u): string {
+  if (!u) return '';
+  const src = u.portfolio?.photo || u.photo || u.logo || '';
+  return typeof src === 'string' ? mediaDisplayURL(src) : '';
+}
+
 export function ensureSeed() {
   if (seeding) return seeding;
   seeding = (async () => {
     setAuthenticated(false);
-    const [publicData, sessionResponse] = await Promise.all([
-      refreshPublicData(),
-      fetch('/api/app-session', { credentials: 'same-origin', cache: 'no-store' }),
-    ]);
+    const [publicData, sessionUser] = await Promise.all([refreshPublicData(), loadSessionUser()]);
     lastPublicRefreshAt = Date.now();
-    if (!sessionResponse.ok) throw new Error('Could not load your account session.');
     applyPublicData(publicData);
-    const result = await sessionResponse.json();
-    if (result.user) await activateUser(result.user);
+    if (sessionUser) await activateUser(sessionUser);
     else activeUser = null;
   })().catch((error) => {
     seeding = null;
+    sessionRequest = null;
     throw error;
   });
   return seeding;

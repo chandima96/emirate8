@@ -1,10 +1,10 @@
-import { createHmac } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { getPayload } from 'payload';
 import { generatePayloadCookie } from 'payload/shared';
 import configPromise from '@payload-config';
 import { cookieOptions } from '@/lib/server/http';
+import { encodeTicket, googlePassword, proSignupCookie } from '@/lib/server/proSignup';
 
 const STATE_COOKIE = 'e08-google-oauth-state';
 
@@ -12,14 +12,13 @@ function siteUrl(request: Request) {
   return (process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, '');
 }
 
-function redirectWithError(origin: string, code: string) {
-  return NextResponse.redirect(`${origin}/?authError=${encodeURIComponent(code)}`);
-}
-
-function googlePassword(subject: string) {
-  return createHmac('sha256', process.env.PAYLOAD_SECRET || 'emirate08-google-oauth')
-    .update(`google:${subject}`)
-    .digest('hex');
+function redirectWithError(origin: string, code: string, professional = false) {
+  // Professional sign-ups return to the login page, which reopens the sign-up dialog with the message.
+  return NextResponse.redirect(
+    professional
+      ? `${origin}/login?register=professional&authError=${encodeURIComponent(code)}`
+      : `${origin}/?authError=${encodeURIComponent(code)}`,
+  );
 }
 
 export async function GET(request: Request) {
@@ -33,19 +32,20 @@ export async function GET(request: Request) {
     return redirectWithError(origin, 'google-not-configured');
   }
 
-  let stateData: { state: string; next: string };
+  let stateData: { state: string; next: string; intent?: string };
   try {
     stateData = JSON.parse(stateCookie);
   } catch {
     return redirectWithError(origin, 'google-invalid-state');
   }
+  const professional = stateData.intent === 'professional';
   if (!stateData.state || stateData.state !== url.searchParams.get('state')) {
-    return redirectWithError(origin, 'google-invalid-state');
+    return redirectWithError(origin, 'google-invalid-state', professional);
   }
-  if (url.searchParams.get('error')) return redirectWithError(origin, 'google-cancelled');
+  if (url.searchParams.get('error')) return redirectWithError(origin, 'google-cancelled', professional);
 
   const code = url.searchParams.get('code');
-  if (!code) return redirectWithError(origin, 'google-missing-code');
+  if (!code) return redirectWithError(origin, 'google-missing-code', professional);
 
   try {
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -59,22 +59,22 @@ export async function GET(request: Request) {
         redirect_uri: `${origin}/api/auth/google/callback`,
       }),
     });
-    if (!tokenResponse.ok) return redirectWithError(origin, 'google-token-failed');
+    if (!tokenResponse.ok) return redirectWithError(origin, 'google-token-failed', professional);
     const token = await tokenResponse.json();
 
     const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    if (!profileResponse.ok) return redirectWithError(origin, 'google-profile-failed');
+    if (!profileResponse.ok) return redirectWithError(origin, 'google-profile-failed', professional);
     const profile = await profileResponse.json();
     if (!profile.sub || !profile.email || profile.email_verified === false) {
-      return redirectWithError(origin, 'google-email-unverified');
+      return redirectWithError(origin, 'google-email-unverified', professional);
     }
 
     const config = await configPromise;
     const payload = await getPayload({ config });
     const members = config.collections.find((collection) => collection.slug === 'members');
-    if (!members?.auth) return redirectWithError(origin, 'google-auth-unavailable');
+    if (!members?.auth) return redirectWithError(origin, 'google-auth-unavailable', professional);
 
     const email = String(profile.email).trim().toLowerCase();
     const existing = await payload.find({
@@ -86,10 +86,28 @@ export async function GET(request: Request) {
     const member = existing.docs[0] as Record<string, any> | undefined;
     const password = googlePassword(String(profile.sub));
 
+    if (professional) {
+      // An existing account signs in instead; otherwise the wizard continues with this verified email.
+      if (member) return redirectWithError(origin, 'google-email-exists', true);
+      const response = NextResponse.redirect(`${origin}/register`);
+      response.cookies.set(
+        proSignupCookie(
+          encodeTicket({
+            email,
+            name: String(profile.name || '').trim(),
+            provider: 'google',
+            sub: String(profile.sub),
+          }),
+          origin.startsWith('https://'),
+        ),
+      );
+      return response;
+    }
+
     if (member) {
       const existingProfile = member.profile && typeof member.profile === 'object' ? member.profile : {};
       if (existingProfile.googleSubject !== profile.sub) {
-        return redirectWithError(origin, 'google-email-exists');
+        return redirectWithError(origin, 'google-email-exists', professional);
       }
     } else {
       await payload.create({
@@ -123,7 +141,7 @@ export async function GET(request: Request) {
       data: { email, password },
       overrideAccess: true,
     });
-    if (!loggedIn.token) return redirectWithError(origin, 'google-login-failed');
+    if (!loggedIn.token) return redirectWithError(origin, 'google-login-failed', professional);
 
     const response = NextResponse.redirect(`${origin}${stateData.next || '/saved'}`);
     response.cookies.set(
@@ -139,6 +157,6 @@ export async function GET(request: Request) {
     return response;
   } catch (error) {
     console.error('[google-auth]', error);
-    return redirectWithError(origin, 'google-login-failed');
+    return redirectWithError(origin, 'google-login-failed', professional);
   }
 }

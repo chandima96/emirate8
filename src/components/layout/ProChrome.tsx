@@ -9,7 +9,7 @@ import { useSession } from '@/components/providers/SessionProvider';
 const item = 'block rounded px-3 py-2 text-[14px] hover:bg-mist';
 
 export function ProHeader() {
-  const { ready, user } = useSession();
+  const { account, accountKnown } = useSession();
   return (
     <>
       <div className="border-b border-line bg-white text-[13px]">
@@ -18,7 +18,9 @@ export function ProHeader() {
             <Icon name="chevron-left" className="h-3.5 w-3.5" />
             Emirate08 Home
           </Link>
-          {ready && user ? (
+          {!accountKnown ? (
+            <span className="h-4 w-24 animate-pulse rounded bg-mist" aria-hidden="true" />
+          ) : account ? (
             <Link href="/dashboard" className="font-semibold text-ink hover:underline">
               Open workspace
             </Link>

@@ -16,15 +16,22 @@ export async function GET(request: Request) {
   const origin = siteUrl(request);
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const next = safeNext(new URL(request.url).searchParams.get('next'));
+  const params0 = new URL(request.url).searchParams;
+  const next = safeNext(params0.get('next'));
+  // Professionals sign up through the registration wizard: Google only confirms their email.
+  const intent = params0.get('intent') === 'professional' ? 'professional' : 'buyer';
 
   if (!clientId || !clientSecret) {
-    return NextResponse.redirect(`${origin}/?authError=google-not-configured`);
+    return NextResponse.redirect(
+      intent === 'professional'
+        ? `${origin}/login?register=professional&authError=google-not-configured`
+        : `${origin}/?authError=google-not-configured`,
+    );
   }
 
   const state = randomBytes(24).toString('hex');
   const store = await cookies();
-  store.set(STATE_COOKIE, JSON.stringify({ state, next }), {
+  store.set(STATE_COOKIE, JSON.stringify({ state, next, intent }), {
     httpOnly: true,
     maxAge: 600,
     path: '/',

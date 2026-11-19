@@ -5,7 +5,8 @@ import { authenticate } from '@/lib/server/auth';
 import { updateSession, deleteAccount } from '@/lib/server/session';
 import { createEnquiry, updateEnquiryStatus } from '@/lib/server/enquiries';
 import { joinWaitlist } from '@/lib/server/waitlist';
-import { actionResult, result, type MutationResult } from '@/lib/server/result';
+import { actionResult, isRecord, result, type MutationResult } from '@/lib/server/result';
+import { PRO_SIGNUP_COOKIE } from '@/lib/server/proSignup';
 import { cookieOptions } from '@/lib/server/http';
 
 async function run(operation: () => Promise<MutationResult>, fallback: string) {
@@ -20,7 +21,10 @@ async function run(operation: () => Promise<MutationResult>, fallback: string) {
 }
 
 export async function authenticateAction(body: unknown) {
-  return run(async () => authenticate(body, await headers()), 'Could not complete authentication. Please try again.');
+  const outcome = await run(async () => authenticate(body, await headers()), 'Could not complete authentication. Please try again.');
+  // The confirmed sign-up email has been used: forget it.
+  if (outcome.ok && isRecord(body) && body.action === 'register') (await cookies()).delete(PRO_SIGNUP_COOKIE);
+  return outcome;
 }
 
 export async function updateAccountAction(patch: unknown) {
