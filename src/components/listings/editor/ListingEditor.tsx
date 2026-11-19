@@ -35,6 +35,7 @@ import { hydrateEditor, projectListing, validateEditorStep, editorReadiness } fr
 import { publicListing } from '@/lib/publicListing';
 import { PreviewModal } from './PreviewModal';
 import { LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
+import { readAiResponse } from '@/components/ai/AiCredits';
 
 /** Account listing defaults (Account › Listing defaults) copied into a new draft. */
 function withPresets(l, owner) {
@@ -238,6 +239,68 @@ export function ListingEditor({ id = undefined }) {
   const setAiPlanChange = (next: AiChange | null) => patchAi('plan', next);
   const setAiSuggestions = (next: Record<string, AiSuggestion> | ((current: Record<string, AiSuggestion>) => Record<string, AiSuggestion>)) =>
     patchAi('suggestions', next);
+
+  /* ---------- SEO assistant ---------- */
+  // Runs right after autofill and from "Generate SEO" (Marketing › Title & description). It saves the
+  // listing's `seo` block (SEO title, meta description, FAQ) and offers a rewritten listing title and
+  // description: an empty field is filled (undo-able with the autofill changes), text the broker already
+  // has waits as a suggestion in its field. Charged to the member's AI credits.
+  const [seoBusy, setSeoBusy] = useState(false);
+  const [seoError, setSeoError] = useState('');
+  const [seoIssues, setSeoIssues] = useState<string[]>([]);
+  const seoQueued = useRef(false);
+  const seoRunning = useRef(false);
+  const runSeo = async () => {
+    if (seoRunning.current) return;
+    seoRunning.current = true;
+    setSeoBusy(true);
+    setSeoError('');
+    try {
+      const response = await fetch('/api/listing-seo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ listing: projectListing(clone(Lref.current)) }),
+      });
+      const out = await readAiResponse(response);
+      if (!response.ok) throw new Error(out.error || 'SEO could not be written.');
+      const current = Lref.current.editor.d;
+      const fills: Record<string, string> = {};
+      const pending: Record<string, AiSuggestion> = {};
+      for (const [key, value] of [['title', out.listingTitle], ['description', out.listingDescription]] as const) {
+        if (typeof value !== 'string' || !value.trim() || value === current[key]) continue;
+        if (current[key] == null || String(current[key]).trim() === '') fills[key] = value;
+        else pending['designer-' + key] = { value, sources: ['SEO assistant'], options: [] };
+      }
+      update((prev) => {
+        let next = setIn(prev, 'seo', out.seo);
+        if (Object.keys(fills).length) next = setIn(next, 'editor.d', { ...next.editor.d, ...fills });
+        const ai = next.editor?.ai || {};
+        const changes = { ...(ai.changes || {}) };
+        for (const [k, v] of Object.entries(fills)) changes[k] = { before: changes[k]?.before ?? prev.editor.d[k], applied: v };
+        return setIn(next, 'editor.ai', { ...ai, changes, suggestions: { ...(ai.suggestions || {}), ...pending } });
+      });
+      setSeoIssues(Array.isArray(out.issues) ? out.issues : []);
+      toast(
+        Object.keys(pending).length
+          ? 'SEO is ready. A new title and description are waiting for your review in Marketing.'
+          : 'SEO title, meta description and FAQ are ready in Marketing.',
+        { duration: 6000 },
+      );
+    } catch (error) {
+      setSeoError(error instanceof Error ? error.message : 'SEO could not be written.');
+    } finally {
+      seoRunning.current = false;
+      setSeoBusy(false);
+    }
+  };
+  // Autofill queues a run; it starts once the filled values have rendered into the listing.
+  useEffect(() => {
+    if (!seoQueued.current) return;
+    seoQueued.current = false;
+    void runSeo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [L]);
   // Errors from the last check stay visible until their field is fixed; fixed ones drop out as you edit.
   const stillFailing = Object.keys(errors).length
     ? new Map<string, string>(stepErrors(step).map((b) => [b.key, b.msg]))
@@ -556,6 +619,7 @@ export function ListingEditor({ id = undefined }) {
     confirm,
     go,
     latest: () => Lref.current,
+    seo: { run: runSeo, busy: seoBusy, error: seoError, issues: seoIssues },
     isDeveloper,
     user,
     developerBrokers,
@@ -689,6 +753,8 @@ export function ListingEditor({ id = undefined }) {
     setAiSuggestions((current) => ({ ...current, ...pending }));
     aiFirstStep.current = selected.length ? Math.min(...selected.map(stepOf)) : 1;
     toast(photoCount ? `AI suggestions are ready in the listing fields. ${photoCount} photo${photoCount === 1 ? '' : 's'} found — choose which to add in Photos & media.` : 'AI suggestions are ready in the listing fields.', photoCount ? { duration: 6000 } : undefined);
+    // First autofill, then SEO: write the SEO content from what autofill found.
+    if (filled || Object.keys(pending).length) seoQueued.current = true;
     // Values that differ from what's already entered wait in the fields for the user's choice.
     return { filled, missing: 0, review: Object.keys(pending).length, kept };
   };
@@ -882,6 +948,20 @@ export function ListingEditor({ id = undefined }) {
           hideSummary
         />
         {(Object.keys(aiChanges).length > 0 || Object.keys(aiAmenChanges).length > 0 || Object.keys(aiSuggestions).length > 0 || !!aiPlanChange) && <AiNotice filled={aiFilled} edited={aiEdited} missing={aiMissingRequired} review={Object.keys(aiSuggestions).length} onUndo={undoAiChanges} />}
+        {seoBusy && (
+          <p className="flex items-center gap-2 text-[13px] text-muted" role="status">
+            <Icon name="stars" />
+            Writing the SEO title, description and FAQ from these details…
+          </p>
+        )}
+        {!seoBusy && seoError && (
+          <p className="text-[13px] text-warn" role="alert">
+            SEO: {seoError}{' '}
+            <button type="button" className="underline" onClick={() => void runSeo()}>
+              Try again
+            </button>
+          </p>
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">

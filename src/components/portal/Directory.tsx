@@ -11,8 +11,20 @@ import { useStoreVersion } from '@/hooks/useStore';
 import { agencies, brokers } from '@/lib/store';
 import { EmptyState } from './EmptyState';
 
-/** Agent & agency directory: search by location or name, Agents / Agencies switch, “View more” paging (4 at a time). */
-export function Directory({ heroImage }) {
+/**
+ * Agent & agency directory: search by location or name, Agents / Agencies switch, “View more” paging (4 at a time).
+ * The server passes the public records (`initialBrokers`, `initialAgencies`) so the first HTML lists real
+ * profiles; once the browser store has loaded it takes over.
+ */
+export function Directory({
+  heroImage,
+  initialBrokers = [],
+  initialAgencies = [],
+}: {
+  heroImage?: React.ReactNode;
+  initialBrokers?: any[];
+  initialAgencies?: any[];
+}) {
   const { ready } = useSession();
   useStoreVersion();
   const sp = useSearchParams();
@@ -32,8 +44,17 @@ export function Directory({ heroImage }) {
 
   const noun = view === 'agents' ? 'agents' : 'agencies';
   const t = q.toLowerCase();
-  const all = ready
-    ? (view === 'agents' ? brokers() : agencies())
+  const source = ready
+    ? view === 'agents'
+      ? brokers()
+      : agencies()
+    : view === 'agents'
+      ? initialBrokers
+      : initialAgencies;
+  // Without server records (none, or the CMS was unreachable) wait for the store before saying so.
+  const loading = !ready && !source.length;
+  const all = !loading
+    ? source
         .filter((x) => !t || (by === 'name' ? x.name : `${(x.areas || []).join(' ')} ${x.location || ''}`).toLowerCase().indexOf(t) > -1)
         .sort((a, b) => a.name.localeCompare(b.name))
     : [];
@@ -139,7 +160,7 @@ export function Directory({ heroImage }) {
               {view === 'agents' ? 'Real estate agents in Dubai' : 'Real estate agencies in Dubai'}
             </h2>
             <p className="mt-1 text-[13px] text-muted" aria-live="polite">
-              {ready ? `Showing ${shown.length} of ${all.length} ${noun}` : ''}
+              {loading ? '' : `Showing ${shown.length} of ${all.length} ${noun}`}
             </p>
           </div>
           <div className="seg" role="group" aria-label="Show">
@@ -162,8 +183,8 @@ export function Directory({ heroImage }) {
           </div>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          {!ready && <CardSkeletons count={4} variant="agent" />}
-          {ready &&
+          {loading && <CardSkeletons count={4} variant="agent" />}
+          {!loading &&
             (shown.length ? (
               shown.map((x, i) => (
                 <Fragment key={x.id}>

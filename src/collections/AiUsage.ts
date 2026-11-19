@@ -1,7 +1,9 @@
 import type { CollectionConfig } from 'payload';
 
 /* One row per Claude API call: the ledger AI-credit balances are derived from (see src/lib/server/aiCredits.ts). */
-export const AI_FEATURES = ['listing_autofill_fetch', 'listing_autofill_extract', 'listing_translate', 'profile_fetch', 'profile_extract'] as const;
+/* SEO content agent: `listing_seo` runs from the listing editor and is charged to the member;
+ * `seo_content` runs from Payload admin as platform work (no member or pool, so no one's credits are charged). */
+export const AI_FEATURES = ['listing_autofill_fetch', 'listing_autofill_extract', 'listing_translate', 'profile_fetch', 'profile_extract', 'seo_content', 'listing_seo'] as const;
 export type AiFeature = (typeof AI_FEATURES)[number];
 
 export const AiUsage: CollectionConfig = {

@@ -320,7 +320,9 @@ export async function syncMemberProperties(payload: Payload, memberId: number, s
     depth: 0,
     overrideAccess: true,
   });
-  const owned = existing.docs as any[];
+  // Re-check ownership in code: this list decides what gets updated and deleted, so a query that
+  // returns extra rows (e.g. a JSON filter matching loosely) must never touch another member's listings.
+  const owned = (existing.docs as any[]).filter((doc) => String(doc.appData?.ownerMemberId) === String(memberId));
   const ownedByListingId = new Map(owned.map((doc) => [String(doc.appData?.id), doc]));
   const candidateSlugs = listings
     .filter((listing: any) => listing && typeof listing === 'object' && listing.id)

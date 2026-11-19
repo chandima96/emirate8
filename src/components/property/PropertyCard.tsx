@@ -27,7 +27,12 @@ export function PropertyCard({ listing: l, preview = false, agent = true, tag = 
         {photo ? (
           <img
             src={photo}
-            alt=""
+            // The link around the photo is hidden from assistive tech (the title link repeats it), so this
+            // alt text is for image search and crawlers.
+            alt={
+              cover.caption ||
+              (l.area && !String(l.title || '').includes(l.area) ? [l.title, l.area].filter(Boolean).join(', ') : l.title || '')
+            }
             className="pimg h-full w-full object-cover"
             loading="lazy"
             style={{ objectPosition: (cover.focalX ?? 50) + '% ' + (cover.focalY ?? 50) + '%' }}

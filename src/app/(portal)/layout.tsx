@@ -2,7 +2,7 @@ import { MarketHeader } from '@/components/layout/MarketHeader';
 import Script from 'next/script';
 import { QuickRail } from '@/components/layout/QuickRail';
 import { MarketFooter } from '@/components/layout/MarketFooter';
-import { ROLE_SCRIPT, SiteProviders, metadata, siteHtmlClassName, viewport } from '../SiteDocument';
+import { ROLE_SCRIPT, SITE_JSON_LD, SiteProviders, metadata, siteHtmlClassName, viewport } from '../SiteDocument';
 
 export { metadata, viewport };
 
@@ -12,6 +12,7 @@ export default function PortalLayout({ children }) {
     <html lang="en" className={siteHtmlClassName} suppressHydrationWarning>
       <head><Script id="embed-role-class" strategy="beforeInteractive">{ROLE_SCRIPT}</Script></head>
       <body className="bg-paper font-sans text-ink antialiased">
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: SITE_JSON_LD }} />
     <SiteProviders>
       <MarketHeader />
       <QuickRail />

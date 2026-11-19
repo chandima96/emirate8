@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import { Avatar, VerifiedBadge } from './Avatar';
 import { Icon } from '@/components/ui/Icon';
@@ -5,7 +7,8 @@ import { brokerStats, brokerUrl } from '@/lib/store';
 import { routes } from '@/lib/routes';
 
 export function AgentCard({ broker: b }) {
-  const st = brokerStats(b);
+  // Server-rendered records carry their count; the browser store has none until it loads.
+  const st = typeof b.activeListings === 'number' ? { active: b.activeListings } : brokerStats(b);
   const url = brokerUrl(b);
   return (
     <article className="acard flex gap-5 p-5 sm:p-6">

@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload';
 import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
+import { indexNowBroker } from '@/lib/server/indexNow';
 
 export const Brokers: CollectionConfig = {
   slug: 'brokers',
@@ -11,10 +12,16 @@ export const Brokers: CollectionConfig = {
     read: () => true,
   },
   hooks: {
-    afterChange: [invalidateCmsCache],
+    afterChange: [invalidateCmsCache, indexNowBroker],
     afterDelete: [invalidateCmsCache],
   },
   fields: [
+    // Payload admin button: runs the SEO content agent for this record's public page (no data stored here).
+    {
+      name: 'generateSeo',
+      type: 'ui',
+      admin: { position: 'sidebar', components: { Field: '@/components/payload/SeoGenerateButton#SeoGenerateButton' } },
+    },
     { name: 'appData', type: 'json', admin: { hidden: true } },
     {
       name: 'name',

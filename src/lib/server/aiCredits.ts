@@ -118,15 +118,16 @@ export async function creditsAfter(ctx: AiContext) {
   }
 }
 
-export async function recordAiUsage(ctx: AiContext, entry: { feature: AiFeature; model?: string; usage: ClaudeUsage | null; status: 'ok' | 'error'; requestId?: string }) {
+/** `ctx` is null for platform work (e.g. the SEO content agent): the row is logged without charging any pool. */
+export async function recordAiUsage(ctx: AiContext | null, entry: { feature: AiFeature; model?: string; usage: ClaudeUsage | null; status: 'ok' | 'error'; requestId?: string }) {
   const usage = entry.usage || {};
   try {
     const payload = await payloadClient();
     await payload.create({
       collection: 'ai-usage',
       data: {
-        member: ctx.memberId,
-        pool: ctx.poolId,
+        member: ctx?.memberId ?? null,
+        pool: ctx?.poolId ?? null,
         feature: entry.feature,
         model: entry.model || '',
         inputTokens: usage.input_tokens || 0,

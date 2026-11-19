@@ -1,6 +1,7 @@
 /* schema.org structured data for a public property page (RealEstateListing + Offer + Accommodation),
  * matching what Property Finder and Bayut publish. Built only from the already-sanitised public listing. */
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.emirate8.com').replace(/\/$/, '');
+import { SITE_URL as SITE } from './siteUrl';
+import { areaSlug } from './propertySearch';
 
 const ACCOMMODATION: Record<string, string> = {
   Apartment: 'Apartment',
@@ -61,7 +62,7 @@ export function listingJsonLd(l: any) {
   const crumbs = [
     ['Emirate08', SITE + '/'],
     [l.purpose === 'rent' ? 'Properties for rent' : 'Properties for sale', SITE + '/properties?purpose=' + (l.purpose === 'rent' ? 'rent' : 'sale')],
-    [l.area, l.area ? SITE + '/properties?' + new URLSearchParams({ purpose: l.purpose === 'rent' ? 'rent' : 'sale', area: l.area }) : ''],
+    [l.area, l.area ? SITE + '/properties/' + areaSlug(l.area) + '/for-' + (l.purpose === 'rent' ? 'rent' : 'sale') : ''],
     [l.title, url],
   ].filter(([name]) => name);
   return [
@@ -77,7 +78,17 @@ export function listingJsonLd(l: any) {
       ...(images.length ? { image: images.slice(0, 10) } : {}),
       ...(offer ? { offers: offer } : {}),
       about: accommodation,
-      ...(l.broker?.name ? { provider: { '@type': 'RealEstateAgent', name: l.broker.agencyName || l.broker.name } } : {}),
+      ...(l.broker?.name
+        ? {
+            provider: {
+              '@type': 'RealEstateAgent',
+              name: l.broker.agencyName || l.broker.name,
+              ...(l.broker.slug && l.broker.isPublic !== false
+                ? { url: SITE + '/brokers/' + encodeURIComponent(l.broker.slug) }
+                : {}),
+            },
+          }
+        : {}),
     },
     {
       '@context': 'https://schema.org',

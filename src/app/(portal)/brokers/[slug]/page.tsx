@@ -5,8 +5,11 @@ import { getBroker, getProperties } from '@/lib/cms';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { DEFAULT_BROKER_COVER, listJoin, profileExtras } from '@/lib/brokerProfile';
 
+import { SITE_URL as SITE } from '@/lib/siteUrl';
+import { seoForBroker } from '@/lib/server/seoContent';
+import { SeoFaq } from '@/components/portal/SeoFaq';
+
 const loading = <BrokerPortfolioSkeleton />;
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.emirate8.com').replace(/\/$/, '');
 
 function decodeSlug(value: string) {
   try {
@@ -160,9 +163,11 @@ export async function generateMetadata({ params }) {
     };
   }
   const s = seo(b, initialListings.filter((l: any) => l.status === 'published').length);
+  // Reviewed SEO agent content, when there is approved content for the profile's current facts.
+  const agentSeo = await seoForBroker(b.slug);
   return {
-    title: { absolute: s.title },
-    description: s.description,
+    title: agentSeo?.title ? agentSeo.title : { absolute: s.title },
+    description: agentSeo?.metaDescription || s.description,
     alternates: { canonical: s.url },
     robots: s.indexable ? { index: true, follow: true, 'max-image-preview': 'large' } : { index: false, follow: false },
     openGraph: { type: 'profile', siteName: 'Emirate08', title: s.title, description: s.description, url: s.url, images: [s.image] },
@@ -188,13 +193,15 @@ export default async function BrokerPage({ params }) {
     publicBroker.type !== 'agency' && publicBroker.isPublic
       ? JSON.stringify(seo(publicBroker, initialListings.filter((l: any) => l.status === 'published').length).jsonld).replace(/</g, '\\u003c')
       : '';
+  const agentSeo = publicBroker.type !== 'agency' ? await seoForBroker(publicBroker.slug) : null;
 
   return (
     <>
       {jsonld && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonld }} />}
-      <Suspense fallback={loading}>
-        <BrokerPortfolio initialBroker={publicBroker} initialListings={initialListings} />
-      </Suspense>
+      {/* No Suspense boundary: the page renders per request, so the profile goes straight into the HTML
+          instead of a hidden streamed chunk that crawlers without JavaScript may skip. */}
+      <BrokerPortfolio initialBroker={publicBroker} initialListings={initialListings} />
+      <SeoFaq seo={agentSeo} heading={`Questions about ${publicBroker.name}`} />
     </>
   );
 }

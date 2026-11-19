@@ -1,32 +1,10 @@
 import { NextResponse } from 'next/server';
-import { unstable_cache } from 'next/cache';
-import configPromise from '@payload-config';
-import { getPayload } from 'payload';
 import { getSession } from '@/lib/server/session';
-import { buildCatalogue, searchCatalogue } from '@/lib/listingCatalogue';
+import { searchCatalogue } from '@/lib/listingCatalogue';
+import { loadCatalogue } from '@/lib/server/listingCatalogueData';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Building catalogue built from published, publicly located listings; refreshed with the CMS cache. */
-const loadCatalogue = unstable_cache(
-  async () => {
-    const payload = await getPayload({ config: await configPromise });
-    const { docs } = await payload.find({
-      collection: 'properties',
-      where: {
-        and: [{ status: { in: ['published', 'sold', 'rented'] } }, { 'display.visible': { not_equals: false } }],
-      },
-      sort: '-updatedAt',
-      limit: 2000,
-      depth: 0,
-      overrideAccess: true,
-    });
-    return buildCatalogue(docs);
-  },
-  ['listing-catalogue'],
-  { tags: ['cms'], revalidate: 600 },
-);
 
 export async function GET(request: Request) {
   const session = await getSession(request.headers);

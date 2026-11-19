@@ -10,7 +10,9 @@ import { useStoreVersion } from '@/hooks/useStore';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { publicListings } from '@/lib/store';
 import { TYPES } from '@/config/reference';
+import { filterQuery, fromParams, maxOptions, pageCount, pageSlice, searchListings } from '@/lib/propertySearch';
 import { EmptyState } from './EmptyState';
+import { Pagination } from './Pagination';
 
 const ALL_TYPES = TYPES.residential.concat(TYPES.commercial);
 const CHIPS = [
@@ -27,89 +29,13 @@ const PURPOSES = [
   ['sale', 'Buy'],
   ['rent', 'Rent'],
 ];
-/* Price ceilings depend on the purpose; “All” has no ceiling (the select is disabled). */
-function maxOptions(purpose) {
-  if (purpose === 'rent')
-    return [
-      ['', 'Any price'],
-      [100000, 'Up to AED 100k /yr'],
-      [200000, 'Up to AED 200k /yr'],
-      [300000, 'Up to AED 300k /yr'],
-      [1000000, 'Up to AED 1M /yr'],
-    ];
-  if (purpose === 'sale')
-    return [
-      ['', 'Any price'],
-      [1500000, 'Up to AED 1.5M'],
-      [2000000, 'Up to AED 2M'],
-      [3000000, 'Up to AED 3M'],
-      [5000000, 'Up to AED 5M'],
-      [15000000, 'Up to AED 15M'],
-      [50000000, 'Up to AED 50M'],
-    ];
-  return [['', 'Any price']];
-}
-const SORTS = {
-  newest: (a, b) => a.listed - b.listed,
-  featured: (a, b) =>
-    (b.display.portfolioFeatured ? 1 : 0) - (a.display.portfolioFeatured ? 1 : 0) || a.listed - b.listed,
-  priceAsc: (a, b) => a.price - b.price,
-  priceDesc: (a, b) => b.price - a.price,
-};
-const URL_KEYS = ['purpose', 'q', 'type', 'completion', 'max', 'sort'];
 
-/** Reads the filters from the URL (the source of truth), sanitising the price ceiling for the purpose. */
-function fromParams(sp) {
-  const purpose = ['sale', 'rent'].includes(sp.get('purpose')) ? sp.get('purpose') : 'all';
-  const maxRaw = sp.get('max') || '';
-  const max = maxOptions(purpose).some((x) => String(x[0]) === maxRaw) ? maxRaw : '';
-  return {
-    purpose,
-    q: sp.get('q') || '',
-    type: sp.get('type') || '',
-    completion: sp.get('completion') || '',
-    max,
-    sort: SORTS[sp.get('sort')] ? sp.get('sort') : 'newest',
-  };
-}
-
-function search(f, beds) {
-  const s = f.q.toLowerCase();
-  return publicListings()
-    .filter((n) => {
-      if (f.purpose !== 'all' && n.purpose !== f.purpose) return false;
-      if (f.type && n.type !== f.type) return false;
-      if (f.completion && n.completion !== f.completion) return false;
-      if (beds !== '') {
-        const b = +beds;
-        if (b >= 4 ? Number(n.beds) < 4 : Number(n.beds) !== b) return false;
-      }
-      if (f.max && Number(n.price) > +f.max) return false;
-      if (
-        s &&
-        (
-          n.title +
-          ' ' +
-          n.area +
-          ' ' +
-          n.emirate +
-          ' ' +
-          n.type +
-          ' ' +
-          (n.building || '') +
-          ' ' +
-          (n.broker ? n.broker.name : '')
-        )
-          .toLowerCase()
-        .indexOf(s) < 0
-      )
-        return false;
-      return true;
-    })
-    .sort(SORTS[f.sort] || SORTS.newest);
-}
-
-export function PropertySearch() {
+/**
+ * Property search. The server renders the current page of results (`initialListings`, already filtered
+ * and paged for the URL, out of `initialTotal`) so crawlers and first paint get real listings; once the
+ * browser store has loaded, results are filtered live from it.
+ */
+export function PropertySearch({ initialListings = [], initialTotal = 0 }: { initialListings?: any[]; initialTotal?: number }) {
   const { ready } = useSession();
   useStoreVersion();
   const router = useRouter();
@@ -129,15 +55,11 @@ export function PropertySearch() {
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const update = (patch) => {
-    const next = { ...f, ...patch };
+    // Any filter change starts again from the first page.
+    const next = { ...f, page: 1, ...patch };
     if (patch.purpose !== undefined && !maxOptions(next.purpose).some((x) => String(x[0]) === String(next.max)))
       next.max = '';
-    const url = new URLSearchParams();
-    URL_KEYS.forEach((k) => {
-      if (next[k] && next[k] !== 'all' && !(k === 'sort' && next[k] === 'newest')) url.set(k, next[k]);
-    });
-    const s = url.toString();
-    router.replace(pathname + (s ? '?' + s : ''), { scroll: false });
+    router.replace(pathname + filterQuery(next), { scroll: false });
   };
   const setQuery = (v) => {
     clearTimeout(timer.current);
@@ -152,7 +74,13 @@ export function PropertySearch() {
     router.replace(pathname, { scroll: false });
   };
 
-  const items = ready ? search(f, beds) : [];
+  const all = ready ? searchListings(publicListings(), f, beds) : null;
+  const total = all ? all.length : initialTotal;
+  const pages = pageCount(total);
+  const page = Math.min(f.page, pages);
+  const items = all ? pageSlice(all, page) : initialListings;
+  // Without server results (none match, or the CMS was unreachable) wait for the store before saying so.
+  const loading = !ready && !initialListings.length;
   const label =
     f.purpose === 'rent'
       ? 'Properties for rent'
@@ -218,7 +146,10 @@ export function PropertySearch() {
               <label className="sr-only" htmlFor="ps-beds">
                 Bedrooms
               </label>
-              <select id="ps-beds" className="select" value={beds} onChange={(e) => setBeds(e.target.value)}>
+              <select id="ps-beds" className="select" value={beds} onChange={(e) => {
+                  setBeds(e.target.value);
+                  if (f.page > 1) update({});
+                }}>
                 <option value="">Any beds</option>
                 <option value="0">Studio</option>
                 <option value="1">1 bed</option>
@@ -281,7 +212,7 @@ export function PropertySearch() {
               {label + (f.q ? ' in ' + f.q : ' in the UAE')}
             </h1>
             <p className="mt-1 text-[13px] text-muted" aria-live="polite">
-              {ready ? `${items.length} result${items.length === 1 ? '' : 's'}` : ''}
+              {loading ? '' : `${total} result${total === 1 ? '' : 's'}${pages > 1 ? ` · page ${page} of ${pages}` : ''}`}
             </p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>
@@ -305,8 +236,8 @@ export function PropertySearch() {
           ))}
         </div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {!ready && <CardSkeletons count={8} />}
-          {ready &&
+          {loading && <CardSkeletons count={8} />}
+          {!loading &&
             (items.length ? (
               items.map((n) => <PropertyCard key={n.id} listing={n} />)
             ) : (
@@ -320,6 +251,7 @@ export function PropertySearch() {
               </EmptyState>
             ))}
         </div>
+        {!loading && <Pagination path={pathname} filters={f} page={page} pages={pages} className="mt-8" />}
         <p className="mt-8 text-[12px] text-muted">Sample listings for demonstration. Photos are illustrative.</p>
       </section>
     </>
