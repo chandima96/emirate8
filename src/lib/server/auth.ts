@@ -42,6 +42,27 @@ function agencySlug(name: string) {
   );
 }
 
+/** Creates the agency record an agency account administers and returns the profile entry for it. */
+export async function createMemberAgency(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  { name, licence, email }: { name: string; licence: string; email: string },
+) {
+  let slug = agencySlug(name);
+  const existingAgency = await payload.find({
+    collection: 'agencies',
+    where: { slug: { equals: slug } },
+    limit: 1,
+    overrideAccess: true,
+  });
+  if (existingAgency.docs[0]) slug = `${slug}-${Date.now().toString(36)}`;
+  const agency = await payload.create({
+    collection: 'agencies',
+    overrideAccess: true,
+    data: { name, slug, licenseNumber: licence, email, description: '', featured: false, verified: false },
+  });
+  return { agencyId: agency.id, agencyRole: 'agency_admin', name, slug };
+}
+
 export async function authenticate(body: unknown, requestHeaders: Headers) {
   const config = await configPromise;
   const payload = await getPayload({ config });
@@ -219,29 +240,12 @@ export async function authenticate(body: unknown, requestHeaders: Headers) {
       let profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
       if (body.accountType === 'agency') {
         const credentials = profile.credentials && typeof profile.credentials === 'object' ? profile.credentials : {};
-        const name = String(credentials.agencyName || body.name).trim();
-        let slug = agencySlug(name);
-        const existingAgency = await payload.find({
-          collection: 'agencies',
-          where: { slug: { equals: slug } },
-          limit: 1,
-          overrideAccess: true,
+        const agency = await createMemberAgency(payload, {
+          name: String(credentials.agencyName || body.name).trim(),
+          licence: credentials.tradeLicence || '',
+          email: body.email.trim().toLowerCase(),
         });
-        if (existingAgency.docs[0]) slug = `${slug}-${Date.now().toString(36)}`;
-        const agency = await payload.create({
-          collection: 'agencies',
-          overrideAccess: true,
-          data: {
-            name,
-            slug,
-            licenseNumber: credentials.tradeLicence || '',
-            email: body.email.trim().toLowerCase(),
-            description: '',
-            featured: false,
-            verified: false,
-          },
-        });
-        profile = { ...profile, agency: { agencyId: agency.id, agencyRole: 'agency_admin', name, slug } };
+        profile = { ...profile, agency };
       }
 
       const defaultPlan =

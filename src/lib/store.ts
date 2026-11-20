@@ -4,6 +4,10 @@ import {
   authenticateAction,
   createEnquiryAction,
   updateEnquiryStatusAction,
+  startProfessionalCheckoutAction,
+  completeProfessionalCheckoutAction,
+  sendEmailCodeAction,
+  confirmEmailCodeAction,
 } from '@/app/actions';
 /*
  * Emirate08 client data layer. Supabase Postgres, accessed through authenticated
@@ -11,9 +15,9 @@ import {
  * view for reactive client rendering; it does not persist records locally.
  */
 import { read, write, writeImmediate, clearAll, hydrate, cache, setAuthenticated, flushWrites, getVersion } from './storage';
-import { uid, daysFromNow, slugify, clone } from './utils';
+import { uid, slugify, clone } from './utils';
 import { PLANS, STATUS, LEGACY_STATUS, USD_PEG } from '@/config/reference';
-import { planIdForAudience } from '@/config/plans';
+import { planIdForAudience, demoPlanPrice } from '@/config/plans';
 import { IMG, PIMG } from '@/config/images';
 import { mediaDisplayURL } from './mediaURL';
 import { profileExtras } from './brokerProfile';
@@ -400,13 +404,12 @@ export function checkRegistrationEmail(email) {
     }));
 }
 
+/** Everyone registers as a buyer; professionals upgrade afterwards through Stripe Checkout (`startProfessionalCheckout`). */
 export function register(payload) {
-  const type = payload.type || 'buyer';
   const profile = {
     legalName: payload.name,
-    credentials: payload.credentials || {},
-    trial: type !== 'buyer',
-    trialEnds: daysFromNow(14),
+    credentials: {},
+    trial: false,
     notifications: { enquiries: true, network: true, selection: true, billing: true, product: false },
     privacy: {
       showPhone: true,
@@ -418,15 +421,6 @@ export function register(payload) {
       showTransactions: true,
     },
     prefs: { language: 'English', currency: 'AED', contact: 'email' },
-    ...(type === 'developer'
-      ? {
-          developer: {
-            displayName: payload.credentials?.developerName || payload.name,
-            logo: payload.credentials?.developerLogo?.url || '',
-            public: true,
-          },
-        }
-      : {}),
   };
 
   return authenticateAction({
@@ -434,9 +428,8 @@ export function register(payload) {
     name: payload.name,
     email: payload.email,
     password: payload.password,
-    mobile: payload.mobile || '',
-    accountType: type,
-    plan: payload.plan || 'starter',
+    accountType: 'buyer',
+    plan: 'starter',
     profile,
   })
     .then(async (result) => {
@@ -447,21 +440,7 @@ export function register(payload) {
           message: result.error,
         };
       await activateUser(result.user);
-      const user = currentUser();
-      if (user && user.type !== 'buyer') {
-        user.portfolio = defaultPortfolio(user, {
-          slug: uniqueSlug(slugify(user.name)),
-          publicEmail: user.email,
-          publicPhone: user.mobile,
-          whatsapp: user.mobile,
-          agency:
-            user.type === 'agency' && payload.credentials
-              ? { name: payload.credentials.agencyName || '', website: '', orn: payload.credentials.orn || '' }
-              : null,
-        });
-        saveUser(user);
-      }
-      return { ok: true, user };
+      return { ok: true, user: currentUser() };
     })
     .catch((error) => ({
       ok: false,
@@ -469,6 +448,79 @@ export function register(payload) {
       field: 'form',
       message: error.message || 'Could not reach the server.',
     }));
+}
+
+/** Sets up the professional portfolio once an account has been upgraded. */
+async function afterUpgrade(serverUser, credentials) {
+  await activateUser(serverUser);
+  const user = currentUser();
+  if (user && !user.portfolio) {
+    user.portfolio = defaultPortfolio(user, {
+      slug: uniqueSlug(slugify(user.name)),
+      publicEmail: user.email,
+      publicPhone: user.mobile,
+      whatsapp: user.mobile,
+      agency:
+        user.type === 'agency' ? { name: credentials?.agencyName || '', website: '', orn: credentials?.orn || '' } : null,
+    });
+    saveUser(user);
+  }
+  return user;
+}
+
+/**
+ * Saves the professional details and starts payment. Resolves with `{ url }` to send the browser to
+ * Stripe Checkout, or `{ user }` when the plan needs no payment and the account was upgraded directly.
+ */
+export async function startProfessionalCheckout({ type, plan, credentials }) {
+  try {
+    const result = await startProfessionalCheckoutAction({ accountType: type, plan, credentials });
+    if (!result.ok) return { ok: false, field: result.field || 'form', message: result.error };
+    if (result.clientSecret) return { ok: true, clientSecret: result.clientSecret, sessionId: result.sessionId };
+    if (result.url) return { ok: true, url: result.url };
+    return { ok: true, user: await afterUpgrade(result.user, credentials) };
+  } catch (error) {
+    return { ok: false, field: 'form', message: error?.message || 'Could not reach the server.' };
+  }
+}
+
+/** After Stripe Checkout: confirms the payment and applies the upgrade. */
+export async function completeProfessionalCheckout(sessionId) {
+  try {
+    const result = await completeProfessionalCheckoutAction(sessionId || '');
+    if (result.pending) return { ok: false, pending: true, message: result.error };
+    if (!result.ok) return { ok: false, message: result.error || 'Could not confirm your payment.' };
+    return { ok: true, user: await afterUpgrade(result.user, result.user?.credentials) };
+  } catch (error) {
+    return { ok: false, message: error?.message || 'Could not reach the server.' };
+  }
+}
+
+/** True once the signed-in member has confirmed their email (Google sign-ups are confirmed by Google). */
+export function emailVerified(u = currentUser()) {
+  return !!u && (u.emailVerified === true || u.authProvider === 'google');
+}
+
+export async function sendEmailCode() {
+  try {
+    const result = await sendEmailCodeAction();
+    return result.ok
+      ? { ok: true, email: result.email, alreadyVerified: !!result.alreadyVerified }
+      : { ok: false, message: result.error || 'Could not send a confirmation code.' };
+  } catch (error) {
+    return { ok: false, message: error?.message || 'Could not reach the server.' };
+  }
+}
+
+export async function confirmEmailCode(code) {
+  try {
+    const result = await confirmEmailCodeAction(code);
+    if (!result.ok) return { ok: false, message: result.error || 'Could not confirm your email.' };
+    if (activeUser) activeUser = { ...activeUser, emailVerified: true };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error?.message || 'Could not reach the server.' };
+  }
 }
 export function uniqueSlug(base, selfId = undefined) {
   var taken = {};
@@ -552,8 +604,12 @@ export function plan(user = undefined) {
 }
 
 export function plans(): Record<string, PublicPlan> {
-  const live = getPublicPlans();
-  return { ...PLANS, ...live };
+  const merged: Record<string, PublicPlan> = { ...PLANS, ...getPublicPlans() };
+  for (const id of Object.keys(merged)) {
+    const demo = merged[id].price == null ? demoPlanPrice(id) : null;
+    if (demo) merged[id] = { ...merged[id], price: demo };
+  }
+  return merged;
 }
 
 /* ---------- Public brokers (sample + registered brokers) ---------- */

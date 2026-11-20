@@ -123,6 +123,7 @@ export async function GET(request: Request) {
             legalName: String(profile.name || profile.email.split('@')[0]).trim(),
             authProvider: 'google',
             googleSubject: String(profile.sub),
+            emailVerified: true,
             trial: false,
             notifications: { enquiries: true, network: true, selection: true, billing: true, product: false },
             privacy: { showPhone: true, showEmail: true, showWhatsapp: true, showBrn: true, showLanguages: true, showExperience: true, showTransactions: true },
@@ -143,7 +144,7 @@ export async function GET(request: Request) {
     });
     if (!loggedIn.token) return redirectWithError(origin, 'google-login-failed', professional);
 
-    const response = NextResponse.redirect(`${origin}${stateData.next || '/saved'}`);
+    const response = NextResponse.redirect(`${origin}${stateData.next || '/'}`);
     response.cookies.set(
       cookieOptions(
         generatePayloadCookie({

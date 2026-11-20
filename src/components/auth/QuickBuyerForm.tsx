@@ -3,20 +3,31 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Icon } from '@/components/ui/Icon';
 import { register } from '@/lib/store';
 import { RX, cx, passwordScore } from '@/lib/utils';
 import { FieldError, PasswordInput, errProps } from './authShared';
 import { GoogleMark } from './LoginForm';
 
-/** Step 2 of buyer registration, shown inside the register wizard. */
+/**
+ * The one sign-up form. Every account starts here as a buyer account; brokers, agencies and developers
+ * confirm their email and then upgrade at /register/professional.
+ */
 export function QuickBuyerForm({
   onSuccess,
   onCancel,
+  heading,
+  intro = 'Free to join. Save properties, contact brokers and follow developer updates.',
+  submitLabel = 'Create account',
+  googleNext,
 }: {
   embedded?: boolean;
   onSuccess?: (destination: string) => void;
   onCancel?: () => void;
+  heading?: React.ReactNode;
+  intro?: string;
+  submitLabel?: string;
+  /** Where Google sign-up returns to. Google confirms the email, so it skips the code step. */
+  googleNext?: string;
 }) {
   const router = useRouter();
   const query = useSearchParams();
@@ -48,14 +59,14 @@ export function QuickBuyerForm({
     if (Object.keys(nextErrors).length) return;
 
     setBusy(true);
-    const result = await register({ type: 'buyer', name: form.name.trim(), email: form.email.trim(), password: form.password });
+    const result = await register({ name: form.name.trim(), email: form.email.trim(), password: form.password });
     if (!result.ok) {
       setBusy(false);
       setFormError(result.message || 'Could not create your account.');
       return;
     }
 
-    const destination = safeNext || '/saved';
+    const destination = safeNext || '/';
     if (onSuccess) {
       onSuccess(destination);
       return;
@@ -69,14 +80,18 @@ export function QuickBuyerForm({
   return (
     <div className="w-full">
       <h2 className="auth-rise h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading style={{ '--d': 0 } as React.CSSProperties}>
-        Create Your <em className="f font-normal">Buyer Account.</em>
+        {heading || (
+          <>
+            Create Your <em className="f font-normal">Account.</em>
+          </>
+        )}
       </h2>
       <p className="auth-rise mt-2 text-[14px] text-muted" style={{ '--d': 1 } as React.CSSProperties}>
-        Free to join. Save properties, contact brokers and follow developer updates.
+        {intro}
       </p>
 
       <a
-        href={`/api/auth/google?next=${encodeURIComponent(safeNext || '/saved')}`}
+        href={`/api/auth/google?next=${encodeURIComponent(googleNext || safeNext || '/')}`}
         className="auth-rise auth-press btn btn-outline btn-lg mt-6 w-full"
         style={{ '--d': 2 } as React.CSSProperties}
       >
@@ -139,7 +154,7 @@ export function QuickBuyerForm({
               </>
             ) : (
               <>
-                Create buyer account
+                {submitLabel}
                 <i className="bi bi-arrow-right" aria-hidden="true" />
               </>
             )}
