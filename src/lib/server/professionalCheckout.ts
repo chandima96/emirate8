@@ -84,7 +84,8 @@ export async function startProfessionalCheckout(body: unknown, requestHeaders: H
   if (!stripe) return result({ error: 'Online payments are not available right now. Please try again later.' }, { status: 503 });
 
   const site = siteUrl(requestHeaders);
-  // With a publishable key the payment form is embedded in our page; otherwise fall back to Stripe's hosted page.
+  // With a publishable key the payment form is built in our own UI with Stripe Elements (Checkout Sessions
+  // `ui_mode: 'elements'`); otherwise fall back to Stripe's hosted page.
   const embedded = !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
   const metadata = { memberId: String(member.id), accountType: upgrade.type, plan: upgrade.plan };
   const session = await stripe.checkout.sessions.create({
@@ -105,7 +106,11 @@ export async function startProfessionalCheckout(body: unknown, requestHeaders: H
     metadata,
     subscription_data: { metadata },
     ...(embedded
-      ? { ui_mode: 'embedded_page' as const, redirect_on_completion: 'never' as const }
+      ? {
+          ui_mode: 'elements' as const,
+          // Cards finish in-page; only methods that need a bank redirect (e.g. 3-D Secure) come back here.
+          return_url: `${site}/register/professional?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+        }
       : {
           success_url: `${site}/register/professional?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${site}/register/professional?checkout=cancelled`,

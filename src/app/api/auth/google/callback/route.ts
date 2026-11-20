@@ -104,12 +104,14 @@ export async function GET(request: Request) {
       return response;
     }
 
+    let createdAccount = false;
     if (member) {
       const existingProfile = member.profile && typeof member.profile === 'object' ? member.profile : {};
       if (existingProfile.googleSubject !== profile.sub) {
         return redirectWithError(origin, 'google-email-exists', professional);
       }
     } else {
+      createdAccount = true;
       await payload.create({
         collection: 'members',
         overrideAccess: true,
@@ -144,7 +146,13 @@ export async function GET(request: Request) {
     });
     if (!loggedIn.token) return redirectWithError(origin, 'google-login-failed', professional);
 
-    const response = NextResponse.redirect(`${origin}${stateData.next || '/'}`);
+    // A brand-new account picks its account type first (buyer → home, professionals → set-up).
+    const next = stateData.next || '/';
+    const destination =
+      createdAccount && !next.startsWith('/register/professional')
+        ? `/register/professional${next !== '/' ? `?${new URLSearchParams({ next })}` : ''}`
+        : next;
+    const response = NextResponse.redirect(`${origin}${destination}`);
     response.cookies.set(
       cookieOptions(
         generatePayloadCookie({

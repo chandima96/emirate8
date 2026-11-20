@@ -1274,6 +1274,19 @@ html.is-embed .mkt-shell {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* Register artwork: crossfade + gentle settle when the account type changes. */
+.reg-art {
+  opacity: 0;
+  transform: scale(1.06);
+  transition: opacity 0.9s var(--ease-soft), transform 1.4s var(--ease-fluid);
+}
+.reg-art.is-active {
+  opacity: 0.9;
+  transform: scale(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reg-art { transition: opacity 0.3s linear; transform: none; }
+}
 /* Payment completed: ring draws, fills, check strokes in, then a redirect progress bar. */
 .pay-done-ring {
   fill: transparent;
@@ -1398,4 +1411,289 @@ html.is-embed .mkt-shell {
   .auth-flow .step.is-current .step-dot {
     transform: none;
   }
+}
+
+/* ---------- Membership showcase (full-screen plan chooser in registration) ---------- */
+.ms-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: radial-gradient(120% 80% at 50% -10%, #1d3236 0%, var(--color-ink-deep, #0c1719) 55%) fixed;
+  color: #fff;
+  will-change: clip-path;
+  scrollbar-width: none;
+}
+.ms-shell::-webkit-scrollbar { display: none; }
+/* Table wrapper: swipe sideways on narrow screens, never show a bar (rows animate in from below). */
+.ms-scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.ms-scroll-x::-webkit-scrollbar { display: none; }
+.ms-glow {
+  pointer-events: none;
+  position: fixed;
+  inset: -20% -10% auto;
+  height: 70vh;
+  background:
+    radial-gradient(40% 50% at 25% 40%, rgba(169, 192, 175, 0.18), transparent 70%),
+    radial-gradient(35% 45% at 78% 30%, rgba(209, 165, 72, 0.12), transparent 70%);
+  filter: blur(20px);
+  animation: msGlow 16s var(--ease-soft) infinite alternate;
+}
+@keyframes msGlow {
+  from { transform: translate3d(-3%, 0, 0) scale(1); }
+  to { transform: translate3d(3%, 2%, 0) scale(1.08); }
+}
+.ms-top {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: linear-gradient(to bottom, rgba(12, 23, 25, 0.92), rgba(12, 23, 25, 0));
+}
+@media (min-width: 640px) { .ms-top { padding: 18px 32px; } }
+.ms-close {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  width: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  transition: transform 0.4s var(--ease-fluid), background-color 0.2s;
+}
+.ms-close:hover { background: rgba(255, 255, 255, 0.08); transform: rotate(90deg); }
+
+/* Content enters after the shell has started to grow. */
+.ms-rise {
+  animation: msRise 0.8s var(--ease-fluid) both;
+  animation-delay: calc(var(--d, 0) * 70ms + 260ms);
+}
+@keyframes msRise {
+  from { opacity: 0; transform: translateY(22px) scale(0.985); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.ms-shell.is-closing > :not(.ms-glow) {
+  transition: opacity 0.18s ease-out;
+  opacity: 0;
+}
+
+/* Tier switcher (mobile) */
+.ms-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.ms-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b9c4c1;
+  transition: background-color 0.35s var(--ease-fluid), color 0.25s;
+}
+.ms-tab[aria-selected='true'] { background: #fff; color: var(--color-ink, #142326); }
+
+/* Columns: swipeable carousel on phones, three-up grid on desktop. */
+.ms-track {
+  position: relative;
+  margin-top: 24px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(84%, 340px);
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 8px 8% 18px;
+  margin-inline: -16px;
+  scrollbar-width: none;
+}
+.ms-track::-webkit-scrollbar { display: none; }
+@media (min-width: 1024px) {
+  .ms-track {
+    margin: 44px 0 0;
+    padding: 0;
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+    gap: 18px;
+  }
+}
+.ms-glide {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 30px 80px -30px rgba(169, 192, 175, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.6);
+  transition: transform 0.6s var(--ease-fluid), width 0.6s var(--ease-fluid), height 0.6s var(--ease-fluid);
+  pointer-events: none;
+}
+.ms-card {
+  position: relative;
+  z-index: 1;
+  scroll-snap-align: center;
+  cursor: pointer;
+  border-radius: 18px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  color: #fff;
+  outline: none;
+  transition: color 0.35s, border-color 0.35s, background-color 0.35s, transform 0.5s var(--ease-fluid);
+}
+.ms-card:hover:not(.is-on) { transform: translateY(-4px); border-color: rgba(255, 255, 255, 0.24); }
+.ms-card:focus-visible { box-shadow: 0 0 0 3px var(--color-sage, #a9c0af); }
+.ms-card.is-on { color: var(--color-ink, #142326); background: transparent; border-color: transparent; }
+.ms-sub { color: #9fb0ac; transition: color 0.35s; }
+.ms-card.is-on .ms-sub { color: var(--color-muted, #6a7472); }
+.ms-rule { border-top: 1px solid rgba(255, 255, 255, 0.1); transition: border-color 0.35s; }
+.ms-card.is-on .ms-rule { border-color: var(--color-line, #dce2de); }
+.ms-medal {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5), 0 4px 12px -4px rgba(0, 0, 0, 0.45);
+}
+.ms-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(169, 192, 175, 0.18);
+  color: var(--color-sage, #a9c0af);
+  transition: background-color 0.35s, color 0.35s;
+}
+.ms-card.is-on .ms-badge { background: var(--color-sage-soft, #dce6de); color: var(--color-sage-ink, #3e5547); }
+.ms-dot {
+  position: relative;
+  height: 22px;
+  width: 22px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  transition: border-color 0.3s, background-color 0.3s;
+}
+.ms-card.is-on .ms-dot { border-color: var(--color-ink, #142326); background: var(--color-ink, #142326); }
+.ms-card.is-on .ms-dot::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 999px;
+  background: #fff;
+  animation: msPop 0.45s var(--ease-fluid) both;
+}
+.ms-bar {
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background-color 0.35s;
+}
+.ms-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-sage, #a9c0af), #e6efe8);
+  transition: width 1s var(--ease-fluid);
+}
+.ms-card.is-on .ms-bar { background: var(--color-mist, #ecefeb); }
+.ms-card.is-on .ms-bar > span { background: linear-gradient(90deg, var(--color-sage-ink, #3e5547), var(--color-ink, #142326)); }
+.ms-check { color: var(--color-sage, #a9c0af); transition: color 0.35s; }
+.ms-card.is-on .ms-check { color: var(--color-ok, #2f6b4a); }
+.ms-card.is-on .ms-feat { animation: msFeat 0.5s var(--ease-fluid) both; animation-delay: calc(var(--f, 0) * 50ms + 120ms); }
+@keyframes msFeat {
+  from { opacity: 0.2; transform: translateX(-6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes msPop {
+  from { transform: scale(0); }
+  60% { transform: scale(1.25); }
+  to { transform: scale(1); }
+}
+.ms-pop { animation: msPop 0.5s var(--ease-fluid) both; }
+
+/* Comparison table */
+.ms-table { width: 100%; min-width: 560px; border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
+.ms-table th,
+.ms-table td { padding: 13px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.ms-table tbody th { text-align: left; font-weight: 500; color: #b9c4c1; }
+.ms-table td { text-align: center; color: #fff; font-variant-numeric: tabular-nums; transition: background-color 0.4s var(--ease-fluid); }
+.ms-table thead th { font-family: var(--font-display); font-size: 15px; }
+.ms-table .is-on { background: rgba(169, 192, 175, 0.1); }
+.ms-table thead .is-on { border-radius: 12px 12px 0 0; }
+.ms-th-btn { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-weight: 600; }
+.ms-compare tbody tr { opacity: 0; transform: translateY(10px); }
+.ms-compare.is-seen tbody tr {
+  animation: msRow 0.55s var(--ease-fluid) both;
+  animation-delay: calc(var(--r, 0) * 45ms);
+}
+@keyframes msRow { to { opacity: 1; transform: none; } }
+.ms-perk { padding: 18px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.025); }
+
+/* Sticky action bar */
+.ms-bar-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  /* Glass: translucent tint + heavy blur/saturation, hairline highlight, soft top sheen. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%),
+    rgba(20, 35, 38, 0.42);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 -24px 60px -30px rgba(0, 0, 0, 0.7);
+  animation: msDock 0.7s var(--ease-fluid) 0.55s both;
+}
+.ms-bar-dock::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(169, 192, 175, 0.55), rgba(255, 255, 255, 0.4), rgba(209, 165, 72, 0.45), transparent);
+}
+.ms-cta {
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-ink, #142326);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 10px 30px -12px rgba(169, 192, 175, 0.6);
+}
+.ms-cta:hover:not(:disabled) { background: #fff; }
+/* Browsers without backdrop-filter get a solid, still-readable bar. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ms-bar-dock { background: rgba(16, 29, 32, 0.96); }
+}
+@keyframes msDock { from { transform: translateY(100%); } to { transform: none; } }
+@media (max-width: 480px) {
+  .ms-bar-dock .btn-lg { padding-inline: 14px; font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-glow, .ms-rise, .ms-bar-dock, .ms-pop, .ms-card.is-on .ms-feat, .ms-card.is-on .ms-dot::after { animation: none; }
+  .ms-compare tbody tr { opacity: 1; transform: none; animation: none !important; }
+  .ms-glide, .ms-bar > span, .ms-card { transition: none; }
 }

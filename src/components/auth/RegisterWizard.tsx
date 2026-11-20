@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { loadStripe, type Stripe as StripeJs } from '@stripe/stripe-js';
-import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { Wordmark } from '@/components/layout/Wordmark';
 import { useSession } from '@/components/providers/SessionProvider';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
@@ -15,6 +14,7 @@ import {
   startProfessionalCheckout,
   completeProfessionalCheckout,
   emailVerified,
+  loadSessionUser,
   sendEmailCode,
   confirmEmailCode,
   plans,
@@ -23,6 +23,8 @@ import { uploadRegistrationEvidence } from '@/lib/mediaClient';
 import { cx, fmtBytes } from '@/lib/utils';
 import { FieldError, errProps, SignedInNote, safeNext } from './authShared';
 import { QuickBuyerForm } from './QuickBuyerForm';
+import { MembershipShowcase } from './MembershipShowcase';
+import { StripePayment } from './StripePayment';
 
 /*
  * Registration, modelled on how marketplaces such as Zillow handle professionals:
@@ -42,6 +44,20 @@ const TYPES: Array<{ id: string; title: string; icon: string; desc: string }> = 
   { id: 'agency', title: 'Real Estate Agency', icon: 'building', desc: 'For companies managing agents and property portfolios.' },
   { id: 'developer', title: 'Property Developer', icon: 'buildings', desc: 'For developers publishing projects and inventory.' },
 ];
+/* Account-type step: buyers are listed too and simply continue to the site. */
+const CHOICES = [
+  { id: 'buyer', title: 'Buyer or Tenant', icon: 'house-heart', desc: 'Search, save homes and contact brokers directly.' },
+  ...TYPES,
+];
+/* Left-hand artwork for each account type (crossfades as the choice changes). */
+const ART = [
+  { id: 'default', src: '/images/register-architecture.webp' },
+  { id: 'buyer', src: '/images/dubai-hills.webp' },
+  { id: 'broker', src: '/images/dubai-marina.webp' },
+  { id: 'agency', src: '/images/business-bay.webp' },
+  { id: 'developer', src: '/images/downtown-aerial.webp' },
+];
+const ArtContext = createContext<(id: string | null) => void>(() => {});
 const TYPE_LABEL = { broker: 'broker', agency: 'agency', developer: 'developer' };
 const MAX = 10 * 1024 * 1024;
 
@@ -83,17 +99,40 @@ export function RegisterWizard({ mode = 'signup' }: { mode?: 'signup' | 'profess
   const qPlan = q.get('plan');
   const loginNext = mode === 'professional' ? professionalHref(qType, qPlan) : qType ? professionalHref(qType, qPlan) : q.get('next');
   const professional = mode === 'professional' || !!qType;
+  const [art, setArt] = useState<string | null>(null);
+  const activeArt = ART.some((a) => a.id === art) ? art : 'default';
+  // Only fetch artwork that has actually been shown: one image on first paint instead of all five.
+  const [mountedArt, setMountedArt] = useState<string[]>([activeArt]);
+  const [loadedArt, setLoadedArt] = useState<string[]>([]);
+  const [shownArt, setShownArt] = useState<string | null>(null);
+  if (!mountedArt.includes(activeArt)) setMountedArt((m) => [...m, activeArt]);
+  // Keep the previous image on screen until the new one has loaded, then crossfade.
+  if (loadedArt.includes(activeArt) && shownArt !== activeArt) setShownArt(activeArt);
+  const markLoaded = (id: string) => setLoadedArt((l) => (l.includes(id) ? l : [...l, id]));
   return (
+    <ArtContext.Provider value={setArt}>
     <div className="auth-flow lg:grid lg:min-h-screen lg:grid-cols-[40fr_60fr]">
-      <aside className="on-dark relative hidden overflow-hidden bg-ink-deep lg:block" aria-label="About Emirate08">
+      <aside className="on-dark relative hidden overflow-clip bg-ink-deep lg:block" aria-label="About Emirate08">
         <div className="sticky top-0 flex h-screen flex-col">
-          <img
-            src="/images/register-architecture.webp"
-            alt=""
-            className="auth-art absolute inset-0 h-full w-full object-cover opacity-90"
-            width="1600"
-            height="2400"
-          />
+          <div className="auth-art absolute inset-0">
+            {ART.filter((a) => mountedArt.includes(a.id)).map((a, i) => (
+              <img
+                key={a.id}
+                ref={(el) => {
+                  // Already decoded (e.g. loaded before hydration or from cache): onLoad won't fire.
+                  if (el?.complete && el.naturalWidth) markLoaded(a.id);
+                }}
+                onLoad={() => markLoaded(a.id)}
+                src={a.src}
+                alt=""
+                className={cx('reg-art absolute inset-0 h-full w-full object-cover', a.id === shownArt && 'is-active')}
+                width="1600"
+                height="2400"
+                decoding="async"
+                fetchPriority={i === 0 ? 'high' : 'low'}
+              />
+            ))}
+          </div>
           <div className="absolute inset-0 bg-gradient-to-b from-ink-deep/30 via-ink-deep/20 to-ink-deep/95" />
           <div className="relative flex h-full flex-col p-10 xl:p-12">
             <Link
@@ -161,9 +200,15 @@ export function RegisterWizard({ mode = 'signup' }: { mode?: 'signup' | 'profess
           </p>
         </div>
         <div className="mx-auto flex w-full max-w-[600px] flex-1 flex-col px-5 pb-10 sm:px-8">
-          {hydrated && ready ? (
+          {hydrated && (ready || mode === 'professional') ? (
             mode === 'professional' ? (
-              <UpgradeFlow qType={qType} qPlan={qPlan} qCheckout={q.get('checkout')} qSession={q.get('session_id')} />
+              <UpgradeFlow
+                qType={qType}
+                qPlan={qPlan}
+                qCheckout={q.get('checkout')}
+                qSession={q.get('session_id')}
+                next={safeNext(q.get('next'))}
+              />
             ) : (
               <SignupFlow qType={qType} qPlan={qPlan} next={safeNext(q.get('next'))} stay={!!q.get('stay')} />
             )
@@ -173,6 +218,7 @@ export function RegisterWizard({ mode = 'signup' }: { mode?: 'signup' | 'profess
         </div>
       </div>
     </div>
+    </ArtContext.Provider>
   );
 }
 
@@ -234,10 +280,10 @@ function SignupFlow({ qType, qPlan, next, stay }) {
     if (qType && startUser && startUser.type === 'buyer' && emailVerified(startUser)) router.replace(proHref);
   }, [qType, startUser, proHref, router]);
 
-  // Everyone registers as a buyer and lands on the home page; professionals upgrade later from the account menu.
+  // Everyone registers as a buyer, then picks an account type (buyer → home, professional → set-up).
   const confirmed = () => {
     if (qType) router.push(proHref);
-    else router.push(next || '/');
+    else router.push(next ? `/register/professional?${new URLSearchParams({ next })}` : '/register/professional');
   };
 
   return (
@@ -266,8 +312,8 @@ function SignupFlow({ qType, qPlan, next, stay }) {
           {!qType && (
             <p className="mt-6 rounded-lg border border-line bg-white px-4 py-3 text-[13px] leading-[1.6] text-muted">
               <i className="bi bi-briefcase mr-1.5 text-ink" aria-hidden="true" />
-              Broker, agency or developer? Create your account here first, then choose “Work as a Professional”
-              from your profile menu to add your credentials.
+              Broker, agency or developer? Create your account here first — after confirming your email you can
+              choose your account type and add your professional credentials.
             </p>
           )}
         </div>
@@ -476,18 +522,33 @@ function EmailConfirm({ onConfirmed }) {
 /* /register/professional — upgrade a confirmed account                    */
 /* ======================================================================= */
 
-function UpgradeFlow({ qType, qPlan, qCheckout, qSession }) {
+function UpgradeFlow({ qType, qPlan, qCheckout, qSession, next }) {
   const router = useRouter();
+  const { ready } = useSession();
+  // Start from the light session request (fast) instead of waiting for the whole store to load.
   const [user, setUser] = useState(() => currentUser());
-  const [verified, setVerified] = useState(() => emailVerified(user));
+  const [known, setKnown] = useState(() => !!currentUser());
+  const [confirmedNow, setVerified] = useState(false);
+  const verified = confirmedNow || emailVerified(user);
+  useEffect(() => {
+    if (known) return;
+    let alive = true;
+    loadSessionUser()
+      .then((u) => alive && setUser((current) => current || u))
+      .catch(() => {})
+      .finally(() => alive && setKnown(true));
+    return () => {
+      alive = false;
+    };
+  }, [known]);
   // Paid through the embedded checkout (session id), or back from Stripe's hosted page.
   const [paidSession, setPaidSession] = useState<string | null>(null);
   const returningFromStripe = qCheckout === 'success' || !!paidSession;
 
   // Not signed in: create the account first, then come back here.
   useEffect(() => {
-    if (!user) router.replace(`/register?${new URLSearchParams({ type: qType || 'broker', ...(qPlan ? { plan: qPlan } : {}) })}`);
-  }, [user, qType, qPlan, router]);
+    if (known && !user) router.replace(`/register?${new URLSearchParams({ type: qType || 'broker', ...(qPlan ? { plan: qPlan } : {}) })}`);
+  }, [known, user, qType, qPlan, router]);
 
   // Already a professional (and not just back from paying): nothing to set up, go home.
   const alreadyPro = !!user && user.type !== 'buyer' && !returningFromStripe;
@@ -502,6 +563,8 @@ function UpgradeFlow({ qType, qPlan, qCheckout, qSession }) {
   }
 
   if (returningFromStripe) {
+    // Confirming updates the local store, so wait until it has loaded.
+    if (!ready) return <div className="min-h-[480px]" />;
     return <ConfirmPayment sessionId={paidSession || qSession} onUpgraded={setUser} />;
   }
 
@@ -524,6 +587,7 @@ function UpgradeFlow({ qType, qPlan, qCheckout, qSession }) {
       cancelled={qCheckout === 'cancelled'}
       onUpgraded={setUser}
       onPaid={setPaidSession}
+      next={next}
     />
   );
 }
@@ -606,7 +670,7 @@ function getStripeJs() {
   return stripeJs;
 }
 
-/** Stripe Checkout rendered inside the membership step — the buyer never leaves the site. */
+/** Payment step: Stripe Elements styled with the site UI (see StripePayment) — the buyer never leaves the site. */
 function EmbeddedPayment({ names, clientSecret, onComplete, onBack }) {
   const ref = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -624,17 +688,7 @@ function EmbeddedPayment({ names, clientSecret, onComplete, onBack }) {
           <i className="bi bi-lock h-4 w-4 text-ink" aria-hidden="true" />
           Payments are processed securely by Stripe. Your card details never touch our servers.
         </p>
-        <div className="mt-6 overflow-hidden rounded-xl border border-line bg-white p-2 sm:p-4">
-          <EmbeddedCheckoutProvider key={clientSecret} stripe={getStripeJs()} options={{ clientSecret, onComplete }}>
-            <EmbeddedCheckout />
-          </EmbeddedCheckoutProvider>
-        </div>
-        <div className="mt-6 flex border-t border-line pt-5">
-          <button type="button" className="auth-press btn btn-ghost" onClick={onBack}>
-            <i className="bi bi-arrow-left" aria-hidden="true" />
-            Change plan
-          </button>
-        </div>
+        <StripePayment stripe={getStripeJs()} clientSecret={clientSecret} onComplete={onComplete} onBack={onBack} />
       </div>
     </section>
   );
@@ -731,8 +785,9 @@ function pendingFiles(pending, type) {
   return { cardFile: pick(creds.cardFile), licenceFile: pick(creds.licenceFile), developerLogo: pick(creds.developerLogo) };
 }
 
-function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid }) {
+function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid, next }) {
   const router = useRouter();
+  const setArt = useContext(ArtContext);
   const [checkout, setCheckout] = useState<{ clientSecret: string; sessionId: string } | null>(null);
   const pending = user.pendingUpgrade || null;
   const [init] = useState(() => initialState(qType, qPlan, pending));
@@ -766,6 +821,13 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
   const focusStep = useRef(false);
   const [dir, setDir] = useState<1 | -1>(1);
   const fieldsetRefs = useRef({});
+  const formRef = useRef<HTMLFormElement>(null);
+  /** Full-screen plan showcase; holds the rect it grows out of. */
+  const [showcase, setShowcase] = useState<{ from: DOMRect | null } | null>(null);
+  const openShowcase = (el?: Element | null) => setShowcase({ from: el?.getBoundingClientRect() ?? null });
+  const showcasePlans = Object.values(plans())
+    .filter((item) => item.roleAudience === type)
+    .sort((a, b) => ((a as { sortOrder?: number }).sortOrder ?? 0) - ((b as { sortOrder?: number }).sortOrder ?? 0));
 
   const selectedPlan = plans()[plan];
   const price = typeof selectedPlan?.price === 'number' && selectedPlan.price > 0 ? selectedPlan.price : null;
@@ -786,9 +848,12 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
     const f = fieldsetRefs.current[step];
     if (focusStep.current) {
       focusStep.current = false;
-      f?.querySelector('[data-step-heading]')?.focus({ preventScroll: true });
+      // The plan showcase owns focus while it is open (it returns focus to the chosen plan on close).
+      if (!showcase) f?.querySelector('[data-step-heading]')?.focus({ preventScroll: true });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+    // Runs on step changes only; `showcase` is read as of that render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const val = (id) => String(v[id] || '').trim();
@@ -815,9 +880,15 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
     ...errProps(id, errors[id]),
   });
 
+  useEffect(() => {
+    setArt(type);
+  }, [type, setArt]);
+  useEffect(() => () => setArt(null), [setArt]);
+
   const setType = (t) => {
     setTypeState(t);
     setTypeError(false);
+    if (t === 'buyer') return;
     setPlanState(`${t}-bronze`);
     setPlanTouched(false);
     setFiles(pendingFiles(pending, t));
@@ -961,7 +1032,15 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
   const onSubmit = (e) => {
     e.preventDefault();
     if (busy || !validate(step)) return;
+    if (step === 1 && type === 'buyer') {
+      doneRef.current = true;
+      clearDraft();
+      router.push(next || '/');
+      return;
+    }
     if (step < 3) {
+      // Reaching the membership step grows the full-screen plan showcase out of the form.
+      if (step === 2) openShowcase(formRef.current);
       go(step + 1);
       return;
     }
@@ -997,7 +1076,23 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
         </div>
       )}
 
+      {showcase && (
+        <MembershipShowcase
+          plans={showcasePlans}
+          selected={plan}
+          onSelect={setPlan}
+          originRect={showcase.from}
+          targetRect={(id) => formRef.current?.querySelector(`[data-plan="${id}"]`)?.getBoundingClientRect() ?? null}
+          audienceLabel={TYPE_LABEL[type] || 'professional'}
+          onClose={() => {
+            setShowcase(null);
+            requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>(`[data-plan="${plan}"]`)?.focus());
+          }}
+        />
+      )}
+
       <form
+        ref={formRef}
         className="mt-8 lg:mt-10"
         style={{ '--auth-dir': dir } as React.CSSProperties}
         noValidate
@@ -1014,20 +1109,27 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
         >
           <legend className="sr-only">Account type</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
-            Go <em className="f font-normal">Professional.</em>
+            Choose Your <em className="f font-normal">Account Type.</em>
           </h2>
           <p className="mt-2 text-[14px] text-muted">
-            Signed in as <span className="font-semibold text-ink">{user.email}</span>. Choose the professional account
-            that fits you.
+            Signed in as <span className="font-semibold text-ink">{user.email}</span>. Tell us how you&apos;ll use
+            Emirate08.
           </p>
-          <div className="mt-6 grid gap-3" role="radiogroup" aria-label="Account type" onKeyDown={radioKeys(TYPES, setType)}>
-            {TYPES.map((t, i) => (
+          <div className="mt-6 grid gap-3" role="radiogroup" aria-label="Account type" onKeyDown={radioKeys(CHOICES, setType)}>
+            {CHOICES.map((t, i) => [
+              i === 1 && (
+                <div key="divider" className="flex items-center gap-3 pt-3 pb-1 text-2xs font-semibold tracking-[.12em] text-muted uppercase">
+                  <span className="h-px flex-1 bg-line" />
+                  Professional accounts
+                  <span className="h-px flex-1 bg-line" />
+                </div>
+              ),
               <button
                 key={t.id}
                 type="button"
                 role="radio"
                 aria-checked={type === t.id}
-                tabIndex={type === t.id || (!type && t.id === 'broker') ? 0 : -1}
+                tabIndex={type === t.id || (!type && t.id === 'buyer') ? 0 : -1}
                 className="option-card auth-rise"
                 style={{ '--d': i + 1 } as React.CSSProperties}
                 data-type={t.id}
@@ -1041,8 +1143,8 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
                   </span>
                   <span className="mt-1 block text-[13px] text-muted">{t.desc}</span>
                 </span>
-              </button>
-            ))}
+              </button>,
+            ])}
           </div>
           {typeError && (
             <p className="mt-3 text-xs text-danger" role="alert">
@@ -1222,6 +1324,15 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            className="auth-press auth-rise mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line bg-white/60 px-4 py-3 text-[13px] font-semibold text-ink hover:border-ink"
+            style={{ '--d': planCards.length + 1 } as React.CSSProperties}
+            onClick={(e) => openShowcase(e.currentTarget)}
+          >
+            <i className="bi bi-arrows-fullscreen" aria-hidden="true" />
+            Compare plans in detail
+          </button>
           <p className="mt-3 flex items-center gap-2 text-xs text-muted">
             <i className="bi bi-calendar-event h-3.5 w-3.5 text-ink" aria-hidden="true" />
             {price
@@ -1272,11 +1383,7 @@ function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid 
               <i className="bi bi-arrow-left" aria-hidden="true" />
               Back
             </button>
-          ) : (
-            <button type="button" className="auth-press btn btn-ghost" onClick={() => router.push('/')}>
-              Not now
-            </button>
-          )}
+          ) : null}
           <button type="submit" className="auth-press btn btn-dark btn-lg ml-auto" disabled={busy} aria-busy={busy}>
             {busy ? (
               <>
