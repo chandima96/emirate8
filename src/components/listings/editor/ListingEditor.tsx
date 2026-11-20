@@ -34,6 +34,7 @@ import { DesignerStep } from './DesignerStep';
 import { hydrateEditor, projectListing, validateEditorStep, editorReadiness } from './designer-model';
 import { publicListing } from '@/lib/publicListing';
 import { PreviewModal } from './PreviewModal';
+import { STEP_HINTS, STEP_TIPS } from './stepGuide';
 import { LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
 import { readAiResponse } from '@/components/ai/AiCredits';
 
@@ -900,9 +901,21 @@ export function ListingEditor({ id = undefined }) {
     return <DesignerStep key={uiStep} ed={ed} step={schemaStep(uiStep)} preview={reviewCard} ready={ready} />;
   });
 
+  const stepDone = (k: number) => (isAgency && k === 8 ? k < step : stepErrors(k).length === 0);
+  const completed = stepNames.reduce((n, _, i) => n + (i + 1 < reviewStep && stepDone(i + 1) ? 1 : 0), 0);
+  const percent = Math.round((completed / Math.max(reviewStep - 1, 1)) * 100);
+  const currentName = stepNames[step - 1];
+  const tips = STEP_TIPS[currentName];
+  const goToStep = (k: number) => {
+    if (k > step && !check(step)) return;
+    if (k !== step) setErrors({});
+    go(k, true);
+    if (k > step) saveInBackground();
+  };
+
   return (
     <AiReviewContext.Provider value={aiReview}>
-    <div className="listing-editor mx-auto max-w-[1320px] px-4 pb-16 sm:px-6 lg:px-12">
+    <div className="listing-editor mx-auto max-w-[1440px] px-4 pb-16 sm:px-6 lg:px-10">
       <nav className="mb-3 text-xs text-muted" aria-label="Breadcrumb">
         <Link href="/listings" className="hover:text-ink">
           My Listings
@@ -910,28 +923,29 @@ export function ListingEditor({ id = undefined }) {
         <span className="mx-1.5">/</span>
         <span className="text-ink">{crumb}</span>
       </nav>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow mb-2">Listings</p>
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="listing-editor-title">{saved ? 'Edit property' : 'Create a listing'}</h1>
             <span className={'badge ' + status.cls}>{status.label}</span>
           </div>
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-muted">
+            <Icon name={dirty ? "pencil" : "cloud-check"} />
             {note.warn ? <span className="text-warn">{note.text}</span> : note.text}
+            {dirty && <span className="text-muted"> · unsaved changes</span>}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn btn-ghost btn-danger" onClick={discardDraft}>
-            <Icon name="trash3" /> Discard draft
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn btn-ghost text-danger hover:bg-danger-soft" onClick={discardDraft}>
+            <Icon name="trash3" /> Discard
           </button>
           <button type="button" className="btn btn-outline" onClick={() => setPreviewOpen(true)}>
             <Icon name="eye" />
-            Preview Listing
+            Preview
           </button>
-          <button type="button" className="btn btn-outline" disabled={saving} onClick={saveDraft}>
-            <Icon name="floppy" />
-            Save draft
+          <button type="button" className="btn btn-dark" disabled={saving} onClick={saveDraft}>
+            <Icon name={saving ? 'hourglass-split' : 'floppy'} />
+            {saving ? 'Saving…' : 'Save draft'}
           </button>
         </div>
       </div>
@@ -964,66 +978,94 @@ export function ListingEditor({ id = undefined }) {
         )}
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
-        <ol
-          className="no-scrollbar flex gap-1 overflow-x-auto lg:sticky lg:top-24 lg:flex-col lg:gap-0.5 lg:self-start"
-          aria-label="Listing steps"
-        >
-          {stepNames.map((name, i) => {
-            const k = i + 1;
-            return (
-              <li key={k}>
-                <button
-                  type="button"
-                  className={cx(
-                    'wz-step flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13px] whitespace-nowrap',
-                    k === step && 'is-current',
-                    k !== step && (isAgency && k === 8 ? k < step : stepErrors(k).length === 0) && 'is-done',
-                  )}
-                  aria-current={k === step ? 'step' : undefined}
-                  disabled={saving}
-                  onClick={async () => {
-                    if (k > step && !check(step)) return;
-                    if (k !== step) setErrors({});
-                    go(k, true);
-                    if (k > step) saveInBackground();
-                  }}
-                >
-                  <span className="step-dot">{k}</span>
-                  {stepLabel[k] || name}
-                  {(aiFilledByStep[k] > 0 || aiReviewByStep[k] > 0) && (
-                    <span className="ml-auto inline-flex items-center gap-1 pl-2">
-                      {aiFilledByStep[k] > 0 && (
-                        <span
-                          className="inline-flex h-5 items-center gap-0.5 rounded-full bg-[#ecebff] px-1.5 text-[10px] font-semibold text-[#4338a8]"
-                          title={`${aiFilledByStep[k]} field${aiFilledByStep[k] === 1 ? '' : 's'} filled by AI`}
-                        >
-                          <Icon name="stars" aria-hidden="true" />
-                          {aiFilledByStep[k]}
-                          <span className="sr-only"> filled by AI</span>
-                        </span>
-                      )}
-                      {aiReviewByStep[k] > 0 && (
-                        <span
-                          className="inline-flex h-5 items-center gap-0.5 rounded-full bg-warn-soft px-1.5 text-[10px] font-semibold text-warn"
-                          title={`${aiReviewByStep[k]} AI suggestion${aiReviewByStep[k] === 1 ? '' : 's'} to review`}
-                        >
-                          <Icon name="exclamation-circle" aria-hidden="true" />
-                          {aiReviewByStep[k]}
-                          <span className="sr-only"> to review</span>
-                        </span>
-                      )}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[272px_minmax(0,1fr)] 2xl:grid-cols-[272px_minmax(0,1fr)_288px]">
+        {/* Step navigation: compact progress on small screens, a vertical stepper from lg up. */}
+        <aside className="lg:sticky lg:top-24 lg:self-start">
+          <div className="le-progress card p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[13px] font-semibold text-ink">
+                <span className="lg:hidden">
+                  Step {step} of {totalSteps} · {currentName}
+                </span>
+                <span className="hidden lg:inline">Your listing</span>
+              </p>
+              <p className="text-xs text-muted">
+                <span className="font-semibold text-ink">{percent}%</span> complete
+              </p>
+            </div>
+            <div
+              className="le-progress-track mt-3"
+              role="progressbar"
+              aria-label="Listing completion"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+            >
+              <span style={{ width: percent + '%' }} />
+            </div>
+          </div>
+
+          <ol
+            className="le-steps no-scrollbar mt-3 flex gap-1.5 overflow-x-auto lg:mt-4 lg:flex-col lg:gap-0 lg:overflow-visible"
+            aria-label="Listing steps"
+          >
+            {stepNames.map((name, i) => {
+              const k = i + 1;
+              const current = k === step;
+              const done = !current && stepDone(k);
+              return (
+                <li key={k} className={cx('le-step-item', done && 'is-done', current && 'is-current')}>
+                  <button
+                    type="button"
+                    className={cx('le-step', current && 'is-current', done && 'is-done')}
+                    aria-current={current ? 'step' : undefined}
+                    disabled={saving}
+                    onClick={() => goToStep(k)}
+                  >
+                    <span className="le-step-dot" aria-hidden="true">
+                      {done ? <Icon name="check-lg" /> : k}
                     </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ol>
+                    <span className="min-w-0 flex-1">
+                      <span className={cx('le-step-name', !current && 'max-lg:sr-only')}>
+                        {stepLabel[k] || name}
+                        {done && <span className="sr-only"> (complete)</span>}
+                      </span>
+                      {STEP_HINTS[name] && <span className="le-step-hint">{STEP_HINTS[name]}</span>}
+                    </span>
+                    {(aiFilledByStep[k] > 0 || aiReviewByStep[k] > 0) && (
+                      <span className="hidden shrink-0 items-center gap-1 lg:inline-flex">
+                        {aiFilledByStep[k] > 0 && (
+                          <span
+                            className="inline-flex h-5 items-center gap-0.5 rounded-full bg-[#ecebff] px-1.5 text-[10px] font-semibold text-[#4338a8]"
+                            title={`${aiFilledByStep[k]} field${aiFilledByStep[k] === 1 ? '' : 's'} filled by AI`}
+                          >
+                            <Icon name="stars" aria-hidden="true" />
+                            {aiFilledByStep[k]}
+                            <span className="sr-only"> filled by AI</span>
+                          </span>
+                        )}
+                        {aiReviewByStep[k] > 0 && (
+                          <span
+                            className="inline-flex h-5 items-center gap-0.5 rounded-full bg-warn-soft px-1.5 text-[10px] font-semibold text-warn"
+                            title={`${aiReviewByStep[k]} AI suggestion${aiReviewByStep[k] === 1 ? '' : 's'} to review`}
+                          >
+                            <Icon name="exclamation-circle" aria-hidden="true" />
+                            {aiReviewByStep[k]}
+                            <span className="sr-only"> to review</span>
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </aside>
 
         <form
           ref={formRef}
-          className="listing-editor-panel card min-w-0 scroll-mt-24 p-5 sm:p-7 lg:p-8"
+          className="listing-editor-panel card min-w-0 scroll-mt-24"
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
@@ -1033,68 +1075,109 @@ export function ListingEditor({ id = undefined }) {
             }
           }}
         >
-          {sections.map((s, i) => (
-            <section key={i} data-step={i + 1} hidden={step !== i + 1}>
-              {s}
-            </section>
-          ))}
+          <div className="p-5 sm:p-7 lg:p-9">
+            <p className="le-step-eyebrow">
+              Step {step} of {totalSteps}
+            </p>
+            {sections.map((s, i) => (
+              <section key={i} data-step={i + 1} hidden={step !== i + 1}>
+                {s}
+              </section>
+            ))}
 
-          {Object.keys(shownErrors).length > 0 && (
-            <button
-              type="button"
-              className="mt-8 flex w-full items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-left text-sm font-medium text-danger"
-              onClick={() => {
-                const first = document.querySelector(
-                  '[data-step="' + step + '"] .field.invalid, [data-step="' + step + '"] .err:not(:empty)',
-                );
-                const target = first?.querySelector('input, select, textarea, button') || first;
-                if (target) {
-                  const id = (target as HTMLElement).id;
-                  if (id) focusListingField(id);
-                  else target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                }
-              }}
-            >
-              <Icon name="exclamation-circle" />
-              <span className="flex-1">
-                {Object.keys(shownErrors).length === 1
-                  ? '1 field in this step needs attention.'
-                  : Object.keys(shownErrors).length + ' fields in this step need attention.'}
-              </span>
-              <span className="text-xs underline">Show me</span>
-            </button>
-          )}
-          <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5', Object.keys(shownErrors).length > 0 ? 'mt-4' : 'mt-8')}>
-            {step > 1 && (
-              <button type="button" className="btn btn-ghost" onClick={() => { setErrors({}); go(step - 1, true); }}>
-                <Icon name="arrow-left" />
-                Back
+            {Object.keys(shownErrors).length > 0 && (
+              <button
+                type="button"
+                className="mt-8 flex w-full items-center gap-2 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-left text-sm font-medium text-danger"
+                onClick={() => {
+                  const first = document.querySelector(
+                    '[data-step="' + step + '"] .field.invalid, [data-step="' + step + '"] .err:not(:empty)',
+                  );
+                  const target = first?.querySelector('input, select, textarea, button') || first;
+                  if (target) {
+                    const id = (target as HTMLElement).id;
+                    if (id) focusListingField(id);
+                    else target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  }
+                }}
+              >
+                <Icon name="exclamation-circle" />
+                <span className="flex-1">
+                  {Object.keys(shownErrors).length === 1
+                    ? '1 field in this step needs attention.'
+                    : Object.keys(shownErrors).length + ' fields in this step need attention.'}
+                </span>
+                <span className="text-xs underline">Show me</span>
               </button>
             )}
-            <span className="text-xs text-muted">
-              Step {step} of {totalSteps} · {stepNames[step - 1]}
-            </span>
-            <div className="ml-auto flex flex-wrap gap-2">
-              {step === reviewStep ? (
-                <>
-                  <button type="button" className="btn btn-outline" onClick={() => setPreviewOpen(true)}>
-                    <Icon name="eye" />
-                    Preview Listing
-                  </button>
-                  <button type="button" className="btn btn-dark" disabled={publishing} aria-busy={publishing} onClick={publish}>
-                    <Icon name={publishing ? 'hourglass-split' : 'send'} />
-                    {publishing ? 'Submitting…' : publishLabel}
-                  </button>
-                </>
-              ) : (
-                <button type="submit" className="btn btn-dark">
-                  Continue
-                  <Icon name="arrow-right" />
+          </div>
+
+          {/* Sticky action bar: Back · progress · Continue, always in reach on long steps. */}
+          <div className="le-actions">
+            <div className="le-actions-segments" aria-hidden="true">
+              {stepNames.map((_, i) => (
+                <span key={i} className={cx(i + 1 < step && 'is-past', i + 1 === step && 'is-current')} />
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 sm:px-7 lg:px-9">
+              {step > 1 ? (
+                <button type="button" className="btn btn-outline" onClick={() => { setErrors({}); go(step - 1, true); }}>
+                  <Icon name="arrow-left" />
+                  Back
                 </button>
+              ) : (
+                <span />
               )}
+              <span className="hidden text-xs text-muted sm:inline">
+                {step < totalSteps ? (
+                  <>
+                    Next: <span className="font-semibold text-ink">{stepNames[step]}</span>
+                  </>
+                ) : (
+                  'Last step'
+                )}
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {step === reviewStep ? (
+                  <>
+                    <button type="button" className="btn btn-outline" onClick={() => setPreviewOpen(true)}>
+                      <Icon name="eye" />
+                      Preview
+                    </button>
+                    <button type="button" className="btn btn-dark btn-lg" disabled={publishing} aria-busy={publishing} onClick={publish}>
+                      <Icon name={publishing ? 'hourglass-split' : 'send'} />
+                      {publishing ? 'Submitting…' : publishLabel}
+                    </button>
+                  </>
+                ) : (
+                  <button type="submit" className="btn btn-dark btn-lg">
+                    Continue
+                    <Icon name="arrow-right" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </form>
+
+        {tips && (
+          <aside className="hidden 2xl:sticky 2xl:top-24 2xl:block 2xl:self-start" aria-label="Tips for this step">
+            <div className="le-tips card p-5">
+              <span className="le-tips-icon" aria-hidden="true">
+                <Icon name="lightbulb" />
+              </span>
+              <p className="mt-3 text-[15px] font-semibold text-ink">{tips.title}</p>
+              <ul className="mt-3 space-y-2.5">
+                {tips.tips.map((t) => (
+                  <li key={t} className="flex gap-2 text-[13px] leading-relaxed text-muted">
+                    <Icon name="check2" className="mt-0.5 shrink-0 text-sage-ink" />
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </aside>
+        )}
       </div>
 
       <PreviewModal

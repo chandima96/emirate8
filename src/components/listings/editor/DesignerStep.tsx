@@ -41,11 +41,11 @@ export function DesignerStep({ ed, step, preview, ready }) {
           optional
           defaultOpen={!!d.tourUrl}
           hasErrors={!!ed.errors.tourUrl}
-          className="mt-6 border-t border-line pt-5"
+          className="le-section mt-5"
         >
           <DesignerField ed={ed} fieldKey="tourUrl" />
         </EditorSection>
-        <p className="mt-6 border-t border-line pt-5 text-xs text-muted">
+        <p className="mt-5 flex items-start gap-2 text-xs text-muted">
           You confirm your rights to use these photos, videos and documents in the declarations at Review &amp; publish.
         </p>
       </>
@@ -57,10 +57,10 @@ export function DesignerStep({ ed, step, preview, ready }) {
         <StepReview ed={ed} preview={preview} ready={ready} />
       ) : (
         <>
-          <h2 className="h3" tabIndex={-1}>
+          <h2 className="le-step-title" tabIndex={-1}>
             {definition.title}
           </h2>
-          <p className="mt-1 text-[13px] text-muted">{definition.desc}</p>
+          <p className="le-step-desc">{definition.desc}</p>
         </>
       )}
       {step === 7 && (
@@ -68,7 +68,7 @@ export function DesignerStep({ ed, step, preview, ready }) {
           <Representation ed={ed} />
         </div>
       )}
-      <div className="mt-6 space-y-7">
+      <div className="mt-7 space-y-4">
         {sections.map((section) => (
           <EditorSection
             key={section.id}
@@ -93,7 +93,7 @@ export function DesignerStep({ ed, step, preview, ready }) {
                   ? 'Internal developer notes'
                   : section.title
             }
-            className="border-t border-line pt-5 first:border-t-0 first:pt-0"
+            className="le-section"
           >
             {['community', 'building', 'map'].includes(section.kind) && <LocationWidget ed={ed} kind={section.kind} />}
             {section.kind === 'needClass' && (
