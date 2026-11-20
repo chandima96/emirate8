@@ -181,7 +181,7 @@ export function LoginForm() {
             <span className="h-px flex-1 bg-line" />
           </div>
           <form action="/api/auth/google" method="get" className="auth-rise mt-6" style={{ '--d': 7 } as React.CSSProperties}>
-            <input type="hidden" name="next" value={next || '/saved'} />
+            <input type="hidden" name="next" value={next || '/'} />
             <button type="submit" className="auth-press btn btn-outline btn-lg w-full">
               <GoogleMark />
               Continue with Google

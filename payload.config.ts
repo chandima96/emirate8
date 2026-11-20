@@ -1,6 +1,7 @@
 import { buildConfig } from 'payload';
 import { postgresAdapter } from '@payloadcms/db-postgres';
 import { s3Storage } from '@payloadcms/storage-s3';
+import { nodemailerAdapter } from '@payloadcms/email-nodemailer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
@@ -100,6 +101,24 @@ export default buildConfig({
             : false,
     },
   }),
+
+  // ── Email (SMTP) ───────────────────────────────────────────
+  // Account emails (confirmation codes, password resets, welcome emails). Without SMTP_HOST, Payload
+  // only writes emails to the server console.
+  ...(process.env.SMTP_HOST
+    ? {
+        email: nodemailerAdapter({
+          defaultFromAddress: (process.env.SMTP_FROM || process.env.SMTP_USER || '').trim(),
+          defaultFromName: (process.env.SMTP_FROM_NAME || 'Emirate08').trim(),
+          transportOptions: {
+            host: process.env.SMTP_HOST.trim(),
+            port: Number(process.env.SMTP_PORT) || 465,
+            secure: (process.env.SMTP_SECURE || 'true').trim() !== 'false',
+            auth: { user: (process.env.SMTP_USER || '').trim(), pass: process.env.SMTP_PASSWORD || '' },
+          },
+        }),
+      }
+    : {}),
 
   // ── Supabase S3-compatible Storage ────────────────────────
   plugins: [

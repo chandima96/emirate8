@@ -1,10 +1,12 @@
 import 'server-only';
 import { result, isRecord } from './result';
 import configPromise from '@payload-config';
-import { getPayload } from 'payload';
+import { getPayload, type Payload } from 'payload';
 import { syncMemberBroker } from './member-brokers';
+import { createMemberAgency } from './auth';
+import { PLAN_CATALOG } from '@/config/plans';
 
-function toAppUser(member: Record<string, any>) {
+export function toAppUser(member: Record<string, any>) {
   const profile = member.profile && typeof member.profile === 'object' ? member.profile : {};
   return {
     ...profile,
@@ -92,6 +94,95 @@ export async function updateSession(patch: unknown, requestHeaders: Headers) {
   await syncMemberBroker(payload, updated);
 
   return result({ user: toAppUser(updated as Record<string, any>) });
+}
+
+export const PRO_TYPES = ['broker', 'agency', 'developer'] as const;
+export type ProType = (typeof PRO_TYPES)[number];
+export type ProfessionalUpgrade = { type: ProType; plan: string; credentials: Record<string, unknown> };
+
+const CREDENTIAL_KEYS = [
+  'agencyName', 'orn', 'tradeLicence', 'agents', 'licenceFile',
+  'brn', 'expiry', 'cardFile',
+  'developerName', 'developerLogo',
+];
+
+/** Checks the professional details sent from the registration wizard and keeps only known fields. */
+export function readProfessionalUpgrade(body: unknown, memberName: string): ProfessionalUpgrade | { error: string } {
+  if (!isRecord(body) || !PRO_TYPES.includes(body.accountType)) return { error: 'Choose a professional account type.' };
+  const type = body.accountType as ProType;
+  const raw = isRecord(body.credentials) ? body.credentials : {};
+  const credentials: Record<string, unknown> = {};
+  for (const key of CREDENTIAL_KEYS) {
+    const value = raw[key];
+    if (typeof value === 'string') credentials[key] = value.trim().slice(0, 200);
+    else if (isRecord(value) && typeof value.url === 'string') {
+      credentials[key] = {
+        id: value.id ?? null,
+        url: value.url,
+        name: String(value.name || value.filename || '').slice(0, 200),
+        type: String(value.mimetype || value.type || ''),
+        size: Number(value.size ?? value.filesize) || 0,
+      };
+    }
+  }
+  const text = (key: string) => String(credentials[key] || '');
+  if (type === 'broker') {
+    if (!/^\d{3,8}$/.test(text('brn'))) return { error: 'Enter your BRN (numbers only).' };
+    if (!credentials.cardFile) return { error: 'Upload a copy of your RERA card.' };
+    if (!text('expiry') || !(new Date(text('expiry')) > new Date())) return { error: 'Your RERA card must not be expired.' };
+  }
+  if (type === 'agency') {
+    if (text('agencyName').length < 2) return { error: 'Enter the registered agency name.' };
+    if (!/^\d{3,8}$/.test(text('orn'))) return { error: 'Enter a valid ORN (numbers only).' };
+    if (!/^[A-Za-z0-9-]{4,15}$/.test(text('tradeLicence'))) return { error: 'Enter the trade licence number.' };
+    if (!credentials.licenceFile) return { error: 'Upload a copy of your trade licence.' };
+  }
+  if (type === 'developer' && !text('developerName')) credentials.developerName = memberName;
+  const plan = PLAN_CATALOG[body.plan]?.roleAudience === type ? String(body.plan) : `${type}-bronze`;
+  return { type, plan, credentials };
+}
+
+/**
+ * Turns a buyer account into a professional account. Called only once the membership is paid for
+ * (or needs no payment) — see professionalCheckout.ts.
+ */
+export async function applyProfessionalUpgrade(
+  payload: Payload,
+  member: Record<string, any>,
+  upgrade: ProfessionalUpgrade,
+  extra: { profile?: Record<string, unknown>; membershipStatus?: string } = {},
+) {
+  const { type, plan, credentials } = upgrade;
+  const profile = member.profile && typeof member.profile === 'object' ? { ...member.profile } : {};
+  delete profile.pendingUpgrade;
+  Object.assign(profile, extra.profile || {});
+  profile.credentials = credentials;
+  profile.trial = false;
+  if (type === 'developer') {
+    const logo = credentials.developerLogo as { url?: string } | undefined;
+    profile.developer = { displayName: String(credentials.developerName || member.name), logo: logo?.url || '', public: true };
+  }
+  if (type === 'agency') {
+    profile.agency = await createMemberAgency(payload, {
+      name: String(credentials.agencyName || member.name).trim(),
+      licence: String(credentials.tradeLicence || ''),
+      email: member.email,
+    });
+  }
+  const updated = await payload.update({
+    collection: 'members',
+    id: member.id,
+    overrideAccess: true,
+    data: {
+      accountType: type,
+      plan,
+      credentialStatus: 'pending',
+      profile,
+      ...(extra.membershipStatus ? { membershipStatus: extra.membershipStatus } : {}),
+    } as any,
+  });
+  await syncMemberBroker(payload, updated);
+  return updated as Record<string, any>;
 }
 
 export async function deleteAccount(body: unknown, requestHeaders: Headers) {

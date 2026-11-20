@@ -74,3 +74,15 @@ export function planIdForAudience(planId: string | undefined, audience: AccountP
   if (planId && PLAN_CATALOG[planId]?.roleAudience === audience) return planId;
   return LEGACY_PLAN_IDS[audience][planId || ''] || `${audience}-bronze`;
 }
+
+/*
+ * Demo prices (AED / month) for trying Stripe test-mode Checkout before real prices are set in the
+ * Plans collection. Only used when NEXT_PUBLIC_STRIPE_DEMO_PRICES=true and the plan has no price.
+ */
+const DEMO_PLAN_PRICES: Record<AccountPlan['name'], number> = { Bronze: 99, Silver: 249, Gold: 499 };
+
+export function demoPlanPrice(planId: string): number | null {
+  if (process.env.NEXT_PUBLIC_STRIPE_DEMO_PRICES !== 'true') return null;
+  const plan = PLAN_CATALOG[planId];
+  return plan ? DEMO_PLAN_PRICES[plan.name] : null;
+}

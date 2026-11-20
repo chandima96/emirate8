@@ -3,6 +3,8 @@
 import { cookies, headers } from 'next/headers';
 import { authenticate } from '@/lib/server/auth';
 import { updateSession, deleteAccount } from '@/lib/server/session';
+import { startProfessionalCheckout, completeProfessionalCheckout } from '@/lib/server/professionalCheckout';
+import { sendEmailCode, confirmEmailCode } from '@/lib/server/emailVerification';
 import { createEnquiry, updateEnquiryStatus } from '@/lib/server/enquiries';
 import { joinWaitlist } from '@/lib/server/waitlist';
 import { actionResult, isRecord, result, type MutationResult } from '@/lib/server/result';
@@ -29,6 +31,22 @@ export async function authenticateAction(body: unknown) {
 
 export async function updateAccountAction(patch: unknown) {
   return run(async () => updateSession(patch, await headers()), 'Could not save your account. Please try again.');
+}
+
+export async function sendEmailCodeAction() {
+  return run(async () => sendEmailCode(await headers()), 'Could not send a confirmation code. Please try again.');
+}
+
+export async function confirmEmailCodeAction(code: string) {
+  return run(async () => confirmEmailCode(code, await headers()), 'Could not confirm your email. Please try again.');
+}
+
+export async function startProfessionalCheckoutAction(body: unknown) {
+  return run(async () => startProfessionalCheckout(body, await headers()), 'Could not start checkout. Please try again.');
+}
+
+export async function completeProfessionalCheckoutAction(sessionId: string) {
+  return run(async () => completeProfessionalCheckout(sessionId, await headers()), 'Could not confirm your payment. Please refresh the page.');
 }
 
 export async function deleteAccountAction(password: string) {

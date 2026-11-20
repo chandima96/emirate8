@@ -1274,6 +1274,51 @@ html.is-embed .mkt-shell {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* Payment completed: ring draws, fills, check strokes in, then a redirect progress bar. */
+.pay-done-ring {
+  fill: transparent;
+  stroke: var(--color-ok, #2f7a55);
+  stroke-width: 4;
+  stroke-dasharray: 277;
+  stroke-dashoffset: 277;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  animation: payRing 0.7s var(--ease-fluid) 0.1s forwards, payFill 0.35s ease-out 0.75s forwards;
+}
+.pay-done-check {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: payCheck 0.45s var(--ease-fluid) 0.95s forwards;
+}
+.pay-done {
+  animation: payPop 0.5s var(--ease-fluid) 0.75s both;
+}
+.pay-done-bar {
+  transform-origin: left;
+  animation: payBar linear forwards;
+}
+@keyframes payRing { to { stroke-dashoffset: 0; } }
+@keyframes payFill { to { fill: var(--color-ok, #2f7a55); } }
+@keyframes payCheck { to { stroke-dashoffset: 0; } }
+@keyframes payPop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes payBar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pay-done, .pay-done-ring, .pay-done-check { animation: none; }
+  .pay-done-ring { stroke-dashoffset: 0; fill: var(--color-ok, #2f7a55); }
+  .pay-done-check { stroke-dashoffset: 0; }
+}
 /* Stagger with style={{ '--d': n }} — each step is 70ms. */
 .auth-rise {
   animation: authRise 0.7s var(--ease-fluid) both;

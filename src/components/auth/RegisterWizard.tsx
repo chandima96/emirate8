@@ -1,58 +1,60 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { loadStripe, type Stripe as StripeJs } from '@stripe/stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { Wordmark } from '@/components/layout/Wordmark';
 import { useSession } from '@/components/providers/SessionProvider';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useHydrated } from '@/hooks/useStore';
-import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import {
-  ensureSeed,
-  findByLogin,
-  checkRegistrationEmail,
-  register,
-  signIn,
   currentUser,
-  saveUser,
-  log,
+  startProfessionalCheckout,
+  completeProfessionalCheckout,
+  emailVerified,
+  sendEmailCode,
+  confirmEmailCode,
   plans,
 } from '@/lib/store';
 import { uploadRegistrationEvidence } from '@/lib/mediaClient';
-import { RX, cx, fmtBytes, normaliseMobile, passwordScore } from '@/lib/utils';
-import { PasswordInput, FieldError, errProps, SignedInNote } from './authShared';
+import { cx, fmtBytes } from '@/lib/utils';
+import { FieldError, errProps, SignedInNote, safeNext } from './authShared';
 import { QuickBuyerForm } from './QuickBuyerForm';
 
-const NAMES = ['Account type', 'Your details', 'Credentials', 'Membership'];
-const BUYER_NAMES = ['Account type', 'Your details'];
-const DRAFT_KEY = 'e08:reg-draft';
-const PERSIST = ['r-name', 'r-email', 'r-mobile', 'r-brn', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-agents'];
-const TYPES: Array<{ id: string; title: string; icon: string; desc: string; soon?: boolean }> = [
+/*
+ * Registration, modelled on how marketplaces such as Zillow handle professionals:
+ *   1. Everyone creates one account (name, email, password — or Google).
+ *   2. Everyone confirms their email with a six-digit code (Google sign-ups are already confirmed).
+ *   3. Brokers, agencies and developers then upgrade that account at /register/professional:
+ *      account type → credentials → membership → Stripe Checkout.
+ * A `?type=` on /register (from the "For professionals" pages) carries people straight on to step 3.
+ */
+const PRO = ['broker', 'agency', 'developer'];
+const ACCOUNT_STEPS = ['Your account', 'Confirm email'];
+const PRO_STEPS = ['Account type', 'Credentials', 'Membership'];
+const DRAFT_KEY = 'e08:pro-draft';
+const PERSIST = ['r-brn', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-agents'];
+const TYPES: Array<{ id: string; title: string; icon: string; desc: string }> = [
   { id: 'broker', title: 'Licensed Broker', icon: 'person-check', desc: 'For individual real estate professionals.' },
-  {
-    id: 'agency',
-    title: 'Real Estate Agency',
-    icon: 'building',
-    desc: 'For companies managing agents and property portfolios.',
-  },
-  {
-    id: 'developer',
-    title: 'Property Developer',
-    icon: 'buildings',
-    desc: 'For developers publishing projects and inventory.',
-  },
-  {
-    id: 'buyer',
-    title: 'Buyer',
-    icon: 'house-heart',
-    desc: 'For buyers saving homes and contacting brokers. Free, no documents needed.',
-  },
+  { id: 'agency', title: 'Real Estate Agency', icon: 'building', desc: 'For companies managing agents and property portfolios.' },
+  { id: 'developer', title: 'Property Developer', icon: 'buildings', desc: 'For developers publishing projects and inventory.' },
 ];
-const S_LABELS = ['Password strength', 'Weak', 'Fair', 'Good', 'Strong'];
-const S_COLORS = ['#DCE2DE', '#A23B32', '#8A5A12', '#6E8F78', '#2F6B4A'];
+const TYPE_LABEL = { broker: 'broker', agency: 'agency', developer: 'developer' };
 const MAX = 10 * 1024 * 1024;
+
+const proType = (t) => (PRO.includes(t) ? t : null);
+
+/** The professional set-up URL, keeping the chosen type and plan. */
+function professionalHref(type, plan) {
+  const params = new URLSearchParams();
+  if (proType(type)) params.set('type', type);
+  if (plan) params.set('plan', plan);
+  const query = params.toString();
+  return `/register/professional${query ? `?${query}` : ''}`;
+}
 
 function loadDraft() {
   try {
@@ -69,45 +71,18 @@ function clearDraft() {
   }
 }
 
-/** Mirrors the old init: draft first, then ?type= and ?plan=, then the furthest safe step. */
-function initialState(qType, qPlan, qStep = null) {
-  const st = { step: 1, type: null, plan: null, planTouched: false, v: {} };
-  const autoPlan = (t) => {
-    if (!st.planTouched && t !== 'buyer') st.plan = `${t}-bronze`;
-  };
-  const draft = loadDraft();
-  if (draft) {
-    Object.keys(draft.v || {}).forEach((id) => {
-      if (PERSIST.includes(id) && draft.v[id]) st.v[id] = draft.v[id];
-    });
-    st.planTouched = !!draft.planTouched;
-    if (draft.type) {
-      st.type = draft.type;
-      autoPlan(draft.type);
-    }
-    if (draft.plan) st.plan = draft.plan;
-  }
-  if (qType === 'agency' || qType === 'broker' || qType === 'developer' || qType === 'buyer') {
-    st.type = qType;
-    autoPlan(qType);
-  }
-  if (qPlan && plans()[qPlan] && (!st.type || plans()[qPlan].roleAudience === st.type)) {
-    st.plan = qPlan;
-    st.planTouched = true;
-  }
-  if (st.type && st.type !== 'buyer' && plans()[st.plan]?.roleAudience !== st.type) {
-    st.plan = `${st.type}-bronze`;
-    st.planTouched = false;
-  }
-  st.step =
-    (draft && draft.step >= 2 && st.type && st.type !== 'buyer') || (qType === 'buyer' && qStep === 'details') ? 2 : 1;
-  return st;
-}
+/* ======================================================================= */
+/* Page shell                                                              */
+/* ======================================================================= */
 
-export function RegisterWizard() {
+export function RegisterWizard({ mode = 'signup' }: { mode?: 'signup' | 'professional' }) {
   const hydrated = useHydrated();
   const { ready } = useSession();
   const q = useSearchParams();
+  const qType = proType(q.get('type'));
+  const qPlan = q.get('plan');
+  const loginNext = mode === 'professional' ? professionalHref(qType, qPlan) : qType ? professionalHref(qType, qPlan) : q.get('next');
+  const professional = mode === 'professional' || !!qType;
   return (
     <div className="auth-flow lg:grid lg:min-h-screen lg:grid-cols-[40fr_60fr]">
       <aside className="on-dark relative hidden overflow-hidden bg-ink-deep lg:block" aria-label="About Emirate08">
@@ -141,21 +116,28 @@ export function RegisterWizard() {
                 Your Next <em className="f font-normal text-sage">Opportunity</em> Starts Here.
               </h1>
               <p className="mt-4 text-[14px] leading-[1.65] text-[#C9D2CF]">
-                Establish your professional account and become part of a connected real estate network.
+                {professional
+                  ? 'Create your account, confirm your email, then add your professional credentials.'
+                  : 'One account to save homes, contact brokers and follow developer launches.'}
               </p>
               <ul className="mt-7 space-y-3 border-t border-white/15 pt-6 text-[13px] text-white">
-                <li className="flex items-center gap-3">
-                  <i className="bi bi-person-vcard h-4 w-4 text-sage" aria-hidden="true" />
-                  Professional profile
-                </li>
-                <li className="flex items-center gap-3">
-                  <i className="bi bi-buildings h-4 w-4 text-sage" aria-hidden="true" />
-                  Property management
-                </li>
-                <li className="flex items-center gap-3">
-                  <i className="bi bi-diagram-3 h-4 w-4 text-sage" aria-hidden="true" />
-                  Broker network access
-                </li>
+                {(professional
+                  ? [
+                      ['person-vcard', 'Professional profile'],
+                      ['buildings', 'Property management'],
+                      ['diagram-3', 'Broker network access'],
+                    ]
+                  : [
+                      ['heart', 'Saved homes and searches'],
+                      ['chat-dots', 'Contact brokers directly'],
+                      ['buildings', 'Developer project updates'],
+                    ]
+                ).map(([icon, label]) => (
+                  <li key={label} className="flex items-center gap-3">
+                    <i className={`bi bi-${icon} h-4 w-4 text-sage`} aria-hidden="true" />
+                    {label}
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
@@ -173,15 +155,18 @@ export function RegisterWizard() {
           </Link>
           <p className="text-[13px] text-muted">
             Have an account?{' '}
-            <Link href="/login" className="link">
+            <Link href={loginNext ? `/login?next=${encodeURIComponent(loginNext)}` : '/login'} className="link">
               Sign in
             </Link>
           </p>
         </div>
         <div className="mx-auto flex w-full max-w-[600px] flex-1 flex-col px-5 pb-10 sm:px-8">
-          {ready && !q.get('stay') && <SignedInNote className="mb-4" />}
-          {hydrated ? (
-            <Wizard qType={q.get('type')} qPlan={q.get('plan')} qStep={q.get('step')} />
+          {hydrated && ready ? (
+            mode === 'professional' ? (
+              <UpgradeFlow qType={qType} qPlan={qPlan} qCheckout={q.get('checkout')} qSession={q.get('session_id')} />
+            ) : (
+              <SignupFlow qType={qType} qPlan={qPlan} next={safeNext(q.get('next'))} stay={!!q.get('stay')} />
+            )
           ) : (
             <div className="min-h-[480px]" />
           )}
@@ -191,11 +176,567 @@ export function RegisterWizard() {
   );
 }
 
-function Wizard({ qType, qPlan, qStep }) {
+/* ======================================================================= */
+/* Progress                                                                */
+/* ======================================================================= */
+
+function Progress({ names, current }: { names: string[]; current: number }) {
+  return (
+    <div className="pt-2 lg:pt-6">
+      <div className="flex items-center justify-between text-2xs font-semibold tracking-[.12em] text-muted uppercase">
+        <span>
+          Step {current} of {names.length}
+        </span>
+        <span>{names[current - 1]}</span>
+      </div>
+      <div className="meter mt-2.5">
+        <span style={{ width: (current / names.length) * 100 + '%' }} />
+      </div>
+      <ol
+        className="mt-4 hidden gap-2 sm:grid"
+        style={{ gridTemplateColumns: `repeat(${names.length}, minmax(0, 1fr))` }}
+        aria-label="Registration steps"
+      >
+        {names.map((name, i) => {
+          const n = i + 1;
+          return (
+            <li
+              key={name}
+              className={cx('step flex items-center gap-2', n === current && 'is-current', n < current && 'is-done')}
+              aria-current={n === current ? 'step' : undefined}
+            >
+              <span className="step-dot">{n < current ? <Icon name="check-lg" className="h-3 w-3" /> : n}</span>
+              <span className="step-label">{name}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/* ======================================================================= */
+/* /register — create the account and confirm the email                    */
+/* ======================================================================= */
+
+function SignupFlow({ qType, qPlan, next, stay }) {
   const router = useRouter();
+  const [startUser] = useState(() => currentUser());
+  // A signed-in buyer who has not confirmed their email picks up at the code step.
+  const [stage, setStage] = useState<'details' | 'verify'>(() =>
+    startUser && startUser.type === 'buyer' && !emailVerified(startUser) ? 'verify' : 'details',
+  );
+  const proHref = professionalHref(qType, qPlan);
+  const names = qType ? [...ACCOUNT_STEPS, ...PRO_STEPS] : ACCOUNT_STEPS;
+
+  // Already signed in and confirmed, arriving from a professional link: go straight to the upgrade.
+  useEffect(() => {
+    if (qType && startUser && startUser.type === 'buyer' && emailVerified(startUser)) router.replace(proHref);
+  }, [qType, startUser, proHref, router]);
+
+  // Everyone registers as a buyer and lands on the home page; professionals upgrade later from the account menu.
+  const confirmed = () => {
+    if (qType) router.push(proHref);
+    else router.push(next || '/');
+  };
+
+  return (
+    <section>
+      {!stay && stage === 'details' && <SignedInNote className="mt-4" />}
+      <Progress names={names} current={stage === 'verify' ? 2 : 1} />
+      {stage === 'details' ? (
+        <div key="details" className="auth-step mt-8 lg:mt-10">
+          <QuickBuyerForm
+            heading={
+              qType ? (
+                <>
+                  Start With Your <em className="f font-normal">Account.</em>
+                </>
+              ) : undefined
+            }
+            intro={
+              qType
+                ? `Create your Emirate08 account first. After confirming your email you'll add your ${TYPE_LABEL[qType]} credentials and choose a membership.`
+                : undefined
+            }
+            submitLabel={qType ? 'Create account & continue' : 'Create account'}
+            googleNext={qType ? proHref : next || undefined}
+            onSuccess={() => setStage('verify')}
+          />
+          {!qType && (
+            <p className="mt-6 rounded-lg border border-line bg-white px-4 py-3 text-[13px] leading-[1.6] text-muted">
+              <i className="bi bi-briefcase mr-1.5 text-ink" aria-hidden="true" />
+              Broker, agency or developer? Create your account here first, then choose “Work as a Professional”
+              from your profile menu to add your credentials.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div key="verify" className="auth-step mt-8 lg:mt-10">
+          <EmailConfirm onConfirmed={confirmed} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ======================================================================= */
+/* Email confirmation — the same step for every account type               */
+/* ======================================================================= */
+
+function EmailConfirm({ onConfirmed }) {
   const { toast } = useFeedback();
-  const [init] = useState(() => initialState(qType, qPlan, qStep));
-  const [step, setStep] = useState(init.step);
+  const [email, setEmail] = useState(() => currentUser()?.email || '');
+  const [digits, setDigits] = useState(['', '', '', '', '', '']);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(true);
+  const [secs, setSecs] = useState(0);
+  const [done, setDone] = useState(false);
+  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const sentOnce = useRef(false);
+
+  const send = async (manual = false) => {
+    setSending(true);
+    setError('');
+    const result = await sendEmailCode();
+    setSending(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    if (result.alreadyVerified) {
+      setDone(true);
+      return;
+    }
+    if (result.email) setEmail(result.email);
+    setDigits(['', '', '', '', '', '']);
+    setSecs(30);
+    if (manual) toast('A new code is on its way.', { icon: 'envelope' });
+    setTimeout(() => refs.current[0]?.focus(), 60);
+  };
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (sentOnce.current) return;
+    sentOnce.current = true;
+    void send();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (secs <= 0) return;
+    const timer = setTimeout(() => setSecs((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [secs]);
+
+  const check = async (arr: string[]) => {
+    const entered = arr.join('');
+    if (entered.length < 6) {
+      setError('Enter all six digits.');
+      refs.current[arr.findIndex((d) => !d)]?.focus();
+      return;
+    }
+    setBusy(true);
+    const result = await confirmEmailCode(entered);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.message);
+      setDigits(['', '', '', '', '', '']);
+      refs.current[0]?.focus();
+      return;
+    }
+    setDone(true);
+  };
+
+  const fill = (str: string, start: number) => {
+    const arr = [...digits];
+    str
+      .slice(0, 6 - start)
+      .split('')
+      .forEach((d, k) => (arr[start + k] = d));
+    setDigits(arr);
+    refs.current[Math.min(5, start + str.length - 1)]?.focus();
+    if (arr.every(Boolean)) void check(arr);
+  };
+
+  const onInput = (i: number, raw: string) => {
+    const d = raw.replace(/\D/g, '');
+    if (d.length > 1) return fill(d, i);
+    const arr = [...digits];
+    arr[i] = d;
+    setDigits(arr);
+    setError('');
+    if (d && i < 5) refs.current[i + 1]?.focus();
+    if (arr.every(Boolean)) void check(arr);
+  };
+
+  // Once the code is confirmed, move straight on — no intermediate "Email confirmed" screen.
+  useEffect(() => {
+    if (done) onConfirmed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done]);
+
+  if (done) return null;
+
+  return (
+    <div>
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-mist text-ink">
+        <i className="bi bi-envelope h-5 w-5" aria-hidden="true" />
+      </span>
+      <h2 ref={headingRef} className="h2 mt-6 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
+        Confirm Your <em className="f font-normal">Email.</em>
+      </h2>
+      <p className="mt-2 text-[14px] leading-[1.6] text-muted">
+        {sending ? 'Sending a six-digit code to ' : 'We sent a six-digit code to '}
+        <span className="font-semibold text-ink">{email || 'your email'}</span>. Enter it below to confirm it&apos;s you.
+      </p>
+      <form
+        className="mt-6"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          void check(digits);
+        }}
+      >
+        <fieldset disabled={sending || busy}>
+          <legend className="sr-only">Six-digit code</legend>
+          <div className="flex max-w-[380px] justify-between gap-1.5 sm:gap-2">
+            {digits.map((d, i) => (
+              <input
+                key={i}
+                ref={(el) => {
+                  refs.current[i] = el;
+                }}
+                className={cx('otp-input', error && 'border-danger')}
+                inputMode="numeric"
+                maxLength={1}
+                autoComplete={i === 0 ? 'one-time-code' : undefined}
+                aria-label={'Digit ' + (i + 1)}
+                value={d}
+                onChange={(e) => onInput(i, e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onPaste={(e) => {
+                  e.preventDefault();
+                  fill(e.clipboardData.getData('text').replace(/\D/g, ''), 0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Backspace' && !d && i > 0) {
+                    e.preventDefault();
+                    const arr = [...digits];
+                    arr[i - 1] = '';
+                    setDigits(arr);
+                    refs.current[i - 1]?.focus();
+                  }
+                  if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus();
+                  if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus();
+                }}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <p className="mt-2 min-h-[18px] text-xs text-danger" role="alert">
+          {error}
+        </p>
+        <p className="mt-2 text-xs text-muted">
+          Didn&apos;t get it? Check your spam folder, or{' '}
+          <button
+            type="button"
+            className="font-semibold text-ink underline underline-offset-4 disabled:cursor-not-allowed disabled:text-muted disabled:no-underline"
+            disabled={secs > 0 || sending}
+            onClick={() => void send(true)}
+          >
+            {secs > 0 ? `resend in ${secs}s` : 'send a new code'}
+          </button>
+          .
+        </p>
+        <div className="mt-8 flex border-t border-line pt-5">
+          <button type="submit" className="auth-press btn btn-dark btn-lg ml-auto" disabled={sending || busy} aria-busy={busy}>
+            {busy ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Confirming
+              </>
+            ) : (
+              <>
+                Confirm email
+                <i className="bi bi-arrow-right" aria-hidden="true" />
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ======================================================================= */
+/* /register/professional — upgrade a confirmed account                    */
+/* ======================================================================= */
+
+function UpgradeFlow({ qType, qPlan, qCheckout, qSession }) {
+  const router = useRouter();
+  const [user, setUser] = useState(() => currentUser());
+  const [verified, setVerified] = useState(() => emailVerified(user));
+  // Paid through the embedded checkout (session id), or back from Stripe's hosted page.
+  const [paidSession, setPaidSession] = useState<string | null>(null);
+  const returningFromStripe = qCheckout === 'success' || !!paidSession;
+
+  // Not signed in: create the account first, then come back here.
+  useEffect(() => {
+    if (!user) router.replace(`/register?${new URLSearchParams({ type: qType || 'broker', ...(qPlan ? { plan: qPlan } : {}) })}`);
+  }, [user, qType, qPlan, router]);
+
+  // Already a professional (and not just back from paying): nothing to set up, go home.
+  const alreadyPro = !!user && user.type !== 'buyer' && !returningFromStripe;
+  useEffect(() => {
+    if (alreadyPro) router.replace('/');
+  }, [alreadyPro, router]);
+
+  if (!user) return <div className="min-h-[480px]" />;
+
+  if (user.type !== 'buyer') {
+    return returningFromStripe ? <ProSuccess paid /> : <div className="min-h-[480px]" />;
+  }
+
+  if (returningFromStripe) {
+    return <ConfirmPayment sessionId={paidSession || qSession} onUpgraded={setUser} />;
+  }
+
+  if (!verified) {
+    return (
+      <section>
+        <Progress names={[...ACCOUNT_STEPS, ...PRO_STEPS]} current={2} />
+        <div className="auth-step mt-8 lg:mt-10">
+          <EmailConfirm onConfirmed={() => setVerified(true)} />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <ProfessionalWizard
+      user={user}
+      qType={qType}
+      qPlan={qPlan}
+      cancelled={qCheckout === 'cancelled'}
+      onUpgraded={setUser}
+      onPaid={setPaidSession}
+    />
+  );
+}
+
+/** Back from Stripe Checkout: confirm the payment, retrying briefly while Stripe finishes. */
+function ConfirmPayment({ sessionId, onUpgraded }) {
+  const [state, setState] = useState<{ status: 'checking' | 'error'; message?: string }>({ status: 'checking' });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const run = async (tries: number) => {
+      const result = await completeProfessionalCheckout(sessionId);
+      if (!alive) return;
+      if (result.ok) {
+        clearDraft();
+        onUpgraded(result.user);
+        return;
+      }
+      if (result.pending && tries < 15) {
+        timer = setTimeout(() => run(tries + 1), 2000);
+        return;
+      }
+      setState({ status: 'error', message: result.message });
+    };
+    void run(0);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [sessionId, attempt, onUpgraded]);
+
+  if (state.status === 'error') {
+    return (
+      <section className="pt-6 lg:pt-14" aria-live="polite">
+        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-warn-soft text-warn">
+          <i className="bi bi-exclamation-triangle h-5 w-5" aria-hidden="true" />
+        </span>
+        <h2 className="h2 mt-6">
+          We Couldn&apos;t Confirm <em className="f font-normal">Your Payment.</em>
+        </h2>
+        <p className="mt-2 max-w-[480px] text-[14px] leading-[1.65] text-muted">
+          {state.message || 'Something went wrong while confirming your payment.'} If you were charged, your account
+          will be upgraded automatically within a few minutes.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <button
+            type="button"
+            className="btn btn-dark btn-lg"
+            onClick={() => {
+              setState({ status: 'checking' });
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </button>
+          <Link href="/help" className="btn btn-outline btn-lg">
+            Contact support
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex min-h-[420px] flex-col items-center justify-center text-center" aria-live="polite">
+      <span className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-ink" aria-hidden="true" />
+      <h2 className="h3 mt-6">Confirming your payment…</h2>
+      <p className="mt-2 text-[14px] text-muted">This only takes a moment. Please don&apos;t close this page.</p>
+    </section>
+  );
+}
+
+let stripeJs: Promise<StripeJs | null> | null = null;
+function getStripeJs() {
+  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  if (!key) return null;
+  stripeJs ??= loadStripe(key);
+  return stripeJs;
+}
+
+/** Stripe Checkout rendered inside the membership step — the buyer never leaves the site. */
+function EmbeddedPayment({ names, clientSecret, onComplete, onBack }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+  return (
+    <section>
+      <Progress names={names} current={names.length} />
+      <div className="auth-step mt-8 lg:mt-10">
+        <h2 ref={ref} className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
+          Secure <em className="f font-normal">Payment.</em>
+        </h2>
+        <p className="mt-2 flex items-center gap-2 text-[14px] text-muted">
+          <i className="bi bi-lock h-4 w-4 text-ink" aria-hidden="true" />
+          Payments are processed securely by Stripe. Your card details never touch our servers.
+        </p>
+        <div className="mt-6 overflow-hidden rounded-xl border border-line bg-white p-2 sm:p-4">
+          <EmbeddedCheckoutProvider key={clientSecret} stripe={getStripeJs()} options={{ clientSecret, onComplete }}>
+            <EmbeddedCheckout />
+          </EmbeddedCheckoutProvider>
+        </div>
+        <div className="mt-6 flex border-t border-line pt-5">
+          <button type="button" className="auth-press btn btn-ghost" onClick={onBack}>
+            <i className="bi bi-arrow-left" aria-hidden="true" />
+            Change plan
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const REDIRECT_MS = 4000;
+
+/** Upgrade done: animated confirmation, then on to the home page. */
+function ProSuccess({ paid = false }: { paid?: boolean }) {
+  const router = useRouter();
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const timer = setTimeout(() => router.replace('/'), REDIRECT_MS);
+    return () => clearTimeout(timer);
+  }, [router]);
+  return (
+    <section
+      className="flex flex-col items-center pt-10 text-center lg:pt-20"
+      tabIndex={-1}
+      ref={ref}
+      aria-labelledby="success-title"
+      aria-live="polite"
+    >
+      <svg className="pay-done h-24 w-24" viewBox="0 0 96 96" aria-hidden="true">
+        <circle className="pay-done-ring" cx="48" cy="48" r="44" />
+        <path className="pay-done-check" d="M30 49.5 42.5 62 66 36" />
+      </svg>
+      <h2 id="success-title" className="auth-rise h2 mt-8" style={{ '--d': 6 } as React.CSSProperties}>
+        {paid ? (
+          <>
+            Payment <em className="f font-normal">Completed.</em>
+          </>
+        ) : (
+          <>
+            Welcome to <em className="f font-normal">Emirate08 Pro.</em>
+          </>
+        )}
+      </h2>
+      <p className="auth-rise mt-2 max-w-[420px] text-[14px] leading-[1.65] text-muted" style={{ '--d': 7 } as React.CSSProperties}>
+        Your account is now a professional account. We&apos;ve emailed you a confirmation — your credentials will be
+        reviewed shortly.
+      </p>
+      <div className="auth-rise mt-8 w-full max-w-[260px]" style={{ '--d': 8 } as React.CSSProperties}>
+        <div className="h-1 overflow-hidden rounded-full bg-line">
+          <span className="pay-done-bar block h-full bg-ink" style={{ animationDuration: `${REDIRECT_MS}ms` }} />
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          Taking you to the home page…{' '}
+          <Link href="/" replace className="link">
+            Go now
+          </Link>
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** Draft first, then ?type= and ?plan=. A type from the link skips the type step. */
+function initialState(qType, qPlan, pending) {
+  const st = { step: 1, type: null, plan: null, planTouched: false, v: {} };
+  const draft = loadDraft();
+  if (draft) {
+    Object.keys(draft.v || {}).forEach((id) => {
+      if (PERSIST.includes(id) && draft.v[id]) st.v[id] = draft.v[id];
+    });
+    st.planTouched = !!draft.planTouched;
+    if (proType(draft.type)) st.type = draft.type;
+    if (draft.plan) st.plan = draft.plan;
+  } else if (pending && proType(pending.type)) {
+    // Back from a cancelled checkout on another tab or device: use the details saved with it.
+    st.type = pending.type;
+    st.plan = pending.plan;
+    st.planTouched = true;
+  }
+  if (qType) st.type = qType;
+  if (qPlan && plans()[qPlan] && (!st.type || plans()[qPlan].roleAudience === st.type)) {
+    st.plan = qPlan;
+    st.planTouched = true;
+  }
+  if (st.type && plans()[st.plan]?.roleAudience !== st.type) {
+    st.plan = `${st.type}-bronze`;
+    st.planTouched = false;
+  }
+  st.step = draft?.step >= 2 && st.type ? Math.min(draft.step, 3) : qType ? 2 : 1;
+  return st;
+}
+
+/** Documents uploaded before a cancelled checkout, so they need not be uploaded again. */
+function pendingFiles(pending, type) {
+  const creds = pending && pending.type === type ? pending.credentials || {} : {};
+  const pick = (f) => (f && f.url ? { name: f.name || 'Uploaded document', size: f.size, type: f.type, url: f.url, id: f.id } : null);
+  return { cardFile: pick(creds.cardFile), licenceFile: pick(creds.licenceFile), developerLogo: pick(creds.developerLogo) };
+}
+
+function ProfessionalWizard({ user, qType, qPlan, cancelled, onUpgraded, onPaid }) {
+  const router = useRouter();
+  const [checkout, setCheckout] = useState<{ clientSecret: string; sessionId: string } | null>(null);
+  const pending = user.pendingUpgrade || null;
+  const [init] = useState(() => initialState(qType, qPlan, pending));
+  const [step, setStep] = useState(cancelled && init.type ? 3 : init.step);
   const [type, setTypeState] = useState(init.type);
   const planCards = Object.values(plans())
     .filter((item) => item.roleAudience === type)
@@ -212,29 +753,24 @@ function Wizard({ qType, qPlan, qStep }) {
     }));
   const [plan, setPlanState] = useState(init.plan);
   const [planTouched, setPlanTouched] = useState(init.planTouched);
-  const [v, setV] = useState(() => ({ 'r-password': '', 'r-password2': '', ...init.v }));
-  const [files, setFiles] = useState({ cardFile: null, licenceFile: null, developerLogo: null });
-  const [checks, setChecks] = useState({ 'r-terms': false, 'r-privacy': false, 'by-terms': false });
+  const [v, setV] = useState(() => ({ ...init.v }));
+  const [files, setFiles] = useState(() => pendingFiles(pending, init.type));
+  const [checks, setChecks] = useState({ 'r-terms': false, 'r-privacy': false });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [typeError, setTypeError] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [checkingEmail, setCheckingEmail] = useState(false);
-  const [payment, setPayment] = useState({ name: '', number: '', expiry: '', cvc: '' });
-  const [paymentError, setPaymentError] = useState('');
-  const [paymentProcessing, setPaymentProcessing] = useState(false);
-  const [paymentComplete, setPaymentComplete] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [registrationError, setRegistrationError] = useState('');
-  const [otp, setOtp] = useState(null); // { mobile } while the modal is open
-  const [success, setSuccess] = useState(null); // { verified }
+  const [submitError, setSubmitError] = useState('');
+  const [showCancelled, setShowCancelled] = useState(!!cancelled);
+  const [success, setSuccess] = useState(false);
   const doneRef = useRef(false);
   const focusStep = useRef(false);
-  // Steps slide in from the side the user is heading towards.
   const [dir, setDir] = useState<1 | -1>(1);
   const fieldsetRefs = useRef({});
-  const successRef = useRef(null);
 
-  /* ---------- Draft persistence (no passwords or files) ---------- */
+  const selectedPlan = plans()[plan];
+  const price = typeof selectedPlan?.price === 'number' && selectedPlan.price > 0 ? selectedPlan.price : null;
+
+  /* ---------- Draft persistence (no files) ---------- */
   useEffect(() => {
     if (doneRef.current) return;
     const d = { step, type, plan, planTouched, v: {} };
@@ -246,7 +782,6 @@ function Wizard({ qType, qPlan, qStep }) {
     }
   }, [step, type, plan, planTouched, v]);
 
-  /* Step change: fade in the fieldset, focus its heading, scroll to top. */
   useEffect(() => {
     const f = fieldsetRefs.current[step];
     if (focusStep.current) {
@@ -255,13 +790,6 @@ function Wizard({ qType, qPlan, qStep }) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [step]);
-
-  useEffect(() => {
-    if (success) {
-      successRef.current?.focus();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [success]);
 
   const val = (id) => String(v[id] || '').trim();
   const clearErr = (id) => setErrors((e) => (e[id] ? { ...e, [id]: null } : e));
@@ -290,9 +818,9 @@ function Wizard({ qType, qPlan, qStep }) {
   const setType = (t) => {
     setTypeState(t);
     setTypeError(false);
-    if (t === 'buyer') return;
     setPlanState(`${t}-bronze`);
     setPlanTouched(false);
+    setFiles(pendingFiles(pending, t));
   };
   const setPlan = (p) => {
     setPlanState(p);
@@ -327,19 +855,6 @@ function Wizard({ qType, qPlan, qStep }) {
       setTypeError(false);
     }
     if (n === 2) {
-      if (val('r-name').length < 3 || !/\s/.test(val('r-name'))) fail('r-name', 'Enter your first and last name.');
-      if (!RX.email.test(val('r-email'))) fail('r-email', 'Enter a valid email address, e.g. name@company.ae.');
-      else if (findByLogin(val('r-email')))
-        fail('r-email', 'An account with this email already exists — sign in instead.');
-      if (!/^(?:971|0)?5[024568]\d{7}$/.test(val('r-mobile').replace(/\D/g, '')))
-        fail('r-mobile', 'Enter a UAE mobile number, e.g. 50 123 4567.');
-      const p = v['r-password'];
-      if (p.length < 8) fail('r-password', 'Use at least 8 characters.');
-      else if (passwordScore(p) < 3) fail('r-password', 'Add upper and lower case letters and a number.');
-      if (!v['r-password2']) fail('r-password2', 'Confirm your password.');
-      else if (v['r-password2'] !== p) fail('r-password2', 'Passwords don’t match.');
-    }
-    if (n === 3) {
       if (type === 'agency') {
         if (val('r-agency').length < 2) fail('r-agency', 'Enter the registered agency name.');
         if (!/^\d{3,8}$/.test(val('r-orn'))) fail('r-orn', 'Enter a valid ORN (numbers only).');
@@ -355,17 +870,14 @@ function Wizard({ qType, qPlan, qStep }) {
         else if (new Date(exp) <= new Date()) fail('r-expiry', 'This card has expired — renew it before registering.');
       }
     }
-    if (n === 4) {
+    if (n === 3) {
       if (!checks['r-terms']) fail('r-terms', 'Please accept the Terms of Service.');
       if (!checks['r-privacy']) fail('r-privacy', 'Please confirm the Privacy Policy and PDPL consent.');
     }
-    // Keep each validation message attached to the step that owns the field.
-    // Also remove stale messages for this step once its fields are corrected.
     const stepFields = {
       1: [],
-      2: ['r-name', 'r-email', 'r-mobile', 'r-password', 'r-password2'],
-      3: ['r-brn', 'r-card', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-tlfile', 'r-agents'],
-      4: ['r-terms', 'r-privacy'],
+      2: ['r-brn', 'r-card', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-tlfile', 'r-agents'],
+      3: ['r-terms', 'r-privacy'],
     }[n];
     setErrors((current) => {
       const next = { ...current };
@@ -382,10 +894,17 @@ function Wizard({ qType, qPlan, qStep }) {
     setStep(n);
   };
 
-  const createAccount = () => {
+  /* Upload the documents, save the details, then pay with Stripe (or finish straight away for unpriced plans). */
+  const submitUpgrade = async () => {
     if (busy) return;
+    // Credentials can be missing after returning from a cancelled checkout in a new session.
+    if (!validate(2)) {
+      go(2);
+      return;
+    }
     setBusy(true);
-    const mob = normaliseMobile(val('r-mobile'));
+    setSubmitError('');
+    setShowCancelled(false);
     const creds =
       type === 'agency'
         ? {
@@ -396,576 +915,96 @@ function Wizard({ qType, qPlan, qStep }) {
             agents: val('r-agents'),
           }
         : type === 'developer'
-          ? { developerName: val('r-name'), developerLogo: files.developerLogo }
+          ? { developerName: user.name, developerLogo: files.developerLogo }
           : { brn: val('r-brn'), expiry: val('r-expiry'), cardFile: files.cardFile };
-    Promise.all(
-      [
-        ['cardFile', creds.cardFile],
-        ['licenceFile', creds.licenceFile],
-        ['developerLogo', creds.developerLogo],
-      ].map(async ([key, file]) => {
-        if (!file?.file) return [key, file];
-        return [key, await uploadRegistrationEvidence(file.file, file.name)];
-      }),
-    )
-      .then((uploads) => {
-        uploads.forEach(([key, file]) => {
-          if (file) creds[key] = file;
-        });
-        return ensureSeed();
-      })
-      .then(() =>
-        register({
-          name: val('r-name'),
-          email: val('r-email'),
-          mobile: mob,
-          password: v['r-password'],
-          type,
-          plan: plan || 'starter',
-          credentials: creds,
-        }),
-      )
-      .then((res) => {
-        setBusy(false);
-        if (!res.ok) {
-          if (res.field === 'email') {
-            setCheckoutOpen(false);
-            setRegistrationError('');
-            go(2);
-            setErrors((er) => ({ ...er, 'r-email': res.message || 'Enter a valid email address.' }));
-          } else {
-            setRegistrationError(res.message || 'Could not create the account. Please try again.');
-          }
-          return;
-        }
-        signIn(res.user.id, true);
-        setCheckoutOpen(false);
-        doneRef.current = true;
-        clearDraft();
-        setOtp({ mobile: mob });
-      })
-      .catch((error) => {
-        setBusy(false);
-        setCheckoutOpen(false);
-        go(3);
-        setErrors((er) => ({
-          ...er,
-          'r-card': error instanceof Error ? error.message : 'Could not upload your evidence.',
-        }));
-      });
-  };
-
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    if (busy || !validate(step)) return;
-    if (step === 1 && type === 'buyer') {
+    try {
+      for (const key of ['cardFile', 'licenceFile', 'developerLogo']) {
+        const file = creds[key];
+        if (file?.file) creds[key] = await uploadRegistrationEvidence(file.file, file.name);
+      }
+    } catch (error) {
+      setBusy(false);
       go(2);
+      const field = type === 'agency' ? 'r-tlfile' : type === 'developer' ? 'r-developer-logo' : 'r-card';
+      setErrors((er) => ({ ...er, [field]: error instanceof Error ? error.message : 'Could not upload your document.' }));
       return;
     }
-    if (step === 2) {
-      setCheckingEmail(true);
-      const result = await checkRegistrationEmail(val('r-email'));
-      setCheckingEmail(false);
-      if (!result.ok) {
-        const message =
-          result.field === 'email'
-            ? result.message || 'An account with this email already exists. Sign in or use a different email.'
-            : 'Could not verify this email address. Please try again.';
-        setErrors((current) => ({
-          ...current,
-          'r-email': message,
-        }));
-        document.getElementById('r-email')?.focus();
-        return;
-      }
+    // Keep the uploaded copies so a cancelled checkout doesn't ask for them again.
+    setFiles((current) => ({
+      cardFile: creds.cardFile || current.cardFile,
+      licenceFile: creds.licenceFile || current.licenceFile,
+      developerLogo: creds.developerLogo || current.developerLogo,
+    }));
+
+    const res = await startProfessionalCheckout({ type, plan: plan || `${type}-bronze`, credentials: creds });
+    if (!res.ok) {
+      setBusy(false);
+      setSubmitError(res.message || 'Could not set up your professional account. Please try again.');
+      return;
     }
-    if (step < 4) {
+    if (res.clientSecret) {
+      setBusy(false);
+      setCheckout({ clientSecret: res.clientSecret, sessionId: res.sessionId });
+      return;
+    }
+    if (res.url) {
+      window.location.assign(res.url);
+      return;
+    }
+    setBusy(false);
+    doneRef.current = true;
+    clearDraft();
+    setSuccess(true);
+    onUpgraded(res.user);
+  };
+
+  const onSubmit = (e) => {
+    e.preventDefault();
+    if (busy || !validate(step)) return;
+    if (step < 3) {
       go(step + 1);
       return;
     }
-    setCheckoutOpen(true);
+    void submitUpgrade();
   };
 
-  const completeDemoPayment = () => {
-    if (busy || paymentProcessing) return;
-    const digits = payment.number.replace(/\D/g, '');
-    const [month, year] = payment.expiry.split('/').map((part) => Number(part));
-    const currentYear = new Date().getFullYear() % 100;
-    const currentMonth = new Date().getMonth() + 1;
-    if (
-      !payment.name.trim() ||
-      digits !== '4242424242424242' ||
-      !month ||
-      month > 12 ||
-      !year ||
-      year < currentYear ||
-      (year === currentYear && month < currentMonth) ||
-      !/^\d{3,4}$/.test(payment.cvc)
-    ) {
-      setPaymentError('Use the demo card details shown below. No real payment was processed.');
-      return;
-    }
-    setPaymentError('');
-    setPaymentProcessing(true);
-    window.setTimeout(() => {
-      setPaymentProcessing(false);
-      setPaymentComplete(true);
-    }, 650);
-  };
-
-  const continueAfterPayment = () => {
-    if (!paymentComplete || busy) return;
-    setRegistrationError('');
-    createAccount();
-  };
-
-  const finish = (verified) => {
-    const u = currentUser();
-    if (u) {
-      u.mobileVerified = verified;
-      saveUser(u);
-      log(
-        verified ? 'Mobile number verified (demo OTP)' : 'Mobile verification postponed',
-        verified ? 'smartphone' : 'clock-3',
-      );
-    }
-    setOtp(null);
-    setSuccess({ verified });
-  };
-
-  const ps = v['r-password'] ? Math.max(1, passwordScore(v['r-password'])) : 0;
-  const nextDisabled = busy;
   const credKind = type === 'agency' ? 'agency' : type === 'developer' ? 'developer' : 'broker';
+  const names = PRO_STEPS;
 
-  if (success) {
+  if (success) return <ProSuccess />;
+  if (checkout) {
     return (
-      <section className="auth-step pt-6 lg:pt-14" tabIndex={-1} ref={successRef} aria-labelledby="success-title">
-        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-sage text-ink">
-          <i className="bi bi-check-lg h-5 w-5" aria-hidden="true" />
-        </span>
-        <h2 id="success-title" className="h2 mt-6">
-          Welcome to <em className="f font-normal">Emirate08.</em>
-        </h2>
-        <p className="mt-2 max-w-[480px] text-[14px] leading-[1.65] text-muted">
-          Your account has been created. Your professional credentials are pending review.
-        </p>
-        <ul className="mt-7 divide-y divide-line rounded-lg border border-line bg-white">
-          <li className="flex items-center gap-3 px-4 py-3.5 text-[14px]">
-            <i className="bi bi-check-circle h-5 w-5 text-ok" aria-hidden="true" />
-            <span className="flex-1">Account Created</span>
-            <span className="badge badge-ok">Done</span>
-          </li>
-          {success.verified ? (
-            <li className="flex items-center gap-3 px-4 py-3.5 text-[14px]">
-              <i className="bi bi-check-circle h-5 w-5 text-ok" aria-hidden="true" />
-              <span className="flex-1">Mobile Verification Completed in Demo</span>
-              <span className="badge badge-ok">Demo</span>
-            </li>
-          ) : (
-            <li className="flex items-center gap-3 px-4 py-3.5 text-[14px]">
-              <i className="bi bi-clock h-5 w-5 text-warn" aria-hidden="true" />
-              <span className="flex-1">Mobile Verification Pending</span>
-              <span className="badge badge-warn">Later</span>
-            </li>
-          )}
-          <li className="flex items-center gap-3 px-4 py-3.5 text-[14px]">
-            <i className="bi bi-clock h-5 w-5 text-warn" aria-hidden="true" />
-            <span className="flex-1">Professional Review Pending</span>
-            <span className="badge badge-warn">Pending</span>
-          </li>
-        </ul>
-        <p className="mt-4 text-xs leading-[1.6] text-muted">
-          While review is pending you can complete your profile, prepare listing drafts, and browse the broker network.
-          Publishing unlocks once credentials are verified. To try it, use “Verify credentials (demo)” under Account →
-          Credentials.
-        </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/dashboard" className="btn btn-dark btn-lg">
-            Go to Dashboard
-            <i className="bi bi-arrow-right" aria-hidden="true" />
-          </Link>
-          <Link href="/profile" className="btn btn-outline btn-lg">
-            Complete Profile
-          </Link>
-        </div>
-      </section>
+      <EmbeddedPayment
+        names={names}
+        clientSecret={checkout.clientSecret}
+        onComplete={() => onPaid(checkout.sessionId)}
+        onBack={() => setCheckout(null)}
+      />
     );
   }
-
-  if (checkoutOpen) {
-    const selectedPlan = plans()[plan];
-    return (
-      <section className="pt-6 lg:pt-14" aria-labelledby="checkout-title">
-        {paymentComplete ? (
-          <div className="payment-success-in mx-auto max-w-[480px] rounded-2xl border border-line bg-white p-7 text-center shadow-sm sm:p-10">
-            <span className="payment-check-pop mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-sage text-ink">
-              <i className="bi bi-check-lg h-6 w-6" aria-hidden="true" />
-            </span>
-            <p className="mt-6 text-xs font-semibold tracking-[.14em] text-ok uppercase">Demo payment complete</p>
-            <h1 id="checkout-title" className="h2 mt-2">
-              Payment approved
-            </h1>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              Your {selectedPlan?.name || 'selected'} membership payment was simulated successfully. No card was
-              charged.
-            </p>
-            <div className="mt-6 rounded-xl bg-mist p-4 text-left text-sm">
-              <div className="flex justify-between gap-4">
-                <span className="text-muted">Plan</span>
-                <span className="font-medium text-ink">{selectedPlan?.name || 'Membership'}</span>
-              </div>
-              <div className="mt-2 flex justify-between gap-4">
-                <span className="text-muted">Payment</span>
-                <span className="font-medium text-ok">Successful (demo)</span>
-              </div>
-            </div>
-            {registrationError && (
-              <p
-                className="mt-4 rounded-lg border border-danger/20 bg-danger/5 p-3 text-left text-sm text-danger"
-                role="alert"
-              >
-                {registrationError}
-              </p>
-            )}
-            <button
-              type="button"
-              className="btn btn-dark btn-lg mt-7 w-full"
-              onClick={continueAfterPayment}
-              disabled={busy}
-            >
-              {busy ? 'Creating your account…' : 'Continue'}
-              {!busy && <i className="bi bi-arrow-right" aria-hidden="true" />}
-            </button>
-          </div>
-        ) : (
-          <div className="relative left-1/2 w-[calc(100vw-2.5rem)] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-white shadow-sm sm:w-[min(700px,calc(100vw-4rem))] lg:w-[min(760px,calc(60vw-4rem))]">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line px-5 py-4 sm:px-7">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-white">
-                  <i className="bi bi-lock h-4 w-4" aria-hidden="true" />
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-ink">Payment gateway preview</p>
-                  <p className="text-xs text-muted">Demo payment UI</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2" aria-label="Accepted cards">
-                <svg
-                  role="img"
-                  aria-label="Visa"
-                  viewBox="0 0 64 40"
-                  className="h-8 w-[52px]"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect x=".5" y=".5" width="63" height="39" rx="5.5" fill="white" stroke="#E3E7E5" />
-                  <text
-                    x="32"
-                    y="26"
-                    textAnchor="middle"
-                    fill="#1434CB"
-                    fontFamily="Arial,sans-serif"
-                    fontSize="19"
-                    fontWeight="700"
-                    fontStyle="italic"
-                  >
-                    VISA
-                  </text>
-                  <path d="M43 31h9" stroke="#F7B600" strokeWidth="2" />
-                </svg>
-                <svg
-                  role="img"
-                  aria-label="Mastercard"
-                  viewBox="0 0 78 40"
-                  className="h-8 w-[62px]"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect x=".5" y=".5" width="77" height="39" rx="5.5" fill="white" stroke="#E3E7E5" />
-                  <circle cx="32" cy="16" r="8" fill="#EB001B" />
-                  <circle cx="43" cy="16" r="8" fill="#F79E1B" fillOpacity=".95" />
-                  <path d="M37.5 9.1a8 8 0 0 1 0 13.8 8 8 0 0 1 0-13.8Z" fill="#FF5F00" />
-                  <text
-                    x="39"
-                    y="33"
-                    textAnchor="middle"
-                    fill="#252525"
-                    fontFamily="Arial,sans-serif"
-                    fontSize="7"
-                    fontWeight="700"
-                  >
-                    mastercard
-                  </text>
-                </svg>
-                <svg
-                  role="img"
-                  aria-label="American Express"
-                  viewBox="0 0 54 40"
-                  className="h-8 w-[44px]"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect x=".5" y=".5" width="53" height="39" rx="5.5" fill="#176FC1" stroke="#176FC1" />
-                  <text
-                    x="27"
-                    y="17"
-                    textAnchor="middle"
-                    fill="white"
-                    fontFamily="Arial,sans-serif"
-                    fontSize="7.2"
-                    fontWeight="700"
-                  >
-                    AMERICAN
-                  </text>
-                  <text
-                    x="27"
-                    y="27"
-                    textAnchor="middle"
-                    fill="white"
-                    fontFamily="Arial,sans-serif"
-                    fontSize="9"
-                    fontWeight="700"
-                  >
-                    EXPRESS
-                  </text>
-                </svg>
-              </div>
-            </div>
-            <div className="grid min-h-[700px] lg:grid-cols-[minmax(0,1fr)_300px]">
-              <div className="p-5 sm:p-8 lg:p-10">
-                <div className="flex items-center justify-between gap-3">
-                  <h1 id="checkout-title" className="h3">
-                    Payment details
-                  </h1>
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-ink underline underline-offset-4"
-                    onClick={() => {
-                      const nextYear = (new Date().getFullYear() + 1) % 100;
-                      setPayment({
-                        name: val('r-name'),
-                        number: '4242 4242 4242 4242',
-                        expiry: `12/${String(nextYear).padStart(2, '0')}`,
-                        cvc: '123',
-                      });
-                      setPaymentError('');
-                    }}
-                    disabled={paymentProcessing}
-                  >
-                    Fill demo details
-                  </button>
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Use the demo details to preview the payment flow. No real payment will be made.
-                </p>
-                <div className="mt-6 space-y-4">
-                  <label className="field block">
-                    <span className="label">Cardholder name</span>
-                    <input
-                      className="input"
-                      autoComplete="cc-name"
-                      placeholder="Name on card"
-                      value={payment.name}
-                      disabled={paymentProcessing}
-                      onChange={(event) => {
-                        setPayment({ ...payment, name: event.target.value });
-                        setPaymentError('');
-                      }}
-                    />
-                  </label>
-                  <label className="field block">
-                    <span className="label">Card number</span>
-                    <input
-                      className="input"
-                      inputMode="numeric"
-                      autoComplete="cc-number"
-                      placeholder="1234 1234 1234 1234"
-                      value={payment.number}
-                      disabled={paymentProcessing}
-                      onChange={(event) => {
-                        setPayment({ ...payment, number: event.target.value });
-                        setPaymentError('');
-                      }}
-                    />
-                  </label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className="field block">
-                      <span className="label">Expiry date</span>
-                      <input
-                        className="input"
-                        inputMode="numeric"
-                        autoComplete="cc-exp"
-                        placeholder="MM/YY"
-                        value={payment.expiry}
-                        disabled={paymentProcessing}
-                        onChange={(event) => {
-                          setPayment({ ...payment, expiry: event.target.value });
-                          setPaymentError('');
-                        }}
-                      />
-                    </label>
-                    <label className="field block">
-                      <span className="label">Security code</span>
-                      <input
-                        className="input"
-                        inputMode="numeric"
-                        autoComplete="cc-csc"
-                        placeholder="CVC"
-                        value={payment.cvc}
-                        disabled={paymentProcessing}
-                        onChange={(event) => {
-                          setPayment({ ...payment, cvc: event.target.value });
-                          setPaymentError('');
-                        }}
-                      />
-                    </label>
-                  </div>
-                  {paymentError && (
-                    <p className="text-sm text-danger" role="alert">
-                      {paymentError}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-dark btn-lg mt-6 w-full"
-                  onClick={completeDemoPayment}
-                  disabled={busy || paymentProcessing}
-                >
-                  {paymentProcessing ? (
-                    <>
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      Processing payment
-                    </>
-                  ) : (
-                    <>
-                      <i className="bi bi-lock" aria-hidden="true" /> Pay securely
-                    </>
-                  )}
-                </button>
-                <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">
-                  Demo only. Card details stay in this page and are not sent to a payment provider.
-                </p>
-              </div>
-              <aside
-                className="flex min-h-full flex-col border-t border-line bg-[#F8F9F8] p-5 sm:p-8 lg:border-t-0 lg:border-l lg:p-8"
-                aria-label="Order summary"
-              >
-                <p className="text-xs font-semibold tracking-[.12em] text-muted uppercase">Order summary</p>
-                <div className="mt-5 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-ink">{selectedPlan?.name || 'Membership'} plan</p>
-                    <p className="mt-1 text-xs text-muted">{selectedPlan?.audience || 'Professional account'}</p>
-                  </div>
-                  <i className="bi bi-building text-muted" aria-hidden="true" />
-                </div>
-                {selectedPlan?.features?.length > 0 && (
-                  <ul className="mt-5 space-y-2.5 border-t border-line pt-4">
-                    {selectedPlan.features.slice(0, 4).map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-xs leading-relaxed text-muted">
-                        <i className="bi bi-check2 mt-0.5 text-ok" aria-hidden="true" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="my-5 border-t border-line" />
-                <div className="flex justify-between text-xs text-muted">
-                  <span>Amount</span>
-                  <span>
-                    {selectedPlan?.price == null
-                      ? 'Pricing to be confirmed'
-                      : `AED ${selectedPlan.price.toLocaleString()} / month`}
-                  </span>
-                </div>
-                <div className="mt-3 flex justify-between text-sm font-semibold text-ink">
-                  <span>Total</span>
-                  <span>Demo</span>
-                </div>
-                <p className="mt-5 rounded-lg border border-line bg-white p-3 text-xs leading-relaxed text-muted">
-                  Demo card: <strong className="text-ink">4242 4242 4242 4242</strong>
-                  <br />
-                  Any future expiry · CVC 123
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-ghost mt-auto w-full pt-8"
-                  onClick={() => {
-                    setCheckoutOpen(false);
-                    setPaymentError('');
-                  }}
-                  disabled={paymentProcessing}
-                >
-                  Back to membership
-                </button>
-              </aside>
-            </div>
-          </div>
-        )}
-      </section>
-    );
-  }
-
-  const isBuyer = type === 'buyer';
-  const names = isBuyer ? BUYER_NAMES : NAMES;
-  const buyerDetails = isBuyer && step === 2;
 
   return (
     <section>
-      {/* Progress */}
-      <div className="pt-2 lg:pt-6">
-        <div className="flex items-center justify-between text-2xs font-semibold tracking-[.12em] text-muted uppercase">
-          <span>
-            Step {step} of {names.length}
-          </span>
-          <span>{names[step - 1]}</span>
-        </div>
-        <div className="meter mt-2.5">
-          <span style={{ width: (step / names.length) * 100 + '%' }} />
-        </div>
-        <ol
-          className={cx('mt-4 hidden gap-2 sm:grid', isBuyer ? 'grid-cols-2' : 'grid-cols-4')}
-          aria-label="Registration steps"
-        >
-          {names.map((name, i) => {
-            const n = i + 1;
-            return (
-              <li
-                key={name}
-                className={cx('step flex items-center gap-2', n === step && 'is-current', n < step && 'is-done')}
-                aria-current={n === step ? 'step' : undefined}
-              >
-                <span className="step-dot">{n < step ? <Icon name="check-lg" className="h-3 w-3" /> : n}</span>
-                <span className="step-label">{name}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+      <Progress names={names} current={step} />
 
-      {buyerDetails && (
-        <div
-          key="buyer-details"
-          className="auth-step mt-8 lg:mt-10"
-          style={{ '--auth-dir': dir } as React.CSSProperties}
-        >
-          <QuickBuyerForm
-            embedded
-            onCancel={() => go(1)}
-            onSuccess={(destination) => {
-              doneRef.current = true;
-              clearDraft();
-              router.push(destination);
-            }}
-          />
+      {showCancelled && (
+        <div className="mt-6 flex items-start gap-2.5 rounded-lg border border-line bg-white px-4 py-3 text-[13px] leading-[1.55] text-muted" role="status">
+          <i className="bi bi-info-circle mt-0.5 h-4 w-4 shrink-0 text-ink" aria-hidden="true" />
+          <p>
+            <span className="font-semibold text-ink">Payment cancelled.</span> You haven&apos;t been charged. Your details
+            are saved — continue when you&apos;re ready.
+          </p>
         </div>
       )}
+
       <form
         className="mt-8 lg:mt-10"
-        hidden={buyerDetails}
         style={{ '--auth-dir': dir } as React.CSSProperties}
         noValidate
         autoComplete="on"
         onSubmit={onSubmit}
       >
-        {/* STEP 1 */}
+        {/* STEP 1: account type */}
         <fieldset
           ref={(el) => {
             fieldsetRefs.current[1] = el;
@@ -975,52 +1014,34 @@ function Wizard({ qType, qPlan, qStep }) {
         >
           <legend className="sr-only">Account type</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
-            How Will You Use <em className="f font-normal">Emirate08?</em>
+            Go <em className="f font-normal">Professional.</em>
           </h2>
           <p className="mt-2 text-[14px] text-muted">
-            Choose the account type that fits you — agency, broker, developer or buyer.
+            Signed in as <span className="font-semibold text-ink">{user.email}</span>. Choose the professional account
+            that fits you.
           </p>
-          <div
-            className="mt-6 grid gap-3"
-            role="radiogroup"
-            aria-label="Account type"
-            onKeyDown={radioKeys(TYPES, setType)}
-          >
+          <div className="mt-6 grid gap-3" role="radiogroup" aria-label="Account type" onKeyDown={radioKeys(TYPES, setType)}>
             {TYPES.map((t, i) => (
-              <Fragment key={t.id}>
-                {t.id === 'buyer' && (
-                  <div
-                    className="auth-rise mt-2 flex items-center gap-3 border-t border-line pt-4 text-2xs font-semibold tracking-[.12em] text-muted uppercase"
-                    style={{ '--d': i + 1 } as React.CSSProperties}
-                    aria-hidden="true"
-                  >
-                    Looking to buy?
-                  </div>
-                )}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={type === t.id}
-                  tabIndex={type === t.id || (!type && t.id === 'broker') ? 0 : -1}
-                  className="option-card auth-rise"
-                  style={{ '--d': i + 1 } as React.CSSProperties}
-                  data-type={t.id}
-                  onClick={() => setType(t.id)}
-                >
-                  <span className="radio-dot" />
-                  <span className="flex-1">
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-display text-[16px] font-semibold text-ink">{t.title}</span>
-                      {t.soon ? (
-                        <span className="badge badge-sage">Coming soon</span>
-                      ) : (
-                        <i className={`bi bi-${t.icon} h-5 w-5 text-muted`} aria-hidden="true" />
-                      )}
-                    </span>
-                    <span className="mt-1 block text-[13px] text-muted">{t.desc}</span>
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={type === t.id}
+                tabIndex={type === t.id || (!type && t.id === 'broker') ? 0 : -1}
+                className="option-card auth-rise"
+                style={{ '--d': i + 1 } as React.CSSProperties}
+                data-type={t.id}
+                onClick={() => setType(t.id)}
+              >
+                <span className="radio-dot" />
+                <span className="flex-1">
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="font-display text-[16px] font-semibold text-ink">{t.title}</span>
+                    <i className={`bi bi-${t.icon} h-5 w-5 text-muted`} aria-hidden="true" />
                   </span>
-                </button>
-              </Fragment>
+                  <span className="mt-1 block text-[13px] text-muted">{t.desc}</span>
+                </span>
+              </button>
             ))}
           </div>
           {typeError && (
@@ -1031,104 +1052,12 @@ function Wizard({ qType, qPlan, qStep }) {
           )}
         </fieldset>
 
-        {/* STEP 2 */}
+        {/* STEP 2: credentials */}
         <fieldset
           ref={(el) => {
             fieldsetRefs.current[2] = el;
           }}
           hidden={step !== 2}
-          className="auth-step"
-        >
-          <legend className="sr-only">Account details</legend>
-          <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
-            Let&apos;s Create Your <em className="f font-normal">Account.</em>
-          </h2>
-          <p className="mt-2 text-[14px] text-muted">Start with your basic contact information.</p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <TextField id="r-name" label="Full Name" className="sm:col-span-2" error={errors['r-name']}>
-              <input
-                name="name"
-                className="input"
-                autoComplete="name"
-                placeholder="As shown on your RERA card"
-                {...bind('r-name')}
-              />
-            </TextField>
-            <TextField id="r-email" label="Email Address" error={errors['r-email']}>
-              <input
-                name="email"
-                type="email"
-                className="input"
-                autoComplete="email"
-                placeholder="name@company.ae"
-                {...bind('r-email')}
-              />
-            </TextField>
-            <TextField id="r-mobile" label="UAE Mobile Number" error={errors['r-mobile']}>
-              <div className="relative">
-                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[14px] text-muted">
-                  +971
-                </span>
-                <input
-                  name="mobile"
-                  type="tel"
-                  inputMode="tel"
-                  className="input pl-[52px]"
-                  autoComplete="tel-national"
-                  placeholder="50 123 4567"
-                  {...bind('r-mobile')}
-                  onBlur={() => {
-                    let d = String(v['r-mobile'] || '').replace(/\D/g, '');
-                    if (d.indexOf('971') === 0) d = d.slice(3);
-                    if (d.indexOf('0') === 0) d = d.slice(1);
-                    if (d.length === 9)
-                      setV((s) => ({ ...s, 'r-mobile': d.slice(0, 2) + ' ' + d.slice(2, 5) + ' ' + d.slice(5) }));
-                  }}
-                />
-              </div>
-            </TextField>
-            <TextField id="r-password" label="Password" error={errors['r-password']}>
-              <PasswordInput
-                name="password"
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
-                invalid={!!errors['r-password']}
-                {...bind('r-password')}
-              />
-            </TextField>
-            <TextField id="r-password2" label="Confirm Password" error={errors['r-password2']}>
-              <PasswordInput
-                name="password2"
-                autoComplete="new-password"
-                placeholder="Repeat password"
-                invalid={!!errors['r-password2']}
-                {...bind('r-password2')}
-              />
-            </TextField>
-            <div className="sm:col-span-2" aria-live="polite">
-              <div className="strength grid grid-cols-4 gap-1.5" aria-hidden="true">
-                {[1, 2, 3, 4].map((n) => (
-                  <span
-                    key={n}
-                    className="h-1 rounded-full bg-line"
-                    style={{ backgroundColor: n <= ps ? S_COLORS[ps] : '#DCE2DE' }}
-                  />
-                ))}
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                <span className="font-semibold text-ink">{S_LABELS[ps]}</span> · Use 8+ characters with upper and lower
-                case letters and a number.
-              </p>
-            </div>
-          </div>
-        </fieldset>
-
-        {/* STEP 3 */}
-        <fieldset
-          ref={(el) => {
-            fieldsetRefs.current[3] = el;
-          }}
-          hidden={step !== 3}
           className="auth-step"
         >
           <legend className="sr-only">Professional credentials</legend>
@@ -1243,17 +1172,16 @@ function Wizard({ qType, qPlan, qStep }) {
           </div>
           <p className="mt-5 flex items-start gap-2 rounded-lg bg-mist px-3.5 py-3 text-xs leading-[1.55] text-muted">
             <i className="bi bi-lock mt-0.5 h-3.5 w-3.5 shrink-0 text-ink" aria-hidden="true" />
-            Credential details are saved to your account. Credential documents are not currently uploaded; only the
-            selected file name is recorded.
+            Your documents are stored securely and are only seen by the Emirate08 verification team.
           </p>
         </fieldset>
 
-        {/* STEP 4 */}
+        {/* STEP 3: membership */}
         <fieldset
           ref={(el) => {
-            fieldsetRefs.current[4] = el;
+            fieldsetRefs.current[3] = el;
           }}
-          hidden={step !== 4}
+          hidden={step !== 3}
           className="auth-step"
         >
           <legend className="sr-only">Membership and consent</legend>
@@ -1296,7 +1224,9 @@ function Wizard({ qType, qPlan, qStep }) {
           </div>
           <p className="mt-3 flex items-center gap-2 text-xs text-muted">
             <i className="bi bi-calendar-event h-3.5 w-3.5 text-ink" aria-hidden="true" />
-            Your selected rate is saved at registration. Continue to the demo payment step; no payment is collected.
+            {price
+              ? `Billed monthly at AED ${price.toLocaleString()} through Stripe's secure checkout. Cancel any time.`
+              : 'No payment is needed now — our team will confirm your membership rate with you.'}
           </p>
           <div className="mt-6 space-y-3 border-t border-line pt-5">
             <div className={cx('field', errors['r-terms'] && 'invalid')}>
@@ -1329,30 +1259,42 @@ function Wizard({ qType, qPlan, qStep }) {
           </div>
         </fieldset>
 
+        {submitError && (
+          <p className="mt-6 rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[13px] leading-5 text-danger" role="alert">
+            {submitError}
+          </p>
+        )}
+
         {/* Actions */}
         <div className="mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
-          {step > 1 && (
-            <button type="button" className="auth-press btn btn-ghost" onClick={() => go(step - 1)}>
+          {step > 1 ? (
+            <button type="button" className="auth-press btn btn-ghost" onClick={() => go(step - 1)} disabled={busy}>
               <i className="bi bi-arrow-left" aria-hidden="true" />
               Back
             </button>
+          ) : (
+            <button type="button" className="auth-press btn btn-ghost" onClick={() => router.push('/')}>
+              Not now
+            </button>
           )}
-          {step === 1 && <span className="text-xs text-muted">Your progress is kept on this device.</span>}
-          <button
-            type="submit"
-            className="auth-press btn btn-dark btn-lg ml-auto"
-            disabled={nextDisabled || checkingEmail}
-          >
+          <button type="submit" className="auth-press btn btn-dark btn-lg ml-auto" disabled={busy} aria-busy={busy}>
             {busy ? (
               <>
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Creating account
+                {step === 3 && price ? 'Opening secure checkout' : 'Setting up'}
               </>
-            ) : checkingEmail ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Checking email
-              </>
+            ) : step === 3 ? (
+              price ? (
+                <>
+                  <i className="bi bi-lock" aria-hidden="true" />
+                  Continue to payment
+                </>
+              ) : (
+                <>
+                  Create professional account
+                  <i className="bi bi-arrow-right" aria-hidden="true" />
+                </>
+              )
             ) : (
               <>
                 Continue
@@ -1362,8 +1304,6 @@ function Wizard({ qType, qPlan, qStep }) {
           </button>
         </div>
       </form>
-
-      <OtpModal mobile={otp?.mobile} onDone={finish} toast={toast} />
     </section>
   );
 }
@@ -1504,182 +1444,3 @@ function UploadField({ id, labelId, label, title, file, error, onError, onFile, 
   );
 }
 
-/* ---------- Demo OTP ---------- */
-const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
-
-function OtpModal({ mobile, onDone, toast }) {
-  const open = !!mobile;
-  return (
-    <Modal open={open} onClose={() => {}} closeOnEsc={false} labelledBy="otp-title" panelClassName="p-6 sm:p-7">
-      {open && <OtpBody mobile={mobile} onDone={onDone} toast={toast} />}
-    </Modal>
-  );
-}
-
-function OtpBody({ mobile, onDone, toast }) {
-  const [code, setCode] = useState(newCode);
-  const [digitsV, setDigits] = useState(['', '', '', '', '', '']);
-  const [error, setError] = useState('');
-  const [flash, setFlash] = useState(false);
-  const [secs, setSecs] = useState(30);
-  const [round, setRound] = useState(0);
-  const refs = useRef([]);
-
-  useEffect(() => {
-    const t = setTimeout(() => refs.current[0]?.focus(), 60);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSecs((s) => {
-        if (s <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [round]);
-
-  const check = (arr) => {
-    const entered = arr.join('');
-    if (entered.length < 6) {
-      setError('Enter all six digits.');
-      refs.current[arr.findIndex((d) => !d)]?.focus();
-      return;
-    }
-    if (entered !== code) {
-      setError('That code doesn’t match. Check the demo code above and try again.');
-      setDigits(['', '', '', '', '', '']);
-      setFlash(true);
-      setTimeout(() => setFlash(false), 1200);
-      refs.current[0]?.focus();
-      return;
-    }
-    onDone(true);
-  };
-
-  const fill = (str, start) => {
-    const arr = [...digitsV];
-    str
-      .slice(0, 6 - start)
-      .split('')
-      .forEach((d, k) => (arr[start + k] = d));
-    setDigits(arr);
-    refs.current[Math.min(5, start + str.length - 1)]?.focus();
-    if (arr.every(Boolean)) check(arr);
-  };
-
-  const onInput = (i, raw) => {
-    const d = raw.replace(/\D/g, '');
-    if (d.length > 1) return fill(d, i);
-    const arr = [...digitsV];
-    arr[i] = d;
-    setDigits(arr);
-    setError('');
-    if (d && i < 5) refs.current[i + 1]?.focus();
-    if (arr.every(Boolean)) check(arr);
-  };
-
-  const resend = () => {
-    setCode(newCode());
-    setSecs(30);
-    setRound((r) => r + 1);
-    setDigits(['', '', '', '', '', '']);
-    refs.current[0]?.focus();
-    toast('New demo code generated — nothing was sent.', { icon: 'arrow-repeat' });
-  };
-
-  return (
-    <>
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-mist text-ink">
-        <i className="bi bi-phone h-5 w-5" aria-hidden="true" />
-      </span>
-      <h2 id="otp-title" className="h3 mt-4">
-        Verify Your Mobile Number
-      </h2>
-      <p className="mt-1.5 text-[13px] leading-[1.6] text-muted">
-        Enter the six-digit code for <span className="font-semibold text-ink">{mobile}</span>.
-      </p>
-      <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-warn/30 bg-warn-soft px-3.5 py-3 text-xs leading-[1.55] text-warn">
-        <i className="bi bi-info-circle mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <p>
-          <span className="font-semibold">Demo OTP — no SMS or WhatsApp message has been sent.</span> Use code{' '}
-          <span className="font-display text-[13px] font-semibold tracking-[.2em]" data-otp-demo>
-            {code}
-          </span>
-        </p>
-      </div>
-      <form
-        className="mt-5"
-        noValidate
-        onSubmit={(e) => {
-          e.preventDefault();
-          check(digitsV);
-        }}
-      >
-        <fieldset>
-          <legend className="sr-only">Six-digit code</legend>
-          <div className="flex justify-between gap-1.5 sm:gap-2">
-            {digitsV.map((d, i) => (
-              <input
-                key={i}
-                ref={(el) => {
-                  refs.current[i] = el;
-                }}
-                className={cx('otp-input', flash && 'border-danger')}
-                inputMode="numeric"
-                maxLength={1}
-                autoComplete={i === 0 ? 'one-time-code' : undefined}
-                aria-label={'Digit ' + (i + 1)}
-                value={d}
-                onChange={(e) => onInput(i, e.target.value)}
-                onFocus={(e) => e.target.select()}
-                onPaste={(e) => {
-                  e.preventDefault();
-                  fill(e.clipboardData.getData('text').replace(/\D/g, ''), 0);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Backspace' && !d && i > 0) {
-                    e.preventDefault();
-                    const arr = [...digitsV];
-                    arr[i - 1] = '';
-                    setDigits(arr);
-                    refs.current[i - 1]?.focus();
-                  }
-                  if (e.key === 'ArrowLeft' && i > 0) refs.current[i - 1]?.focus();
-                  if (e.key === 'ArrowRight' && i < 5) refs.current[i + 1]?.focus();
-                }}
-              />
-            ))}
-          </div>
-        </fieldset>
-        <p className="mt-2 min-h-[18px] text-xs text-danger" role="alert">
-          {error}
-        </p>
-        <button type="submit" className="btn btn-dark btn-lg mt-3 w-full">
-          Verify &amp; Continue
-        </button>
-        <div className="mt-4 flex items-center justify-between text-xs">
-          <button
-            type="button"
-            className="font-semibold text-ink disabled:cursor-not-allowed disabled:text-muted"
-            disabled={secs > 0}
-            onClick={resend}
-          >
-            {secs > 0 ? <>Resend code in {secs}s</> : 'Resend demo code'}
-          </button>
-          <button
-            type="button"
-            className="text-muted underline underline-offset-4 hover:text-ink"
-            onClick={() => onDone(false)}
-          >
-            Verify later
-          </button>
-        </div>
-      </form>
-    </>
-  );
-}

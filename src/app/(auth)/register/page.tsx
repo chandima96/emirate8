@@ -3,7 +3,8 @@ import { RegisterWizard } from '@/components/auth/RegisterWizard';
 
 export const metadata = {
   title: { absolute: 'Create Account — Emirate08' },
-  description: 'Create your Emirate08 account as a real estate agency, licensed broker, property developer or buyer.',
+  description:
+    'Create your free Emirate08 account to save homes and contact brokers. Brokers, agencies and developers upgrade after confirming their email.',
 };
 
 export default function RegisterPage() {

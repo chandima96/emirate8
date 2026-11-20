@@ -65,7 +65,10 @@ function AccountMenu({ user, role }) {
   }, [open]);
   const items =
     role === 'buyer'
-      ? RAIL_BUYER
+      ? [
+          ...RAIL_BUYER,
+          { icon: 'briefcase', label: 'Work as a Professional', href: '/register/professional', key: 'go-pro' },
+        ]
       : [
           ...RAIL_BROKER,
           { icon: 'box-arrow-up-right', label: 'View my portfolio', href: '/brokers/me', key: 'portfolio' },
@@ -252,6 +255,11 @@ function MobileMenu({ open, onClose, user, role }) {
               >
                 {role === 'buyer' ? 'My saved properties' : 'Open my dashboard'}
               </Link>
+              {role === 'buyer' && (
+                <Link href="/register/professional" className="btn btn-outline btn-lg w-full" onClick={onClose}>
+                  Work as a Professional
+                </Link>
+              )}
               <button
                 type="button"
                 className="btn btn-outline btn-lg w-full"

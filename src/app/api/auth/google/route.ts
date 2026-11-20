@@ -9,7 +9,7 @@ function siteUrl(request: Request) {
 }
 
 function safeNext(value: string | null) {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/saved';
+  return value && value.startsWith('/') && !value.startsWith('//') ? value : '/';
 }
 
 export async function GET(request: Request) {
