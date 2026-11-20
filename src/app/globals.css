@@ -1249,24 +1249,108 @@ html.is-embed .mkt-shell {
   color: #2f2a8a;
 }
 
-/* ---------- Register choice (login page): panes slide in towards the chosen side ---------- */
-@keyframes regPaneIn {
-  from { opacity: 0; transform: translateX(calc(var(--reg-dir, 1) * 28px)); }
+/* ---------- Auth flow motion (login + register) ---------- */
+:root {
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
+}
+@keyframes authRise {
+  from { opacity: 0; transform: translateY(14px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes authStepIn {
+  from { opacity: 0; transform: translateX(calc(var(--auth-dir, 1) * 36px)); }
   to { opacity: 1; transform: none; }
 }
-@keyframes regItemIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
+@keyframes authReveal {
+  from { opacity: 0; transform: translateY(-6px) scale(0.985); clip-path: inset(0 0 100% 0 round 8px); }
+  to { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 8px); }
 }
-.reg-pane {
-  animation: regPaneIn 0.34s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+@keyframes authDrift {
+  from { transform: scale(1.12) translate3d(0, 1.5%, 0); }
+  to { transform: scale(1.02) translate3d(0, 0, 0); }
 }
-.reg-item {
-  animation: regItemIn 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+@keyframes authFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Stagger with style={{ '--d': n }} — each step is 70ms. */
+.auth-rise {
+  animation: authRise 0.7s var(--ease-fluid) both;
+  animation-delay: calc(var(--d, 0) * 70ms + 60ms);
+}
+.auth-step {
+  animation: authStepIn 0.55s var(--ease-fluid) both;
+}
+.auth-step .auth-rise {
+  animation-delay: calc(var(--d, 0) * 55ms + 90ms);
+}
+.auth-reveal {
+  animation: authReveal 0.5s var(--ease-fluid) both;
+}
+.auth-art {
+  animation: authDrift 14s var(--ease-soft) both;
+  will-change: transform;
+}
+.auth-fade {
+  animation: authFade 1.1s var(--ease-soft) both;
+}
+.auth-press {
+  transition: transform 0.35s var(--ease-fluid), box-shadow 0.35s var(--ease-fluid), background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+.auth-press:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -14px rgba(12, 27, 29, 0.45);
+}
+.auth-press:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 0.12s;
+}
+.auth-flow .option-card {
+  transition: border-color 0.25s, box-shadow 0.35s var(--ease-fluid), background-color 0.25s, transform 0.35s var(--ease-fluid);
+}
+.auth-flow .option-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -20px rgba(12, 27, 29, 0.5);
+}
+.auth-flow .option-card[aria-checked='true'] {
+  transform: none;
+}
+.auth-flow .option-card:active {
+  transform: scale(0.99);
+}
+.auth-flow .radio-dot::after {
+  animation: authReveal 0.3s var(--ease-fluid) both;
+}
+.auth-flow .meter > span {
+  transition: width 0.7s var(--ease-fluid);
+}
+.auth-flow .step-dot {
+  transition: background-color 0.35s, border-color 0.35s, color 0.35s, transform 0.35s var(--ease-fluid);
+}
+.auth-flow .step.is-current .step-dot {
+  transform: scale(1.12);
+}
+.auth-flow .option-card i.bi {
+  transition: transform 0.35s var(--ease-fluid), color 0.25s;
+}
+.auth-flow .option-card:hover i.bi,
+.auth-flow .option-card[aria-checked='true'] i.bi {
+  transform: scale(1.12);
+  color: var(--color-ink, #142326);
 }
 @media (prefers-reduced-motion: reduce) {
-  .reg-pane,
-  .reg-item {
+  .auth-rise,
+  .auth-step,
+  .auth-reveal,
+  .auth-art,
+  .auth-fade,
+  .auth-flow .radio-dot::after {
     animation: none;
+  }
+  .auth-press:hover:not(:disabled),
+  .auth-flow .option-card:hover,
+  .auth-flow .step.is-current .step-dot {
+    transform: none;
   }
 }

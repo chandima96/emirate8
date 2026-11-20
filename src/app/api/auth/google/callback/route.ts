@@ -13,11 +13,11 @@ function siteUrl(request: Request) {
 }
 
 function redirectWithError(origin: string, code: string, professional = false) {
-  // Professional sign-ups return to the login page, which reopens the sign-up dialog with the message.
+  // Professional sign-ups return to registration; everyone else returns to the login page with the message.
   return NextResponse.redirect(
     professional
-      ? `${origin}/login?register=professional&authError=${encodeURIComponent(code)}`
-      : `${origin}/?authError=${encodeURIComponent(code)}`,
+      ? `${origin}/register?authError=${encodeURIComponent(code)}`
+      : `${origin}/login?authError=${encodeURIComponent(code)}`,
   );
 }
 

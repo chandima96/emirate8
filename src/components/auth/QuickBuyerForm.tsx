@@ -7,8 +7,17 @@ import { Icon } from '@/components/ui/Icon';
 import { register } from '@/lib/store';
 import { RX, cx, passwordScore } from '@/lib/utils';
 import { FieldError, PasswordInput, errProps } from './authShared';
+import { GoogleMark } from './LoginForm';
 
-export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCancel = undefined, onSignIn = undefined }) {
+/** Step 2 of buyer registration, shown inside the register wizard. */
+export function QuickBuyerForm({
+  onSuccess,
+  onCancel,
+}: {
+  embedded?: boolean;
+  onSuccess?: (destination: string) => void;
+  onCancel?: () => void;
+}) {
   const router = useRouter();
   const query = useSearchParams();
   const [form, setForm] = useState({ name: '', email: '', password: '' });
@@ -16,6 +25,8 @@ export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCanc
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
+  const rawNext = query.get('next');
+  const safeNext = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '';
 
   const update = (key) => (event) => {
     setForm((current) => ({ ...current, [key]: event.target.value }));
@@ -44,7 +55,7 @@ export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCanc
       return;
     }
 
-    const destination = query.get('next') || '/saved';
+    const destination = safeNext || '/saved';
     if (onSuccess) {
       onSuccess(destination);
       return;
@@ -56,28 +67,29 @@ export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCanc
   const scoreLabel = ['', 'Weak', 'Fair', 'Good', 'Strong'][score] || '';
 
   return (
-    <div className={embedded ? 'w-full' : 'mx-auto flex min-h-screen w-full max-w-[440px] flex-col justify-center px-5 py-10'}>
-      {embedded && onCancel && (
-        <button type="button" className="mb-5 inline-flex items-center gap-2 text-sm text-muted transition-colors hover:text-ink" onClick={onCancel}>
-          <Icon name="arrow-left" className="h-3.5 w-3.5" />
-          Back to sign-up options
-        </button>
-      )}
+    <div className="w-full">
+      <h2 className="auth-rise h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading style={{ '--d': 0 } as React.CSSProperties}>
+        Create Your <em className="f font-normal">Buyer Account.</em>
+      </h2>
+      <p className="auth-rise mt-2 text-[14px] text-muted" style={{ '--d': 1 } as React.CSSProperties}>
+        Free to join. Save properties, contact brokers and follow developer updates.
+      </p>
 
-      <div className="flex items-start gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sage text-ink-deep">
-          <Icon name="person-plus" className="h-5 w-5" />
-        </span>
-        <div>
-          <p className="eyebrow">Buyer account</p>
-          <h1 className="h2 mt-2 text-[25px]">Start with a faster account.</h1>
-        </div>
+      <a
+        href={`/api/auth/google?next=${encodeURIComponent(safeNext || '/saved')}`}
+        className="auth-rise auth-press btn btn-outline btn-lg mt-6 w-full"
+        style={{ '--d': 2 } as React.CSSProperties}
+      >
+        <GoogleMark />
+        Continue with Google
+      </a>
+      <div className="auth-rise mt-6 flex items-center gap-3 text-2xs tracking-[.12em] text-muted uppercase" style={{ '--d': 3 } as React.CSSProperties}>
+        <span className="h-px flex-1 bg-line" />
+        or sign up with email
+        <span className="h-px flex-1 bg-line" />
       </div>
-      <p className="mt-4 text-sm leading-6 text-muted">Save properties, contact brokers and follow developer updates with a simple free account.</p>
 
-      
-
-      <form className="mt-6 space-y-4" noValidate onSubmit={submit}>
+      <form className="auth-rise mt-6 space-y-4" style={{ '--d': 4 } as React.CSSProperties} noValidate onSubmit={submit}>
         <div className={cx('field', errors.name && 'invalid')}>
           <label className="label" htmlFor="buyer-name">Full name</label>
           <input id="buyer-name" name="name" className="input" placeholder="Your name" value={form.name} onChange={update('name')} autoComplete="name" {...errProps('buyer-name', errors.name)} />
@@ -112,11 +124,28 @@ export function QuickBuyerForm({ embedded = false, onSuccess = undefined, onCanc
         </div>
 
         {formError && <p className="rounded-lg border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-[13px] leading-5 text-danger" role="alert">{formError}</p>}
-        <button type="submit" className="btn btn-dark btn-lg w-full" disabled={busy} aria-busy={busy}>
-          {busy ? <><Icon name="arrow-repeat" className="h-4 w-4 animate-spin" /> Creating account…</> : <>Create buyer account <Icon name="arrow-right" className="h-4 w-4" /></>}
-        </button>
+        <div className="!mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
+          {onCancel && (
+            <button type="button" className="auth-press btn btn-ghost" onClick={onCancel}>
+              <i className="bi bi-arrow-left" aria-hidden="true" />
+              Back
+            </button>
+          )}
+          <button type="submit" className="auth-press btn btn-dark btn-lg ml-auto" disabled={busy} aria-busy={busy}>
+            {busy ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Creating account
+              </>
+            ) : (
+              <>
+                Create buyer account
+                <i className="bi bi-arrow-right" aria-hidden="true" />
+              </>
+            )}
+          </button>
+        </div>
       </form>
-      <p className="mt-5 text-center text-sm text-muted">Already registered? {onSignIn ? <button type="button" className="link" onClick={onSignIn}>Sign in</button> : <Link className="link" href="/login">Sign in</Link>}</p>
     </div>
   );
 }

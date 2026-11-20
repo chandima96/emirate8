@@ -24,8 +24,8 @@ export async function GET(request: Request) {
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(
       intent === 'professional'
-        ? `${origin}/login?register=professional&authError=google-not-configured`
-        : `${origin}/?authError=google-not-configured`,
+        ? `${origin}/register?authError=google-not-configured`
+        : `${origin}/login?authError=google-not-configured`,
     );
   }
 
