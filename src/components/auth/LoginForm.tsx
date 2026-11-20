@@ -210,7 +210,7 @@ export function LoginForm() {
           </Link>
         </p>
       </div>
-      <aside className="relative hidden overflow-hidden bg-ink-deep lg:block" aria-hidden="true">
+      <aside className="relative hidden overflow-clip bg-ink-deep lg:block" aria-hidden="true">
         <div className="sticky top-0 h-screen overflow-hidden">
           <img
             src="/images/login-architecture.webp"
