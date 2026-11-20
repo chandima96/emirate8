@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Wordmark } from '@/components/layout/Wordmark';
@@ -23,8 +23,10 @@ import {
 import { uploadRegistrationEvidence } from '@/lib/mediaClient';
 import { RX, cx, fmtBytes, normaliseMobile, passwordScore } from '@/lib/utils';
 import { PasswordInput, FieldError, errProps, SignedInNote } from './authShared';
+import { QuickBuyerForm } from './QuickBuyerForm';
 
 const NAMES = ['Account type', 'Your details', 'Credentials', 'Membership'];
+const BUYER_NAMES = ['Account type', 'Your details'];
 const DRAFT_KEY = 'e08:reg-draft';
 const PERSIST = ['r-name', 'r-email', 'r-mobile', 'r-brn', 'r-expiry', 'r-agency', 'r-orn', 'r-tl', 'r-agents'];
 const TYPES: Array<{ id: string; title: string; icon: string; desc: string; soon?: boolean }> = [
@@ -40,6 +42,12 @@ const TYPES: Array<{ id: string; title: string; icon: string; desc: string; soon
     title: 'Property Developer',
     icon: 'buildings',
     desc: 'For developers publishing projects and inventory.',
+  },
+  {
+    id: 'buyer',
+    title: 'Buyer',
+    icon: 'house-heart',
+    desc: 'For buyers saving homes and contacting brokers. Free, no documents needed.',
   },
 ];
 const S_LABELS = ['Password strength', 'Weak', 'Fair', 'Good', 'Strong'];
@@ -62,7 +70,7 @@ function clearDraft() {
 }
 
 /** Mirrors the old init: draft first, then ?type= and ?plan=, then the furthest safe step. */
-function initialState(qType, qPlan) {
+function initialState(qType, qPlan, qStep = null) {
   const st = { step: 1, type: null, plan: null, planTouched: false, v: {} };
   const autoPlan = (t) => {
     if (!st.planTouched && t !== 'buyer') st.plan = `${t}-bronze`;
@@ -79,20 +87,20 @@ function initialState(qType, qPlan) {
     }
     if (draft.plan) st.plan = draft.plan;
   }
-  if (qType === 'agency' || qType === 'broker' || qType === 'developer') {
+  if (qType === 'agency' || qType === 'broker' || qType === 'developer' || qType === 'buyer') {
     st.type = qType;
     autoPlan(qType);
   }
-  if (st.type === 'buyer') st.type = null;
   if (qPlan && plans()[qPlan] && (!st.type || plans()[qPlan].roleAudience === st.type)) {
     st.plan = qPlan;
     st.planTouched = true;
   }
-  if (st.type && plans()[st.plan]?.roleAudience !== st.type) {
+  if (st.type && st.type !== 'buyer' && plans()[st.plan]?.roleAudience !== st.type) {
     st.plan = `${st.type}-bronze`;
     st.planTouched = false;
   }
-  st.step = draft && draft.step >= 2 && st.type ? 2 : 1;
+  st.step =
+    (draft && draft.step >= 2 && st.type && st.type !== 'buyer') || (qType === 'buyer' && qStep === 'details') ? 2 : 1;
   return st;
 }
 
@@ -101,13 +109,13 @@ export function RegisterWizard() {
   const { ready } = useSession();
   const q = useSearchParams();
   return (
-    <div className="lg:grid lg:min-h-screen lg:grid-cols-[40fr_60fr]">
+    <div className="auth-flow lg:grid lg:min-h-screen lg:grid-cols-[40fr_60fr]">
       <aside className="on-dark relative hidden overflow-hidden bg-ink-deep lg:block" aria-label="About Emirate08">
         <div className="sticky top-0 flex h-screen flex-col">
           <img
             src="/images/register-architecture.webp"
             alt=""
-            className="absolute inset-0 h-full w-full object-cover opacity-90"
+            className="auth-art absolute inset-0 h-full w-full object-cover opacity-90"
             width="1600"
             height="2400"
           />
@@ -128,7 +136,7 @@ export function RegisterWizard() {
                 Emirate<span className="f font-normal">08</span>
               </span>
             </Link>
-            <div className="mt-auto max-w-[400px]">
+            <div className="auth-rise mt-auto max-w-[400px]" style={{ '--d': 3 } as React.CSSProperties}>
               <h1 className="font-display text-[30px] leading-[1.12] font-semibold text-white xl:text-[34px]">
                 Your Next <em className="f font-normal text-sage">Opportunity</em> Starts Here.
               </h1>
@@ -172,17 +180,21 @@ export function RegisterWizard() {
         </div>
         <div className="mx-auto flex w-full max-w-[600px] flex-1 flex-col px-5 pb-10 sm:px-8">
           {ready && !q.get('stay') && <SignedInNote className="mb-4" />}
-          {hydrated ? <Wizard qType={q.get('type')} qPlan={q.get('plan')} /> : <div className="min-h-[480px]" />}
+          {hydrated ? (
+            <Wizard qType={q.get('type')} qPlan={q.get('plan')} qStep={q.get('step')} />
+          ) : (
+            <div className="min-h-[480px]" />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Wizard({ qType, qPlan }) {
+function Wizard({ qType, qPlan, qStep }) {
   const router = useRouter();
   const { toast } = useFeedback();
-  const [init] = useState(() => initialState(qType, qPlan));
+  const [init] = useState(() => initialState(qType, qPlan, qStep));
   const [step, setStep] = useState(init.step);
   const [type, setTypeState] = useState(init.type);
   const planCards = Object.values(plans())
@@ -217,6 +229,8 @@ function Wizard({ qType, qPlan }) {
   const [success, setSuccess] = useState(null); // { verified }
   const doneRef = useRef(false);
   const focusStep = useRef(false);
+  // Steps slide in from the side the user is heading towards.
+  const [dir, setDir] = useState<1 | -1>(1);
   const fieldsetRefs = useRef({});
   const successRef = useRef(null);
 
@@ -235,16 +249,6 @@ function Wizard({ qType, qPlan }) {
   /* Step change: fade in the fieldset, focus its heading, scroll to top. */
   useEffect(() => {
     const f = fieldsetRefs.current[step];
-    f?.animate?.(
-      [
-        { opacity: 0, transform: 'translateY(8px)' },
-        { opacity: 1, transform: 'none' },
-      ],
-      {
-        duration: 300,
-        easing: 'cubic-bezier(.22,.61,.36,1)',
-      },
-    );
     if (focusStep.current) {
       focusStep.current = false;
       f?.querySelector('[data-step-heading]')?.focus({ preventScroll: true });
@@ -286,6 +290,7 @@ function Wizard({ qType, qPlan }) {
   const setType = (t) => {
     setTypeState(t);
     setTypeError(false);
+    if (t === 'buyer') return;
     setPlanState(`${t}-bronze`);
     setPlanTouched(false);
   };
@@ -373,6 +378,7 @@ function Wizard({ qType, qPlan }) {
 
   const go = (n) => {
     focusStep.current = true;
+    setDir(n < step ? -1 : 1);
     setStep(n);
   };
 
@@ -452,6 +458,10 @@ function Wizard({ qType, qPlan }) {
   const onSubmit = async (e) => {
     e.preventDefault();
     if (busy || !validate(step)) return;
+    if (step === 1 && type === 'buyer') {
+      go(2);
+      return;
+    }
     if (step === 2) {
       setCheckingEmail(true);
       const result = await checkRegistrationEmail(val('r-email'));
@@ -529,7 +539,7 @@ function Wizard({ qType, qPlan }) {
 
   if (success) {
     return (
-      <section className="pt-6 lg:pt-14" tabIndex={-1} ref={successRef} aria-labelledby="success-title">
+      <section className="auth-step pt-6 lg:pt-14" tabIndex={-1} ref={successRef} aria-labelledby="success-title">
         <span className="flex h-11 w-11 items-center justify-center rounded-full bg-sage text-ink">
           <i className="bi bi-check-lg h-5 w-5" aria-hidden="true" />
         </span>
@@ -859,7 +869,11 @@ function Wizard({ qType, qPlan }) {
                 <div className="my-5 border-t border-line" />
                 <div className="flex justify-between text-xs text-muted">
                   <span>Amount</span>
-                  <span>{selectedPlan?.price == null ? 'Pricing to be confirmed' : `AED ${selectedPlan.price.toLocaleString()} / month`}</span>
+                  <span>
+                    {selectedPlan?.price == null
+                      ? 'Pricing to be confirmed'
+                      : `AED ${selectedPlan.price.toLocaleString()} / month`}
+                  </span>
                 </div>
                 <div className="mt-3 flex justify-between text-sm font-semibold text-ink">
                   <span>Total</span>
@@ -889,19 +903,28 @@ function Wizard({ qType, qPlan }) {
     );
   }
 
+  const isBuyer = type === 'buyer';
+  const names = isBuyer ? BUYER_NAMES : NAMES;
+  const buyerDetails = isBuyer && step === 2;
+
   return (
     <section>
       {/* Progress */}
       <div className="pt-2 lg:pt-6">
         <div className="flex items-center justify-between text-2xs font-semibold tracking-[.12em] text-muted uppercase">
-          <span>Step {step} of 4</span>
-          <span>{NAMES[step - 1]}</span>
+          <span>
+            Step {step} of {names.length}
+          </span>
+          <span>{names[step - 1]}</span>
         </div>
         <div className="meter mt-2.5">
-          <span style={{ width: (step / 4) * 100 + '%' }} />
+          <span style={{ width: (step / names.length) * 100 + '%' }} />
         </div>
-        <ol className="mt-4 hidden grid-cols-4 gap-2 sm:grid" aria-label="Registration steps">
-          {NAMES.map((name, i) => {
+        <ol
+          className={cx('mt-4 hidden gap-2 sm:grid', isBuyer ? 'grid-cols-2' : 'grid-cols-4')}
+          aria-label="Registration steps"
+        >
+          {names.map((name, i) => {
             const n = i + 1;
             return (
               <li
@@ -917,116 +940,88 @@ function Wizard({ qType, qPlan }) {
         </ol>
       </div>
 
-      <form className="mt-8 lg:mt-10" noValidate autoComplete="on" onSubmit={onSubmit}>
+      {buyerDetails && (
+        <div
+          key="buyer-details"
+          className="auth-step mt-8 lg:mt-10"
+          style={{ '--auth-dir': dir } as React.CSSProperties}
+        >
+          <QuickBuyerForm
+            embedded
+            onCancel={() => go(1)}
+            onSuccess={(destination) => {
+              doneRef.current = true;
+              clearDraft();
+              router.push(destination);
+            }}
+          />
+        </div>
+      )}
+      <form
+        className="mt-8 lg:mt-10"
+        hidden={buyerDetails}
+        style={{ '--auth-dir': dir } as React.CSSProperties}
+        noValidate
+        autoComplete="on"
+        onSubmit={onSubmit}
+      >
         {/* STEP 1 */}
         <fieldset
           ref={(el) => {
             fieldsetRefs.current[1] = el;
           }}
           hidden={step !== 1}
+          className="auth-step"
         >
           <legend className="sr-only">Account type</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
             How Will You Use <em className="f font-normal">Emirate08?</em>
           </h2>
-          <p className="mt-2 text-[14px] text-muted">Choose the account type that best describes your business.</p>
+          <p className="mt-2 text-[14px] text-muted">
+            Choose the account type that fits you — agency, broker, developer or buyer.
+          </p>
           <div
             className="mt-6 grid gap-3"
             role="radiogroup"
             aria-label="Account type"
             onKeyDown={radioKeys(TYPES, setType)}
           >
-            {TYPES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="radio"
-                aria-checked={type === t.id}
-                tabIndex={type === t.id || (!type && t.id === 'broker') ? 0 : -1}
-                className="option-card"
-                data-type={t.id}
-                onClick={() => setType(t.id)}
-              >
-                <span className="radio-dot" />
-                <span className="flex-1">
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="font-display text-[16px] font-semibold text-ink">{t.title}</span>
-                    {t.soon ? (
-                      <span className="badge badge-sage">Coming soon</span>
-                    ) : (
-                      <i className={`bi bi-${t.icon} h-5 w-5 text-muted`} aria-hidden="true" />
-                    )}
+            {TYPES.map((t, i) => (
+              <Fragment key={t.id}>
+                {t.id === 'buyer' && (
+                  <div
+                    className="auth-rise mt-2 flex items-center gap-3 border-t border-line pt-4 text-2xs font-semibold tracking-[.12em] text-muted uppercase"
+                    style={{ '--d': i + 1 } as React.CSSProperties}
+                    aria-hidden="true"
+                  >
+                    Looking to buy?
+                  </div>
+                )}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={type === t.id}
+                  tabIndex={type === t.id || (!type && t.id === 'broker') ? 0 : -1}
+                  className="option-card auth-rise"
+                  style={{ '--d': i + 1 } as React.CSSProperties}
+                  data-type={t.id}
+                  onClick={() => setType(t.id)}
+                >
+                  <span className="radio-dot" />
+                  <span className="flex-1">
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="font-display text-[16px] font-semibold text-ink">{t.title}</span>
+                      {t.soon ? (
+                        <span className="badge badge-sage">Coming soon</span>
+                      ) : (
+                        <i className={`bi bi-${t.icon} h-5 w-5 text-muted`} aria-hidden="true" />
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[13px] text-muted">{t.desc}</span>
                   </span>
-                  <span className="mt-1 block text-[13px] text-muted">{t.desc}</span>
-                </span>
-              </button>
+                </button>
+              </Fragment>
             ))}
-          </div>
-          <div
-            className="mt-4 rounded-lg border border-line bg-white p-4"
-            hidden={type !== 'buyer'}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.target as Element).matches('input:not([type=checkbox])')) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-              }
-            }}
-          >
-            <p className="text-[13px] text-text">
-              <span className="font-semibold">A free buyer account</span> — no professional documents needed.
-            </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div className={cx('field sm:col-span-2', errors['by-name'] && 'invalid')}>
-                <label className="label" htmlFor="by-name">
-                  Full name
-                </label>
-                <input className="input" autoComplete="name" {...bind('by-name')} />
-                <FieldError id="by-name">{errors['by-name']}</FieldError>
-              </div>
-              <div className={cx('field', errors['by-email'] && 'invalid')}>
-                <label className="label" htmlFor="by-email">
-                  Email
-                </label>
-                <input type="email" className="input" autoComplete="email" {...bind('by-email')} />
-                <FieldError id="by-email">{errors['by-email']}</FieldError>
-              </div>
-              <div className={cx('field', errors['by-pw'] && 'invalid')}>
-                <label className="label" htmlFor="by-pw">
-                  Password
-                </label>
-                <input type="password" className="input" autoComplete="new-password" {...bind('by-pw')} />
-                <p className="hint">8+ characters with upper and lower case and a number.</p>
-                <FieldError id="by-pw">{errors['by-pw']}</FieldError>
-              </div>
-            </div>
-            <div className={cx('field mt-3', errors['by-terms'] && 'invalid')}>
-              <label className="check">
-                <input {...bindCheck('by-terms')} />
-                <span>
-                  I agree to the{' '}
-                  <Link className="link" href="/terms">
-                    Terms
-                  </Link>{' '}
-                  and{' '}
-                  <Link className="link" href="/privacy">
-                    Privacy Policy
-                  </Link>
-                  .
-                </span>
-              </label>
-              <FieldError id="by-terms">{errors['by-terms']}</FieldError>
-            </div>
-            <button type="button" className="btn btn-dark btn-lg mt-4 w-full sm:w-auto" onClick={() => undefined}>
-              Create buyer account
-            </button>
-          </div>
-          <div className="mt-4 rounded-lg border border-line bg-white p-4" hidden={type !== 'developer'}>
-            <p className="text-[13px] text-text">
-              <span className="font-semibold">Developer accounts publish project inventory.</span> Complete the
-              professional details below so your account can be reviewed.
-            </p>
-            <p className="mt-2 text-2xs text-muted">Developer verification is completed after registration.</p>
           </div>
           {typeError && (
             <p className="mt-3 text-xs text-danger" role="alert">
@@ -1042,6 +1037,7 @@ function Wizard({ qType, qPlan }) {
             fieldsetRefs.current[2] = el;
           }}
           hidden={step !== 2}
+          className="auth-step"
         >
           <legend className="sr-only">Account details</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
@@ -1133,6 +1129,7 @@ function Wizard({ qType, qPlan }) {
             fieldsetRefs.current[3] = el;
           }}
           hidden={step !== 3}
+          className="auth-step"
         >
           <legend className="sr-only">Professional credentials</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
@@ -1257,6 +1254,7 @@ function Wizard({ qType, qPlan }) {
             fieldsetRefs.current[4] = el;
           }}
           hidden={step !== 4}
+          className="auth-step"
         >
           <legend className="sr-only">Membership and consent</legend>
           <h2 className="h2 text-[26px] lg:text-[30px]" tabIndex={-1} data-step-heading>
@@ -1269,14 +1267,15 @@ function Wizard({ qType, qPlan }) {
             aria-label="Membership plan"
             onKeyDown={radioKeys(planCards, setPlan)}
           >
-            {planCards.map((p) => (
+            {planCards.map((p, i) => (
               <button
                 key={p.id}
                 type="button"
                 role="radio"
                 aria-checked={plan === p.id}
                 tabIndex={plan === p.id ? 0 : -1}
-                className="option-card"
+                className="option-card auth-rise"
+                style={{ '--d': i + 1 } as React.CSSProperties}
                 data-plan={p.id}
                 onClick={() => setPlan(p.id)}
               >
@@ -1284,7 +1283,11 @@ function Wizard({ qType, qPlan }) {
                 <span className="flex-1">
                   <span className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-display text-[16px] font-semibold text-ink">{plans()[p.id].name}</span>
-                    <span className="text-xs font-semibold text-muted">{plans()[p.id].price == null ? 'Pricing to be confirmed' : `AED ${plans()[p.id].price.toLocaleString()} / month`}</span>
+                    <span className="text-xs font-semibold text-muted">
+                      {plans()[p.id].price == null
+                        ? 'Pricing to be confirmed'
+                        : `AED ${plans()[p.id].price.toLocaleString()} / month`}
+                    </span>
                   </span>
                   <span className="mt-1 block text-[13px] text-muted">{p.desc}</span>
                 </span>
@@ -1329,13 +1332,17 @@ function Wizard({ qType, qPlan }) {
         {/* Actions */}
         <div className="mt-8 flex items-center justify-between gap-3 border-t border-line pt-5">
           {step > 1 && (
-            <button type="button" className="btn btn-ghost" onClick={() => go(step - 1)}>
+            <button type="button" className="auth-press btn btn-ghost" onClick={() => go(step - 1)}>
               <i className="bi bi-arrow-left" aria-hidden="true" />
               Back
             </button>
           )}
           {step === 1 && <span className="text-xs text-muted">Your progress is kept on this device.</span>}
-          <button type="submit" className="btn btn-dark btn-lg ml-auto" disabled={nextDisabled || checkingEmail}>
+          <button
+            type="submit"
+            className="auth-press btn btn-dark btn-lg ml-auto"
+            disabled={nextDisabled || checkingEmail}
+          >
             {busy ? (
               <>
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

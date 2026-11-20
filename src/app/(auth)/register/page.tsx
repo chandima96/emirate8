@@ -2,8 +2,8 @@ import { Suspense } from 'react';
 import { RegisterWizard } from '@/components/auth/RegisterWizard';
 
 export const metadata = {
-  title: { absolute: 'Join Emirate08 — Broker & Agency Registration' },
-  description: 'Create your Emirate08 account as a licensed broker or real estate agency in four short steps.',
+  title: { absolute: 'Create Account — Emirate08' },
+  description: 'Create your Emirate08 account as a real estate agency, licensed broker, property developer or buyer.',
 };
 
 export default function RegisterPage() {
