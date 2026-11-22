@@ -25,7 +25,7 @@ import {
   saveListing,
 } from '@/lib/store';
 import { routes } from '@/lib/routes';
-import { clone, cx } from '@/lib/utils';
+import { clone, cx, uid } from '@/lib/utils';
 import { DERIVED, NAMES, STEPS, blankListing, prepare, setIn, tokens } from './model';
 import { flushWrites } from '@/lib/storage';
 import { focusListingField } from './EditorSection';
@@ -317,6 +317,30 @@ export function ListingEditor({ id = undefined }) {
   // listing is kept as "pending" and goes live as soon as the credential review approves them.
   const publishLabel = live ? 'Publish changes' : 'Publish listing';
   const stepLabel = { 2: 'Location', 3: 'Property details', 4: 'Price & terms' };
+  // One-line hints under each step in the rail (Mobbin: ElevenLabs / Remote stepper pattern).
+  const baseHints = [
+    'Purpose, type & market status',
+    'Community, building & map',
+    'Size, layout & amenities',
+    'Price, fees & payment plan',
+    'Title, description & SEO',
+    'Photos, video & tour',
+    'Permit, contact & visibility',
+    'Review checklist & go live',
+  ];
+  const stepHints = isAgency ? [...baseHints.slice(0, 7), 'Assign a broker', baseHints[7]] : baseHints;
+  // Direction of the last move, so the next step slides in from the matching side.
+  const [dir, setDir] = useState<'fwd' | 'back'>('fwd');
+  const railRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    // Keep the current step chip visible in the horizontal (mobile) rail without scrolling the page.
+    const rail = railRef.current;
+    const current = rail?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (!rail || !current || rail.scrollWidth <= rail.clientWidth) return;
+    const left = current.offsetLeft - (rail.clientWidth - current.offsetWidth) / 2;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    rail.scrollTo({ left: Math.max(left, 0), behavior: reduce ? 'auto' : 'smooth' });
+  }, [step]);
 
   /* ---------- validation ---------- */
   function focusEl(elId) {
@@ -339,6 +363,7 @@ export function ListingEditor({ id = undefined }) {
   /* ---------- navigation ---------- */
   const formRef = useRef<HTMLFormElement>(null);
   const go = useCallback((n, focus) => {
+    setDir(n < stepRef.current ? 'back' : 'fwd');
     setStep(n);
     if (focus)
       setTimeout(() => {
@@ -701,6 +726,8 @@ export function ListingEditor({ id = undefined }) {
         continue;
       }
       if (/(Max|Multi)$/.test(key)) continue;
+      // The booking payment is a schedule row; it is added after this loop.
+      if (key === 'booking' || key === 'bookingBasis' || key === 'bookingInSchedule') continue;
       if (key === 'amenities') {
         const ids = (candidates?.amenities || [{ value: suggestions.amenities }]).flatMap((candidate) => Array.isArray(candidate.value) ? candidate.value : []);
         for (const id of ids) {
@@ -745,6 +772,20 @@ export function ListingEditor({ id = undefined }) {
       if (current != null && current !== '' && !(Array.isArray(current) && !current.length)) continue;
       changes[key] = { before: changes[key]?.before ?? current, applied: suggestions[key] };
       data[key] = suggestions[key];
+    }
+    // A booking amount without a booking row in the schedule becomes the schedule's first row. A plan the
+    // user wrote themselves is never changed; only an empty one or the one AI filled in this run.
+    if (selected.includes('booking') && !isBlank(suggestions.booking)) {
+      const rows = milestones || [];
+      const planIsAi = !rows.length || planChange !== aiPlanChange;
+      if (!rows.some((r) => r.trigger === 'booking') && planIsAi) {
+        milestones = [
+          { id: uid('ms'), name: 'Booking', mode: suggestions.bookingBasis === 'aed' ? 'aed' : 'pct', value: String(suggestions.booking), trigger: 'booking', when: '' },
+          ...rows,
+        ];
+        planChange = { before: planChange !== aiPlanChange ? planChange.before : next.editor.milestones, applied: milestones };
+        filled++;
+      } else kept++;
     }
     ed.set('editor.d', data);
     ed.set('editor.amen', amenities);
@@ -882,6 +923,10 @@ export function ListingEditor({ id = undefined }) {
   const savedAgencyId = String(saved?.ownerAgency && typeof saved.ownerAgency === 'object' ? saved.ownerAgency.id : saved?.ownerAgency || '');
   const canAssignTeamMember = !saved || (!!currentAgencyId && savedAgencyId === currentAgencyId);
 
+  // A step counts as complete when it passes validation (team assignment is optional: done once passed).
+  const done = stepNames.map((_, i) => (isAgency && i + 1 === 8 ? i + 1 < step : stepErrors(i + 1).length === 0));
+  const doneCount = done.filter(Boolean).length;
+
   const sections = stepNames.map((_, i) => {
     const uiStep = i + 1;
     if (isAgency && uiStep === 8) return (
@@ -969,20 +1014,44 @@ export function ListingEditor({ id = undefined }) {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[264px_minmax(0,1fr)]">
+        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+          <div className="wz-progress mb-3 lg:mb-4 lg:px-3">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="font-display text-[22px] leading-none font-semibold text-ink" aria-hidden="true">
+                <span key={step} className="wz-count inline-block">{step}</span>
+                <span className="text-[15px] font-medium text-muted"> / {totalSteps}</span>
+              </p>
+              <p className="text-xs text-muted" aria-live="polite">
+                {doneCount === totalSteps ? 'Ready to publish' : `${doneCount} of ${totalSteps} complete`}
+              </p>
+            </div>
+            <div
+              className="wz-bar mt-2.5"
+              role="progressbar"
+              aria-label="Listing completion"
+              aria-valuemin={0}
+              aria-valuemax={totalSteps}
+              aria-valuenow={doneCount}
+            >
+              <span style={{ transform: `scaleX(${doneCount / totalSteps})` }} />
+            </div>
+          </div>
         <ol
-          className="no-scrollbar flex gap-1 overflow-x-auto lg:sticky lg:top-24 lg:flex-col lg:gap-0.5 lg:self-start"
+          ref={railRef}
+          className="wz-rail no-scrollbar flex gap-1 overflow-x-auto lg:flex-col lg:gap-0"
           aria-label="Listing steps"
         >
           {stepNames.map((name, i) => {
             const k = i + 1;
+            const isDone = k !== step && done[i];
             return (
-              <li key={k}>
+              <li key={k} className={cx('wz-item', done[i] && 'is-done', k === step && 'is-current')}>
                 <button
                   type="button"
                   className={cx(
-                    'wz-step flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13px] whitespace-nowrap',
+                    'wz-step flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13px] whitespace-nowrap lg:items-start lg:py-2.5',
                     k === step && 'is-current',
-                    k !== step && (isAgency && k === 8 ? k < step : stepErrors(k).length === 0) && 'is-done',
+                    isDone && 'is-done',
                   )}
                   aria-current={k === step ? 'step' : undefined}
                   disabled={saving}
@@ -993,10 +1062,16 @@ export function ListingEditor({ id = undefined }) {
                     if (k > step) saveInBackground();
                   }}
                 >
-                  <span className="step-dot">{k}</span>
-                  {stepLabel[k] || name}
+                  <span className="step-dot shrink-0">
+                    {isDone ? <Icon name="check-lg" aria-hidden="true" /> : k}
+                    {isDone && <span className="sr-only"> (complete)</span>}
+                  </span>
+                  <span className="min-w-0 lg:flex-1">
+                    <span className="block">{stepLabel[k] || name}</span>
+                    <span className="wz-hint hidden truncate text-2xs font-normal text-muted lg:block">{stepHints[i]}</span>
+                  </span>
                   {(aiFilledByStep[k] > 0 || aiReviewByStep[k] > 0) && (
-                    <span className="ml-auto inline-flex items-center gap-1 pl-2">
+                    <span className="ml-auto inline-flex items-center gap-1 pl-2 lg:mt-0.5">
                       {aiFilledByStep[k] > 0 && (
                         <span
                           className="inline-flex h-5 items-center gap-0.5 rounded-full bg-[#ecebff] px-1.5 text-[10px] font-semibold text-[#4338a8]"
@@ -1024,10 +1099,12 @@ export function ListingEditor({ id = undefined }) {
             );
           })}
         </ol>
+        </aside>
 
         <form
           ref={formRef}
-          className="listing-editor-panel card min-w-0 scroll-mt-24 p-5 sm:p-7 lg:p-8"
+          className="listing-editor-panel card min-w-0 scroll-mt-24 p-5 pb-0 sm:p-7 sm:pb-0 lg:p-8 lg:pb-0"
+          data-dir={dir}
           noValidate
           onSubmit={(e) => {
             e.preventDefault();
@@ -1038,7 +1115,10 @@ export function ListingEditor({ id = undefined }) {
           }}
         >
           {sections.map((s, i) => (
-            <section key={i} data-step={i + 1} hidden={step !== i + 1}>
+            <section key={i} data-step={i + 1} hidden={step !== i + 1} className="wz-panel">
+              <p className="wz-eyebrow mb-2 text-2xs font-semibold tracking-[0.08em] text-muted uppercase">
+                Step {i + 1} of {totalSteps}
+              </p>
               {s}
             </section>
           ))}
@@ -1068,7 +1148,13 @@ export function ListingEditor({ id = undefined }) {
               <span className="text-xs underline">Show me</span>
             </button>
           )}
-          <div className={cx('flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5', Object.keys(shownErrors).length > 0 ? 'mt-4' : 'mt-8')}>
+          <div className={cx('wz-footer', Object.keys(shownErrors).length > 0 ? 'mt-4' : 'mt-8')}>
+          <div className="wz-segs" aria-hidden="true">
+            {stepNames.map((_, i) => (
+              <span key={i} className={cx(i + 1 < step && 'is-past', i + 1 === step && 'is-current')} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 py-4">
             {step > 1 && (
               <button type="button" className="btn btn-ghost" onClick={() => { setErrors({}); go(step - 1, true); }}>
                 <Icon name="arrow-left" />
@@ -1076,7 +1162,14 @@ export function ListingEditor({ id = undefined }) {
               </button>
             )}
             <span className="text-xs text-muted">
-              Step {step} of {totalSteps} · {stepNames[step - 1]}
+              {step < totalSteps ? (
+                <>
+                  <span className="hidden sm:inline">Next: </span>
+                  <span className="font-medium text-ink">{stepLabel[step + 1] || stepNames[step]}</span>
+                </>
+              ) : (
+                <>Final step · {ready.complete ? 'checklist complete' : 'finish the checklist'}</>
+              )}
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {step === reviewStep ? (
@@ -1091,12 +1184,13 @@ export function ListingEditor({ id = undefined }) {
                   </button>
                 </>
               ) : (
-                <button type="submit" className="btn btn-dark">
+                <button type="submit" className="btn btn-dark wz-next">
                   Continue
                   <Icon name="arrow-right" />
                 </button>
               )}
             </div>
+          </div>
           </div>
         </form>
       </div>

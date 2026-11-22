@@ -92,12 +92,32 @@ function migrateToAmenities(editor) {
 }
 
 /**
+ * The booking payment used to be a separate "Booking amount" field next to the unit price. It now lives
+ * in the payment schedule as an "On booking" milestone, so an old answer is moved into the schedule
+ * (first row) and the separate field is cleared. A schedule that already has a booking row wins.
+ */
+function foldBookingIntoSchedule(editor) {
+  const d = editor.d;
+  if (U.isBlank(d.booking) && U.isBlank(d.bookingBasis) && !d.bookingInSchedule) return editor;
+  if (!S.ctxOf(d).offInit) return editor;
+  const rows = editor.milestones || [];
+  const milestones =
+    U.isBlank(d.booking) || rows.some((r) => r.trigger === 'booking')
+      ? rows
+      : [
+          { id: 'ms-booking', name: 'Booking', mode: d.bookingBasis === 'aed' ? 'aed' : 'pct', value: String(d.booking), trigger: 'booking', when: '' },
+          ...rows,
+        ];
+  return { ...editor, milestones, d: { ...d, booking: '', bookingBasis: '', bookingInSchedule: false } };
+}
+
+/**
  * Applies derived answers to an editor object. Returns the same object when nothing changes, so callers
  * can cheaply detect a no-op.
  */
 export function deriveEditor(editor) {
   if (!editor || !editor.d) return editor;
-  let next = migrateToAmenities(editor);
+  let next = foldBookingIntoSchedule(migrateToAmenities(editor));
   const d = { ...next.d };
   const auto = { ...(next.auto || {}) };
   const sources = { ...(next.sources || {}) };

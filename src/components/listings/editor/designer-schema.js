@@ -1588,11 +1588,12 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
         },
         {
           id: 'pr-offi',
-          title: 'Off-plan price & booking',
+          title: 'Off-plan price',
           when: function (c) {
             return c.priceReady && c.offInit;
           },
-          fields: ['unitPrice', 'priceOnRequest', 'bookingBasis', 'booking'],
+          // The booking payment is the first row of the payment schedule, not a separate field.
+          fields: ['unitPrice', 'priceOnRequest'],
         },
         {
           id: 'pr-ms',

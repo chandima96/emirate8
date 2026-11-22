@@ -170,19 +170,6 @@ export function projectListing(l) {
     pct: m.mode === 'pct' ? decimal(m.value) : money(d.unitPrice) > 0 ? (money(m.value) / money(d.unitPrice)) * 100 : 0,
     due: m.when || m.trigger,
   }));
-  if (c.offInit && !(st.milestones || []).some((m) => m.trigger === 'booking') && !U.isBlank(d.booking))
-    plan.unshift({
-      id: 'booking',
-      label: 'Booking',
-      stage: 'booking',
-      pct:
-        d.bookingBasis === 'pct'
-          ? decimal(d.booking)
-          : money(d.unitPrice) > 0
-            ? (money(d.booking) / money(d.unitPrice)) * 100
-            : 0,
-      due: 'On reservation',
-    });
   const amen = Object.entries(st.amen || {})
     .filter(([, a]) => a.selected !== false)
     .map(([id]) => S.AMENITY[id]?.l)
