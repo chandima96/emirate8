@@ -80,7 +80,7 @@ export function ListingsList() {
   };
   const stats = [
     ['Published', c.published, p.listings ? 'of ' + p.listings + ' on ' + p.name : 'Fair use', 'published'],
-    ['Drafts & pending', c.draft + c.pending, c.pending ? c.pending + ' pending review' : 'Not yet public', 'draft'],
+    ['Drafts & pending', c.draft + c.pending, c.pending ? c.pending + ' awaiting verification' : 'Not yet public', 'draft'],
     ['Unpublished', c.unpublished, 'Hidden from buyers', 'unpublished'],
     ['Sold & rented', c.closed, c.archived ? c.archived + ' archived' : 'Completed', 'closed'],
   ];
@@ -190,7 +190,7 @@ export function ListingsList() {
             <option value="">All statuses</option>
             <option value="published">Published</option>
             <option value="draft">Draft</option>
-            <option value="pending">Pending review</option>
+            <option value="pending">Awaiting verification</option>
             <option value="unpublished">Unpublished</option>
             <option value="closed">Sold / Rented</option>
             <option value="archived">Archived</option>

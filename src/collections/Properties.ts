@@ -44,7 +44,7 @@ export const Properties: CollectionConfig = {
       defaultValue: 'draft',
       options: [
         { label: 'Draft', value: 'draft' },
-        { label: 'Pending Review', value: 'pending' },
+        { label: 'Awaiting Credential Verification', value: 'pending' },
         { label: 'Published', value: 'published' },
         { label: 'Unpublished', value: 'unpublished' },
         { label: 'Sold', value: 'sold' },

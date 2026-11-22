@@ -19,77 +19,6 @@ function verifierUser(user: any) {
   return controlRole(user) === 'verifier';
 }
 
-function propertyVerification(property: any) {
-  // Member-created listings keep the original editor payload in appData. Use it
-  // as a fallback while older records are being backfilled with the canonical
-  // permit upload field.
-  const permit = { ...(property.appData?.permit || {}), ...(property.permit || {}) };
-  const photos = Array.isArray(property.photos) ? property.photos : [];
-  const checks = [
-    {
-      key: 'identity',
-      label: 'Property identity',
-      submitted:
-        [property.title, property.area, property.type].filter(Boolean).join(' · ') || 'Missing title, area or type',
-      evidence: 'Title, area and property type are filled',
-      ok: Boolean(property.title && property.area && property.type),
-    },
-    {
-      key: 'pricing',
-      label: 'Pricing',
-      submitted: property.price
-        ? `${property.purpose || 'Unknown purpose'} · AED ${Number(property.price).toLocaleString('en-AE')}`
-        : 'Price missing',
-      evidence: 'Purpose and asking price are present',
-      ok: Boolean(property.purpose && property.price > 0),
-    },
-    {
-      key: 'specifications',
-      label: 'Specifications',
-      submitted:
-        [
-          property.size ? `${property.size} sqft` : '',
-          property.beds != null ? `${property.beds} beds` : '',
-          property.baths != null ? `${property.baths} baths` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ') || 'No size or room data',
-      evidence: 'Size, bedrooms and bathrooms are supplied',
-      ok: Boolean(property.size && property.beds != null && property.baths != null),
-    },
-    {
-      key: 'permit',
-      label: 'Advertising permit',
-      submitted:
-        permit.number && permit.expiry
-          ? `${permit.number} · expires ${String(permit.expiry).slice(0, 10)}`
-          : 'Permit number or expiry missing',
-      evidence: permit.document || 'Upload the issued permit e-Certificate',
-      ok: Boolean(
-        permit.number &&
-          permit.expiry &&
-          permit.document &&
-          new Date(permit.expiry).getTime() >= Date.now(),
-      ),
-    },
-    {
-      key: 'media',
-      label: 'Media evidence',
-      submitted: `${photos.length} gallery photo${photos.length === 1 ? '' : 's'}${property.featuredImage ? ' · featured image supplied' : ''}`,
-      evidence: 'At least 3 gallery photos and a featured image',
-      ok: photos.length >= 3 && Boolean(property.featuredImage),
-    },
-    {
-      key: 'broker',
-      label: 'Responsible broker',
-      submitted: property.broker ? 'Broker linked' : 'No broker linked',
-      evidence: 'Listing is linked to a responsible broker',
-      ok: Boolean(property.broker),
-    },
-  ];
-  return { checks, ready: checks.every((check) => check.ok) };
-}
-
 function controlUser(user: any) {
   return {
     id: user.id,
@@ -344,7 +273,6 @@ export async function adminRequest(body: unknown, headers: Headers) {
         price: property.price,
         visible: property.display?.visible !== false,
         updatedAt: property.updatedAt,
-        verification: propertyVerification(property),
       })),
     });
   }
@@ -494,18 +422,13 @@ export async function adminRequest(body: unknown, headers: Headers) {
   }
 
   if (body.action === 'update-property') {
-    if (verifierUser(current) && !['approved', 'needs_changes'].includes(String(body.verificationDecision))) {
-      return result({ error: 'Verifiers can only submit property verification decisions.' }, { status: 403 });
+    if (verifierUser(current)) {
+      return result({ error: 'Verifiers can only submit member verification decisions.' }, { status: 403 });
     }
     if (body.id == null) return result({ error: 'Property id is required.' }, { status: 400 });
     const existing: any = await payload.findByID({ collection: 'properties', id: body.id, overrideAccess: true });
     const data: Record<string, any> = {};
-    if (body.verificationDecision === 'approved' || body.verificationDecision === 'needs_changes') {
-      const verification = propertyVerification(existing);
-      if (body.verificationDecision === 'approved' && !verification.ready)
-        return result({ error: 'This property still has failed evidence checks.' }, { status: 400 });
-      data.status = body.verificationDecision === 'approved' ? 'published' : 'pending';
-    } else if (
+    if (
       typeof body.status === 'string' &&
       ['draft', 'pending', 'published', 'unpublished', 'sold', 'rented', 'archived'].includes(body.status)
     )

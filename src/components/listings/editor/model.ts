@@ -4,7 +4,7 @@ import { TYPES } from '@/config/reference';
 import { im } from '@/config/images';
 import { fileToDataURL, uid } from '@/lib/utils';
 
-// The standard flow has eight steps; agency editors insert team assignment before review.
+// The standard flow has eight steps; agency editors insert team assignment before publishing.
 export const STEPS = 8;
 export const MAX_PHOTOS = 30;
 export const NAMES = [
@@ -15,7 +15,7 @@ export const NAMES = [
   'Marketing',
   'Photos & media',
   'Permit & display',
-  'Review & publish',
+  'Publish',
 ];
 /** Computed/display-only keys that are never stored with the record. */
 export const DERIVED = ['broker', 'images', 'available', 'listed', 'own', 'permitStatus'];
