@@ -1697,3 +1697,168 @@ html.is-embed .mkt-shell {
   .ms-compare tbody tr { opacity: 1; transform: none; animation: none !important; }
   .ms-glide, .ms-bar > span, .ms-card { transition: none; }
 }
+
+/* ---------- Listing wizard: stepper rail, progress and step transitions ---------- */
+.listing-editor-panel {
+  --wz-pad: 20px;
+}
+@media (min-width: 640px) {
+  .listing-editor-panel { --wz-pad: 28px; }
+}
+@media (min-width: 1024px) {
+  .listing-editor-panel { --wz-pad: 32px; }
+}
+
+/* Overall completion bar above the rail */
+.wz-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-line);
+}
+.wz-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-ink);
+  transform-origin: left center;
+  transition: transform 0.6s var(--ease-fluid);
+}
+.wz-count {
+  animation: wzCount 0.45s var(--ease-fluid) both;
+}
+
+/* Rail: dots, check marks and the connector that fills as steps complete */
+.wz-item {
+  position: relative;
+}
+.wz-step .step-dot {
+  transition: background-color 0.3s, border-color 0.3s, color 0.3s, transform 0.35s var(--ease-fluid), box-shadow 0.3s;
+}
+.wz-step .step-dot .bi {
+  font-size: 12px;
+  line-height: 1;
+  animation: wzTick 0.4s var(--ease-fluid) both;
+}
+.wz-step:hover:not(.is-current) .step-dot {
+  transform: scale(1.08);
+}
+.wz-step.is-current .step-dot {
+  animation: wzPulse 2.4s var(--ease-soft) infinite;
+}
+.wz-step.is-current .wz-hint {
+  color: var(--color-text);
+}
+@media (min-width: 1024px) {
+  .wz-item:not(:last-child)::before,
+  .wz-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: 23px;
+    top: 38px;
+    bottom: -6px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--color-line);
+    pointer-events: none;
+  }
+  .wz-item:not(:last-child)::after {
+    background: var(--color-sage);
+    transform: scaleY(0);
+    transform-origin: top center;
+    transition: transform 0.5s var(--ease-fluid);
+  }
+  .wz-item.is-done:not(:last-child)::after {
+    transform: scaleY(1);
+  }
+}
+
+/* Step content slides in from the side you're moving towards */
+.listing-editor-panel[data-dir='fwd'] .wz-panel:not([hidden]) {
+  animation: wzInFwd 0.42s var(--ease-fluid) both;
+}
+.listing-editor-panel[data-dir='back'] .wz-panel:not([hidden]) {
+  animation: wzInBack 0.42s var(--ease-fluid) both;
+}
+
+/* Sticky action bar with segmented progress */
+.wz-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-inline: calc(var(--wz-pad) * -1);
+  padding-inline: var(--wz-pad);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  background: rgb(255 255 255 / 0.94);
+  backdrop-filter: saturate(1.4) blur(8px);
+}
+.wz-segs {
+  display: flex;
+  gap: 4px;
+  margin-inline: calc(var(--wz-pad) * -1);
+}
+.wz-segs > span {
+  position: relative;
+  flex: 1;
+  height: 3px;
+  overflow: hidden;
+  background: var(--color-line);
+}
+.wz-segs > span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--color-ink);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.45s var(--ease-fluid);
+}
+.wz-segs > span.is-past::after {
+  transform: scaleX(1);
+}
+.wz-segs > span.is-current::after {
+  transform: scaleX(0.5);
+}
+.wz-next .bi {
+  transition: transform 0.25s var(--ease-fluid);
+}
+.wz-next:hover .bi {
+  transform: translateX(3px);
+}
+
+@keyframes wzInFwd {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes wzInBack {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes wzCount {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes wzTick {
+  from { opacity: 0; transform: scale(0.4) rotate(-20deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes wzPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(20 35 38 / 0.18); }
+  50% { box-shadow: 0 0 0 5px rgb(20 35 38 / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wz-count,
+  .wz-step .step-dot,
+  .wz-step .step-dot .bi,
+  .wz-step.is-current .step-dot,
+  .listing-editor-panel .wz-panel:not([hidden]) {
+    animation: none;
+  }
+  .wz-bar > span,
+  .wz-item::after,
+  .wz-segs > span::after,
+  .wz-next .bi {
+    transition: none;
+  }
+}

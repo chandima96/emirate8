@@ -403,19 +403,43 @@ export function AdditionalFeatures({ ed }) {
 }
 
 export function MilestonesWidget({ ed }) {
-  const rows = ed.L.editor.milestones || [];
+  const stored = ed.L.editor.milestones || [];
+  // The booking payment is part of the schedule: its row is always shown first.
+  const rows = [...stored.filter((r) => r.trigger === 'booking'), ...stored.filter((r) => r.trigger !== 'booking')];
+  const hasBooking = rows.some((r) => r.trigger === 'booking');
   const set = (next) => ed.set('editor.milestones', next);
   const change = (id, key, value) => set(rows.map((r) => (r.id === id ? { ...r, [key]: value } : r)));
+  const addBooking = () =>
+    set([{ id: uid('ms'), name: 'Booking', mode: 'pct', value: '', trigger: 'booking', when: '' }, ...rows]);
   const check = S.pricing.schedule(editorState(ed.L));
   const errors = S.milestoneErrors(editorState(ed.L));
   return (
     <div id="designer-milestones" tabIndex={-1} className="space-y-3">
       <AiStatus id="designer-milestones" value={rows.length > 0} />
       <p className="text-xs text-muted">
-        Enter each milestone in AED or as a percentage. Booking is counted once according to the option above.
+        Enter each payment in AED or as a percentage of the unit price, starting with the booking payment. Together
+        they should add up to the full price.
       </p>
+      {!hasBooking && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-line bg-paper p-4">
+          <div>
+            <p className="text-sm font-medium text-ink">Booking payment</p>
+            <p className="text-xs text-muted">The amount paid on reservation, e.g. 10% or 20% on booking.</p>
+          </div>
+          <button type="button" className="btn btn-outline btn-sm" onClick={addBooking}>
+            <Icon name="plus" />
+            Add booking payment
+          </button>
+        </div>
+      )}
       {rows.map((r) => (
-        <div key={r.id} className="rounded-lg border border-line p-4">
+        <div key={r.id} className={'rounded-lg border p-4 ' + (r.trigger === 'booking' ? 'border-sage bg-sage-soft/30' : 'border-line')}>
+          {r.trigger === 'booking' && (
+            <p className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-sage-soft px-2 py-0.5 text-2xs font-semibold text-sage-ink">
+              <Icon name="bookmark-check" />
+              Booking payment
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field id={'ms-name-' + r.id} label="Milestone name" value={r.name}>
               <input
