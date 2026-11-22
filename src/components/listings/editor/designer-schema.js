@@ -1789,10 +1789,9 @@ E08.ProfileService = { getProfile: () => ({ portfolios: [] }) };
     },
     {
       id: 'review',
-      title: 'Review & publish',
-      desc: 'Check everything, preview the public listing, then submit for review.',
+      title: 'Publish',
+      desc: 'Preview the public listing, confirm the declarations, then publish.',
       sections: [
-        { id: 'rv-sum', title: 'Summary', kind: 'review' },
         { id: 'rv-decl', title: 'Declarations', fields: ['decl1', 'decl2', 'decl3'] },
       ],
     },

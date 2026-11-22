@@ -103,7 +103,7 @@ function sectionOf(path: string) {
   return 'visibility';
 }
 const COMMUNITIES: string[] = Array.from(new Set(Object.values(AREAS as Record<string, string[]>).flat()));
-const ST_LABEL: Record<string, string> = { draft: 'Draft', pending: 'Pending Review', published: 'Published', unpublished: 'Unpublished', sold: 'Sold', rented: 'Rented', archived: 'Archived' };
+const ST_LABEL: Record<string, string> = { draft: 'Draft', pending: 'Awaiting verification', published: 'Published', unpublished: 'Unpublished', sold: 'Sold', rented: 'Rented', archived: 'Archived' };
 const CRED_LABEL: Record<string, string> = { not_submitted: 'Not Submitted', pending: 'Pending', verified: 'Verified', rejected: 'Rejected', expired: 'Expired' };
 const PHONE = /^\+?[\d\s()-]{7,20}$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

@@ -190,11 +190,34 @@ async function activateUser(user) {
     const result = await stateResponse.json();
     const enquiriesResult = enquiriesResponse.ok ? await enquiriesResponse.json() : { enquiries: [] };
     hydrate({ ...(result.state || {}), enquiries: enquiriesResult.enquiries || [] });
+    publishPendingListings();
   } catch (error) {
     activeUser = null;
     setAuthenticated(false);
     throw error;
   }
+}
+
+/**
+ * Listings have no separate admin review: they go live on publish. A member whose credentials are not yet
+ * verified keeps published-intent listings as "pending"; once the credential review approves them, those
+ * listings go live here (within the plan's published-listing limit).
+ */
+function publishPendingListings() {
+  if (!activeUser || activeUser.credentialStatus !== 'verified') return;
+  const d = data();
+  if (!d) return;
+  const limit = plan().listings;
+  let live = counts().published;
+  d.listings
+    .filter((l) => l.status === 'pending')
+    .forEach((l) => {
+      if (limit && live >= limit) return;
+      l.status = 'published';
+      l.display = { ...(l.display || {}), visible: true };
+      saveListing(l);
+      live++;
+    });
 }
 
 let sessionRequest: Promise<any> | null = null;

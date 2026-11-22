@@ -46,7 +46,7 @@ const VERB = {
   rented: 'Marked as rented',
   archived: 'Archived',
   draft: 'Restored to draft',
-  pending: 'Submitted for review',
+  pending: 'Saved — goes live once credentials are verified',
 };
 const LOG_ICON = {
   published: 'send',

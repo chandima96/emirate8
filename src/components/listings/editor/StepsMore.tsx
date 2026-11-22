@@ -515,7 +515,7 @@ export function StepPermit({ ed }) {
   );
 }
 
-/* ---------- 8 Review & publish ---------- */
+/* ---------- 8 Publish ---------- */
 const STEP_OF = { classify: 1, location: 2, details: 3, pricing: 4, plan: 4, media: 6, permit: 7 };
 
 function CheckRow({ ok, label, children }) {
@@ -547,20 +547,20 @@ export function StepReview({ ed, preview, ready }) {
     note = [
       'bg-ok-soft text-ok',
       L.display.visible === false
-        ? 'Ready. Publishing sends it for review; public visibility is off, so it will stay hidden after approval until you switch it on.'
-        : 'Everything is ready. Publishing saves it and sends it for review; once approved it shows in search and on your public portfolio.',
+        ? 'Ready. Publishing makes it live, but public visibility is off, so it stays hidden until you switch it on.'
+        : 'Everything is ready. Publishing makes it live in search and on your public portfolio straight away.',
     ];
   else if (ready.complete && L.authorised)
     note = [
       'bg-warn-soft text-warn',
-      'Complete. Publishing sends it for review; it goes live once your credentials are verified and the listing is approved.',
+      'Complete. Publishing saves it; it goes live automatically once your credentials are verified.',
     ];
   else note = ['bg-mist text-muted', 'Some required details are missing. Save as a draft and come back any time.'];
 
   return (
     <>
       <h2 className="h3" tabIndex={-1}>
-        Review &amp; publish
+        Publish
       </h2>
       <p className="mt-1 text-[13px] text-muted">Check everything, preview it as buyers will see it, then publish.</p>
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">

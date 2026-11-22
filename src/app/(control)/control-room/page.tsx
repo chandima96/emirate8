@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MembershipManagement } from './membership-management/MembershipManagement';
 import { Wordmark } from '@/components/layout/Wordmark';
@@ -38,10 +38,6 @@ type Property = {
   purpose?: string;
   area?: string;
   visible: boolean;
-  verification: {
-    ready: boolean;
-    checks: { key: string; label: string; submitted: string; evidence: any; ok: boolean }[];
-  };
 };
 
 const cards = [
@@ -115,31 +111,6 @@ function brokerEvidence(member: Member) {
   ].map((check) => ({ ...check, evidence: cardFile || 'No RERA card uploaded' }));
 }
 
-function EvidenceView({ value }: { value: any }) {
-  if (!value || typeof value !== 'object' || !value.url) return <>{value || 'Not supplied'}</>;
-  const image = /image\//i.test(value.mimetype || '') || /\.(jpe?g|png)$/i.test(value.filename || '');
-  return (
-    <div className="space-y-2">
-      <a href={value.url} target="_blank" rel="noreferrer" className="link break-all">
-        {value.filename || 'Open uploaded evidence'}
-      </a>
-      {image ? (
-        <img
-          src={value.url}
-          alt={value.filename || 'Uploaded evidence'}
-          className="max-h-48 w-full rounded-lg border border-line object-contain"
-        />
-      ) : (
-        <iframe
-          title={value.filename || 'Uploaded evidence'}
-          src={value.url}
-          className="h-48 w-full rounded-lg border border-line"
-        />
-      )}
-    </div>
-  );
-}
-
 async function control(action: string, payload = {}) {
   const response = await fetch('/api/admin', {
     method: 'POST',
@@ -162,11 +133,8 @@ export default function ControlRoomPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
-  const [verificationTab, setVerificationTab] = useState<'identity' | 'property'>('identity');
-  const [tableVisible, setTableVisible] = useState(true);
-  const tableTransitionTimer = useRef<number | null>(null);
   const [section, setSection] = useState<
-    'overview' | 'verification' | 'property-verification' | 'properties' | 'accounts' | 'membership'
+    'overview' | 'verification' | 'properties' | 'accounts' | 'membership'
   >('overview');
   const [newMember, setNewMember] = useState({ name: '', email: '', controlRole: 'subadmin' });
   const [error, setError] = useState('');
@@ -206,10 +174,6 @@ export default function ControlRoomPage() {
     return () => window.clearTimeout(timer);
   }, [router]);
 
-  useEffect(() => () => {
-    if (tableTransitionTimer.current !== null) window.clearTimeout(tableTransitionTimer.current);
-  }, []);
-
   const updateMember = async (id: Member['id'], patch: Record<string, unknown>) => {
     const result = await control('update-member', { id, ...patch });
     if (result.error) return setError(result.error);
@@ -220,7 +184,7 @@ export default function ControlRoomPage() {
   const updateProperty = async (id: Property['id'], patch: Record<string, unknown>) => {
     const result = await control('update-property', { id, ...patch });
     if (result.error) return setError(result.error);
-    setNotice(patch.verificationDecision ? 'Property verification decision saved.' : 'Property status updated.');
+    setNotice('Property status updated.');
     await loadDashboard();
   };
 
@@ -263,34 +227,6 @@ export default function ControlRoomPage() {
       <Icon name={icon} /> {label}
     </button>
   );
-  const verificationTabs = (
-    <div className="inline-flex flex-wrap gap-1 rounded-lg border border-line bg-paper p-1" role="tablist" aria-label="Verification type">
-      {([
-        ['identity', 'Identity'],
-        ['property', 'Property'],
-      ] as const).map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          role="tab"
-          aria-selected={verificationTab === value}
-          className={`btn btn-sm ${verificationTab === value ? 'btn-dark' : 'btn-outline'}`}
-          onClick={() => {
-            if (value === verificationTab) return;
-            if (tableTransitionTimer.current !== null) window.clearTimeout(tableTransitionTimer.current);
-            setTableVisible(false);
-            tableTransitionTimer.current = window.setTimeout(() => {
-              setVerificationTab(value);
-              tableTransitionTimer.current = window.setTimeout(() => setTableVisible(true), 20);
-            }, 180);
-          }}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-
   return (
     <main className="min-h-screen bg-[#f5f6f2] text-ink">
       <header className="flex h-16 items-center justify-between border-b border-line bg-white px-5 sm:px-10">
@@ -426,7 +362,7 @@ export default function ControlRoomPage() {
           </>
         )}
 
-        {section === 'verification' && verificationTab === 'identity' && (
+        {section === 'verification' && (
           <section className="mt-6 rounded-xl border border-line bg-white p-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
@@ -435,10 +371,9 @@ export default function ControlRoomPage() {
               </div>
               <div className="flex flex-col items-end gap-2">
                 <span className="badge badge-warn">{stats?.pendingMembers ?? 0} pending</span>
-                {verificationTabs}
               </div>
             </div>
-            <div className={`mt-6 overflow-x-auto transition-opacity duration-200 motion-reduce:transition-none ${tableVisible ? 'opacity-100' : 'opacity-0'}`}>
+            <div className="mt-6 overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-b border-line text-xs tracking-wide text-muted uppercase">
                   <tr>
@@ -480,127 +415,6 @@ export default function ControlRoomPage() {
                 </tbody>
               </table>
             </div>
-          </section>
-        )}
-
-        {(section === 'property-verification' || (section === 'verification' && verificationTab === 'property')) && (
-          <section className={`mt-6 space-y-5 transition-opacity duration-200 motion-reduce:transition-none ${section !== 'verification' || tableVisible ? 'opacity-100' : 'opacity-0'}`}>
-            <div className="rounded-xl border border-line bg-white p-6">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <p className="eyebrow">Property verification</p>
-                  <h2 className="mt-2 font-display text-2xl font-semibold">Compare listing data with evidence</h2>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <span className="badge badge-warn">{properties.length} listings</span>
-                  {section === 'verification' && verificationTabs}
-                </div>
-              </div>
-             
-              <div className="mt-6 overflow-x-auto">
-                <table className="w-full min-w-[820px] text-left text-sm">
-                  <thead className="border-b border-line text-xs tracking-wide text-muted uppercase">
-                    <tr>
-                      <th className="px-3 py-3">Property</th>
-                      <th className="px-3 py-3">Reference / area</th>
-                      <th className="px-3 py-3">Listing status</th>
-                      <th className="px-3 py-3">Verification</th>
-                      <th className="px-3 py-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {properties.map((property) => (
-                      <tr key={property.id} className="border-b border-line/70">
-                        <td className="px-3 py-4">
-                          <p className="font-semibold">{property.title}</p>
-                          <p className="text-xs text-muted">Property listing</p>
-                        </td>
-                        <td className="px-3 py-4">
-                          <p>{property.ref || 'No reference'}</p>
-                          <p className="text-xs text-muted">{property.area || 'Area missing'}</p>
-                        </td>
-                        <td className="px-3 py-4 capitalize">{property.status}</td>
-                        <td className="px-3 py-4">
-                          <span className={`badge ${property.verification.ready ? 'badge-ok' : 'badge-warn'}`}>
-                            {property.verification.ready ? 'Ready to approve' : 'Evidence incomplete'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4">
-                          <button
-                            className="btn btn-outline btn-sm"
-                            onClick={() => router.push(`/control-room/property-verification/${property.id}`)}
-                          >
-                            Review
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            {false && properties.map((property) => (
-              <article id={`property-review-${property.id}`} key={property.id} className="rounded-xl border border-line bg-white p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="font-display text-xl font-semibold">{property.title}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {property.ref || 'No reference'} · {property.area || 'Area missing'} · {property.status}
-                    </p>
-                  </div>
-                  <span className={`badge ${property.verification.ready ? 'badge-ok' : 'badge-warn'}`}>
-                    {property.verification.ready ? 'Ready to approve' : 'Evidence incomplete'}
-                  </span>
-                </div>
-                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {property.verification.checks.map((check) => (
-                    <div
-                      key={check.key}
-                      className={`rounded-lg border p-4 ${check.ok ? 'border-sage/30 bg-sage/10' : 'border-amber-300/50 bg-amber-50'}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-semibold">{check.label}</p>
-                        <Icon
-                          name={check.ok ? 'check-circle' : 'exclamation-circle'}
-                          className={check.ok ? 'text-sage-deep' : 'text-amber-700'}
-                        />
-                      </div>
-                      <p className="mt-3 text-xs text-ink">
-                        Filled data: <span className="font-semibold">{check.submitted}</span>
-                      </p>
-                      <p className="mt-2 text-xs text-muted">
-                        Evidence required: {typeof check.evidence === 'object' ? 'Uploaded permit document' : check.evidence}
-                      </p>
-                      {typeof check.evidence === 'object' && (
-                        <div className="mt-3 rounded-lg border border-line bg-white p-3">
-                          <EvidenceView value={check.evidence} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
-                  <button
-                    className="btn btn-dark btn-sm"
-                    disabled={!property.verification.ready}
-                    onClick={() => updateProperty(property.id, { verificationDecision: 'approved' })}
-                  >
-                    Approve property <Icon name="check-lg" />
-                  </button>
-                  <button
-                    className="btn btn-outline btn-sm text-danger"
-                    onClick={() => updateProperty(property.id, { verificationDecision: 'needs_changes' })}
-                  >
-                    Request changes
-                  </button>
-                  {user.role !== 'verifier' && (
-                    <button className="btn btn-outline btn-sm" onClick={() => setSection('properties')}>
-                      Open property management
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
           </section>
         )}
 

@@ -313,8 +313,9 @@ export function ListingEditor({ id = undefined }) {
   }
   const t = tokens(L);
   const live = L.status === 'published';
-  // Publishing always goes through review: the listing is saved as "pending" and goes live once approved.
-  const publishLabel = live ? 'Submit changes for review' : 'Publish listing';
+  // Publishing goes live straight away. Only members whose credentials are not yet verified wait: their
+  // listing is kept as "pending" and goes live as soon as the credential review approves them.
+  const publishLabel = live ? 'Publish changes' : 'Publish listing';
   const stepLabel = { 2: 'Location', 3: 'Property details', 4: 'Price & terms' };
 
   /* ---------- validation ---------- */
@@ -505,7 +506,7 @@ export function ListingEditor({ id = undefined }) {
     setPublishing(true);
     let submitted = false;
     try {
-      submitted = await submitForReview();
+      submitted = await submitListing();
     } finally {
       if (!submitted) {
         publishingRef.current = false;
@@ -513,7 +514,7 @@ export function ListingEditor({ id = undefined }) {
       }
     }
   }
-  async function submitForReview(): Promise<boolean> {
+  async function submitListing(): Promise<boolean> {
     for (let n = 1; n <= totalSteps; n++) {
       if (!check(n)) {
         go(n, false);
@@ -552,16 +553,19 @@ export function ListingEditor({ id = undefined }) {
       return false;
     }
     Lref.current = setIn(cur, 'display.visible', cur.display?.visible !== false);
-    const s = await persist('pending');
+    const s = await persist(verified ? 'published' : 'pending');
     if (!s) return false;
-    log('Submitted for review “' + s.title + '”', 'hourglass-split');
     setPreviewOpen(false);
-    toast(
-      verified
-        ? 'Saved and sent for review. It will go live once approved.'
-        : 'Saved and sent for review. It will go live once your credentials are verified and the listing is approved.',
-      { icon: 'hourglass-split', duration: 6000 },
-    );
+    if (verified) {
+      log('Published “' + s.title + '”', 'send');
+      toast(wasLive ? 'Changes published.' : 'Listing published. It is now live.', { icon: 'check-circle', duration: 6000 });
+    } else {
+      log('Saved “' + s.title + '” — goes live once credentials are verified', 'hourglass-split');
+      toast('Listing saved. It will go live automatically once your credentials are verified.', {
+        icon: 'hourglass-split',
+        duration: 6000,
+      });
+    }
     router.push(routes.listing(s.id));
     return true;
   }
@@ -1083,7 +1087,7 @@ export function ListingEditor({ id = undefined }) {
                   </button>
                   <button type="button" className="btn btn-dark" disabled={publishing} aria-busy={publishing} onClick={publish}>
                     <Icon name={publishing ? 'hourglass-split' : 'send'} />
-                    {publishing ? 'Submitting…' : publishLabel}
+                    {publishing ? 'Publishing…' : publishLabel}
                   </button>
                 </>
               ) : (

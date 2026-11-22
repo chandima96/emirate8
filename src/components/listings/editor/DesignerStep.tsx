@@ -19,7 +19,6 @@ import {
   PrivateDocument,
   ProfileWidget,
   Representation,
-  ReviewSummary,
   TermsWidget,
 } from './DesignerWidgets';
 import { AreaUnitToggle, MarketStatusWidget, TranslateWidget, UnitTypePicker } from './AutofillWidgets';
@@ -46,7 +45,7 @@ export function DesignerStep({ ed, step, preview, ready }) {
           <DesignerField ed={ed} fieldKey="tourUrl" />
         </EditorSection>
         <p className="mt-6 border-t border-line pt-5 text-xs text-muted">
-          You confirm your rights to use these photos, videos and documents in the declarations at Review &amp; publish.
+          You confirm your rights to use these photos, videos and documents in the declarations at Publish.
         </p>
       </>
     );
@@ -139,7 +138,6 @@ export function DesignerStep({ ed, step, preview, ready }) {
                 listing.
               </p>
             )}
-            {section.kind === 'review' && <ReviewSummary ed={ed} />}
             <div className="grid gap-4 sm:grid-cols-2">
               {(section.fields || [])
                 .filter((key) => !(section.kind === 'community' && key === 'subcommunity') && !S.FIELDS[key]?.hide)

@@ -23,7 +23,7 @@ function DashboardPropertyCard({ property, user }) {
   const statusLabel = property.display?.visible === false && status === 'published'
     ? 'Hidden'
     : status === 'pending'
-      ? 'Pending review'
+      ? 'Awaiting verification'
       : status.charAt(0).toUpperCase() + status.slice(1);
   const targetHref = isPublic ? undefined : isOwner ? routes.listing(property.id) : null;
   return <PropertyCard

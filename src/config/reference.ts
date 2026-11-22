@@ -138,7 +138,7 @@ export const MAX_HIGHLIGHTS = 6;
 
 export const STATUS = {
   draft: { label: 'Draft', cls: 'badge-muted', public: false },
-  pending: { label: 'Pending review', cls: 'badge-warn', public: false },
+  pending: { label: 'Awaiting verification', cls: 'badge-warn', public: false },
   published: { label: 'Published', cls: 'badge-ok', public: true },
   unpublished: { label: 'Unpublished', cls: 'badge-muted', public: false },
   sold: { label: 'Sold', cls: 'badge-dark', public: false },

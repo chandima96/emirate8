@@ -242,7 +242,7 @@ function Credentials({ user }) {
     }
     const ok = await confirm({
       title: 'Restart credential review?',
-      body: 'Your credentials go back to “pending review”. While pending, newly published listings wait for review.',
+      body: 'Your credentials go back to “pending review”. While pending, newly published listings wait until your credentials are verified again.',
       ok: 'Submit document',
     });
     if (!ok) return;
