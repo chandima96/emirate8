@@ -325,17 +325,23 @@ export function validateEditorStep(n, l, user) {
   }
   if ((n === 3 && !c.typeOk) || (n === 4 && !c.priceReady))
     return [{ key: 'classification', id: 'designer-classification', msg: 'Complete Classification before this step.' }];
-  if (n === 7 && (user?.type === 'developer' || user?.type === 'owner') && !l.ownerDirect && !l.primaryBroker) {
-    errs.primaryBroker = 'Choose the primary broker for this property.';
-    keys.add('primaryBroker');
+  // Up to MAX_PROPERTY_BROKERS (src/lib/propertyBrokers.ts — duplicated here because plain Node tests load this file).
+  const brokerCount = Array.isArray(l.brokers) ? new Set(l.brokers.map(String)).size : 0;
+  if (n === 7 && (user?.type === 'developer' || user?.type === 'owner') && !l.ownerDirect && !brokerCount) {
+    errs.brokers = 'Choose at least one broker for this property.';
+    keys.add('brokers');
+  }
+  if (n === 7 && brokerCount > 5) {
+    errs.brokers = 'A property can have at most 5 brokers.';
+    keys.add('brokers');
   }
   return Object.entries(errs)
     .filter(([key]) => keys.has(key))
     .map(([key, msg]) => ({
       key,
       id:
-        key === 'primaryBroker'
-          ? 'f-primary-broker'
+        key === 'brokers'
+          ? 'f-brokers'
           : key === 'photos'
             ? 'f-photos'
             : key === 'media.video'

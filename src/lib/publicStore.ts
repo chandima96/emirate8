@@ -193,7 +193,11 @@ export function setPublicData(data: PublicData) {
     // The API response is authoritative. Empty arrays must clear removed CMS
     // records instead of leaving the previous in-memory snapshot visible.
     brokers: Array.isArray(data?.brokers) ? data.brokers : [],
-    listings: Array.isArray(data?.listings) ? data.listings : [],
+    // `available` is derived here, never trusted from the payload: some stored listings carry a stale copy
+    // and others none, which hid published properties from the network and the property feed page.
+    listings: Array.isArray(data?.listings)
+      ? data.listings.map((l) => ({ ...l, available: l.status === 'published' && l.display?.visible !== false }))
+      : [],
     memberBrokers: Array.isArray(data?.memberBrokers) ? data.memberBrokers : [],
     agencies: Array.isArray(data?.agencies) ? data.agencies : [],
     plans,

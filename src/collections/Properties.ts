@@ -2,12 +2,13 @@ import type { CollectionConfig } from 'payload';
 import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
 import { indexNowProperty, indexNowPropertyDelete } from '@/lib/server/indexNow';
 import { notifyDeveloperSubscribers } from '@/lib/server/propertyNotifications';
+import { MAX_PROPERTY_BROKERS } from '@/lib/propertyBrokers';
 
 export const Properties: CollectionConfig = {
   slug: 'properties',
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'status', 'purpose', 'type', 'area', 'price', 'broker', 'updatedAt'],
+    defaultColumns: ['title', 'status', 'purpose', 'type', 'area', 'price', 'brokers', 'updatedAt'],
     listSearchableFields: ['title', 'ref', 'area', 'community'],
   },
   access: {
@@ -190,20 +191,15 @@ export const Properties: CollectionConfig = {
         { name: 'document', type: 'upload', relationTo: 'media', label: 'Permit Document' },
       ],
     },
-    // ── Broker ────────────────────────────────────────────────
+    // ── Brokers ───────────────────────────────────────────────
     {
-      name: 'broker',
+      name: 'brokers',
       type: 'relationship',
       relationTo: 'brokers',
-      label: 'Listing Broker',
-      admin: { description: 'Legacy compatibility field. Use Primary Broker below for new records.' },
-    },
-    {
-      name: 'primaryBroker',
-      type: 'relationship',
-      relationTo: 'brokers',
-      label: 'Primary Broker',
-      admin: { description: 'The broker currently authorized to represent this property.' },
+      hasMany: true,
+      maxRows: MAX_PROPERTY_BROKERS,
+      label: 'Brokers',
+      admin: { description: `Up to ${MAX_PROPERTY_BROKERS} brokers who represent this property. Order is display order only.` },
     },
     {
       name: 'ownerType',
@@ -233,7 +229,7 @@ export const Properties: CollectionConfig = {
       type: 'checkbox',
       defaultValue: false,
       label: 'Owner-direct listing',
-      admin: { description: 'The developer can publish publicly before a primary broker is assigned.' },
+      admin: { description: 'The developer can publish publicly without any broker.' },
     },
     {
       name: 'claimable',

@@ -21,9 +21,8 @@ function mediaUrl(media: any) {
   return media.url || (media.sourcePath ? `/images/${media.sourcePath}` : '');
 }
 
-/** Normalize a Payload broker relation to the public broker shape used by property detail components. */
-function brokerFromProperty(doc: any) {
-  const raw = doc?.primaryBroker || doc?.broker;
+/** Normalize one populated Payload broker (a `properties.brokers` entry) to the public broker shape. */
+function brokerFromRelation(raw: any) {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw.appData && typeof raw.appData === 'object' ? { ...raw.appData, ...raw } : raw;
   const name = data.name || 'Listing broker';
@@ -98,7 +97,12 @@ export default async function PropertyPage({ params }) {
   if (!property) notFound();
 
   const listing = listingFromProperty(property);
-  listing.broker = brokerFromProperty(property);
+  // Up to five brokers, no primary: the first one is the contact shown in the sidebar.
+  const brokerProfiles = (Array.isArray(property.brokers) ? property.brokers : [])
+    .map(brokerFromRelation)
+    .filter((broker: any) => broker && broker.isPublic !== false);
+  listing.broker = brokerProfiles[0] || null;
+  listing.brokerProfiles = brokerProfiles;
 
   const jsonld = jsonLdScript(listingJsonLd(listing));
   const seo = await seoForProperty(property.slug || decodeSlug(slug));

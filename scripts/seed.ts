@@ -268,7 +268,8 @@ async function seed() {
       beds: Number(listing.beds) || 0,
       baths: Number(listing.baths) || 0,
       description: listing.description || '',
-      broker: brokerIDs.get(listing.brokerId),
+      // Up to 5 brokers per property; seeded sample listings have their one sample broker.
+      brokers: brokerIDs.get(listing.brokerId) ? [brokerIDs.get(listing.brokerId)] : [],
       featuredImage: mediaID(listing.featured),
       photos: (listing.photos || [])
         .map((photo: any) => ({ image: mediaID(photo.src), caption: photo.caption || '' }))

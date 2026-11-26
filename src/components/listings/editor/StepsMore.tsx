@@ -8,6 +8,7 @@ import { PropertyCard } from '@/components/property/PropertyCard';
 import { AMENITY_GROUPS, CATEGORY_AMENITY_GROUPS, HIGHLIGHTS, MAX_HIGHLIGHTS } from '@/config/reference';
 import { cx, slugify } from '@/lib/utils';
 import { uploadMediaFile } from '@/lib/mediaClient';
+import { BrokerPicker } from './BrokerPicker';
 
 /* ---------- 5 Marketing ---------- */
 export function StepMarketing({ ed }) {
@@ -266,16 +267,14 @@ export function StepPermit({ ed }) {
       ...prev,
       ownerType: 'developer',
       ownerDirect,
-      claimable: ownerDirect,
-      primaryBroker: ownerDirect ? '' : prev.primaryBroker,
+      brokers: ownerDirect ? [] : prev.brokers || [],
     }));
-  const choosePrimaryBroker = (value) =>
+  const chooseBrokers = (ids) =>
     update((prev) => ({
       ...prev,
       ownerType: 'developer',
       ownerDirect: false,
-      claimable: false,
-      primaryBroker: value,
+      brokers: ids,
     }));
   const uploadDocument = async (file) => {
     if (!file) return;
@@ -340,44 +339,37 @@ export function StepPermit({ ed }) {
               <span className="flex items-start gap-3">
                 <Icon name="person-badge" className="mt-0.5 h-5 w-5 text-sage-ink" />
                 <span>
-                  <span className="block text-[13px] font-semibold text-ink">Assign a primary broker</span>
-                  <span className="mt-1 block text-xs text-muted">The selected broker becomes the main contact for this property.</span>
+                  <span className="block text-[13px] font-semibold text-ink">Assign brokers</span>
+                  <span className="mt-1 block text-xs text-muted">Up to 5 brokers represent this property; none of them is primary.</span>
                 </span>
               </span>
             </button>
           </div>
           {!L.ownerDirect && (
-            <Field id="f-primary-broker" label="Primary broker" error={errors.primaryBroker}>
-              <select
-                id="f-primary-broker"
-                className="select"
-                value={L.primaryBroker || ''}
-                onChange={(event) => choosePrimaryBroker(event.target.value)}
-                {...invalidProps('f-primary-broker', errors.primaryBroker)}
-              >
-                <option value="">Select a current broker</option>
-                {developerBrokers.map((broker) => (
-                  <option key={broker.id} value={broker.id}>
-                    {broker.name}
-                  </option>
-                ))}
-              </select>
-              {!developerBrokers.length && <p className="mt-2 text-xs text-muted">No verified brokers are available yet.</p>}
-            </Field>
+            <BrokerPicker
+              id="f-brokers"
+              label="Brokers for this property"
+              options={developerBrokers}
+              value={L.brokers || []}
+              error={errors.brokers}
+              onChange={chooseBrokers}
+              emptyText="No verified brokers are available yet."
+            />
           )}
         </div>
       )}
       {isAgency && (
         <div className="mt-6 rounded-xl border border-sage/40 bg-mist/60 p-4 sm:p-5">
           <p className="label">Agency representation</p>
-          <p className="mt-1 text-[13px] text-muted">Assign this listing to a broker on your agency team. The selected broker will be shown as its primary contact.</p>
-          <Field id="f-agency-primary-broker" label="Primary broker">
-            <select id="f-agency-primary-broker" className="select" value={L.primaryBroker || ''} onChange={(event) => set('primaryBroker', event.target.value)}>
-              <option value="">No primary broker assigned</option>
-              {agencyBrokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name}{broker.email ? ` · ${broker.email}` : ''}</option>)}
-            </select>
-            {!agencyBrokers.length && <p className="mt-2 text-xs text-muted">No broker team members are available to assign yet. Add a broker to your team first.</p>}
-          </Field>
+          <p className="mt-1 text-[13px] text-muted">Choose up to 5 brokers from your agency team for this listing.</p>
+          <BrokerPicker
+            id="f-agency-brokers"
+            label="Team brokers"
+            options={agencyBrokers}
+            value={L.brokers || []}
+            onChange={(ids) => set('brokers', ids)}
+            emptyText="No broker team members are available yet. Add a broker to your team first."
+          />
         </div>
       )}
       <div className="mt-6 grid gap-4 sm:grid-cols-2">

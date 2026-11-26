@@ -8,6 +8,7 @@ import { DEFAULT_BROKER_COVER, listJoin, profileExtras } from '@/lib/brokerProfi
 import { SITE_URL as SITE } from '@/lib/siteUrl';
 import { seoForBroker } from '@/lib/server/seoContent';
 import { SeoFaq } from '@/components/portal/SeoFaq';
+import { brokerIdsOf } from '@/lib/propertyBrokers';
 
 const loading = <BrokerPortfolioSkeleton />;
 
@@ -143,8 +144,7 @@ async function load(slug: string) {
   const properties = await getProperties({ limit: 500 });
   const initialListings = properties
     .filter((property: any) => {
-      const relation = property.broker;
-      return relation && String(relation.id || relation) === String(broker.id);
+      return brokerIdsOf(property).includes(String(broker.id));
     })
     .map((property: any) => ({ ...listingFromProperty(property), broker: publicBroker, brokerId: publicBroker.id }));
   return { publicBroker, initialListings };

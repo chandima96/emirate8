@@ -24,7 +24,7 @@ export const Notifications: CollectionConfig = {
         'developer_property_updated',
         'claim_request',
         'claim_decision',
-        'primary_broker_assigned',
+        'broker_assigned',
         'subscription',
         'general',
       ],

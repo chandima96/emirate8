@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import configPromise from '@payload-config';
 import { getPayload } from 'payload';
 import { listingFromProperty, syncMemberProperties } from '@/lib/server/member-properties';
+import { MAX_PROPERTY_BROKERS, brokerIdsOf } from '@/lib/propertyBrokers';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,9 +15,38 @@ async function getContext(request: Request) {
   return { payload, user };
 }
 
-async function agencyListingState(payload: any, memberId: number, value: any) {
+const relationId = (value: any) => String(value && typeof value === 'object' && 'id' in value ? value.id : value || '');
+
+/**
+ * Who may be one of a listing's brokers (up to MAX_PROPERTY_BROKERS, no "primary" broker):
+ * - independent broker: themselves only, set here from their own brokers record;
+ * - agency: brokers on the agency's own team;
+ * - developer: any registered broker.
+ * Agency ownership rules are unchanged: only new or agency-owned listings take agency ownership.
+ */
+async function listingBrokersState(payload: any, memberId: number, value: any) {
+  if (!Array.isArray(value?.listings)) return { value };
   const member: any = await payload.findByID({ collection: 'members', id: memberId, depth: 0, overrideAccess: true });
-  if (member.accountType !== 'agency' || !Array.isArray(value?.listings)) return { value };
+  const tooMany = value.listings.some((listing: any) => Array.isArray(listing?.brokers) && new Set(listing.brokers.map(String)).size > MAX_PROPERTY_BROKERS);
+  if (tooMany) return { error: `A property can have at most ${MAX_PROPERTY_BROKERS} brokers.` };
+
+  if (member.accountType === 'broker') {
+    const own = await payload.find({ collection: 'brokers', where: { 'appData.ownerMemberId': { equals: memberId } }, limit: 5, depth: 0, overrideAccess: true });
+    const self = (own.docs as any[]).find((doc) => Number(doc.appData?.ownerMemberId) === memberId);
+    const brokers = self ? [String(self.id)] : [];
+    return { value: { ...value, listings: value.listings.map((listing: any) => (listing ? { ...listing, brokers } : listing)) } };
+  }
+
+  if (member.accountType === 'developer' || member.accountType === 'owner') {
+    const requested = [...new Set(value.listings.flatMap((listing: any) => brokerIdsOf(listing)))];
+    if (requested.length) {
+      const found = await payload.find({ collection: 'brokers', where: { id: { in: requested } }, limit: requested.length, depth: 0, overrideAccess: true });
+      if (found.docs.length !== requested.length) return { error: 'One of the selected brokers was not found.' };
+    }
+    return { value: { ...value, listings: value.listings.map((listing: any) => (listing ? { ...listing, brokers: brokerIdsOf(listing) } : listing)) } };
+  }
+
+  if (member.accountType !== 'agency') return { value };
   const agencyId = member.profile?.agency?.agencyId || member.profile?.agencyId;
   if (!agencyId) return { error: 'Your agency profile is missing its agency record.' };
 
@@ -28,28 +58,25 @@ async function agencyListingState(payload: any, memberId: number, value: any) {
     overrideAccess: true,
   });
   const existingByListingId = new Map((ownedResult.docs as any[]).map((doc) => [String(doc.appData?.id), doc]));
-  const relationId = (value: any) => String(value && typeof value === 'object' && 'id' in value ? value.id : value || '');
+  const agencyControlled = (listing: any) => {
+    const existing: any = existingByListingId.get(String(listing?.id || ''));
+    return !existing || relationId(existing.ownerAgency) === String(agencyId);
+  };
 
-  const assignments = value.listings
-    .filter((listing: any) => {
-      if (!listing?.primaryBroker) return false;
-      const existing: any = existingByListingId.get(String(listing.id || ''));
-      return !existing || relationId(existing.ownerAgency) === String(agencyId);
-    })
-    .map((listing: any) => String(listing.primaryBroker));
+  const assignments = [...new Set(value.listings.filter(agencyControlled).flatMap((listing: any) => brokerIdsOf(listing)))];
   if (assignments.length) {
     const [team, brokers] = await Promise.all([
       payload.find({ collection: 'members', where: { or: [{ 'profile.agency.agencyId': { equals: agencyId } }, { 'profile.agencyId': { equals: agencyId } }] }, limit: 500, depth: 0, overrideAccess: true }),
-      payload.find({ collection: 'brokers', limit: 1000, depth: 0, overrideAccess: true }),
+      payload.find({ collection: 'brokers', where: { id: { in: assignments } }, limit: assignments.length, depth: 0, overrideAccess: true }),
     ]);
     const eligibleMemberIds = new Set((team.docs as any[])
       .filter((item) => item.profile?.agency?.agencyRole === 'agency_broker')
       .map((item) => String(item.id)));
     const assignedBrokers = new Map((brokers.docs as any[]).map((broker) => [String(broker.id), broker]));
     for (const brokerId of assignments) {
-      const broker: any = assignedBrokers.get(brokerId);
+      const broker: any = assignedBrokers.get(String(brokerId));
       if (!broker || !eligibleMemberIds.has(String(broker.appData?.ownerMemberId))) {
-        return { error: 'Choose a primary broker who belongs to your agency team.' };
+        return { error: 'Choose brokers who belong to your agency team.' };
       }
     }
   }
@@ -58,24 +85,24 @@ async function agencyListingState(payload: any, memberId: number, value: any) {
     value: {
       ...value,
       listings: value.listings.map((listing: any) => {
-        const existing: any = existingByListingId.get(String(listing?.id || ''));
-        const existingAgency = relationId(existing?.ownerAgency);
-        if (existing && existingAgency !== String(agencyId)) {
+        if (!listing) return listing;
+        const existing: any = existingByListingId.get(String(listing.id || ''));
+        if (!agencyControlled(listing)) {
           // A broker who joins an agency keeps the listings they already owned.
           // Only a newly created agency listing or one already owned by this agency
-          // can receive agency ownership or a team assignment.
+          // can receive agency ownership or team brokers.
           return {
             ...listing,
             ownerType: existing.ownerType,
             ownerAgency: existing.ownerAgency,
             ownerDeveloper: existing.ownerDeveloper,
-            primaryBroker: existing.primaryBroker,
+            brokers: brokerIdsOf(existing),
             ownerDirect: existing.ownerDirect,
             claimable: existing.claimable,
             claimPolicy: existing.claimPolicy,
           };
         }
-        return { ...listing, ownerType: 'agency', ownerAgency: agencyId };
+        return { ...listing, brokers: brokerIdsOf(listing), ownerType: 'agency', ownerAgency: agencyId };
       }),
     },
   };
@@ -155,9 +182,9 @@ export async function PUT(request: Request) {
         return NextResponse.json({ error: 'Complete RERA credential verification before adding property listings.' }, { status: 403 });
       }
     }
-    const agencyState = await agencyListingState(context.payload, Number(context.user.id), value);
-    if (agencyState.error) return NextResponse.json({ error: agencyState.error }, { status: 403 });
-    value = agencyState.value;
+    const brokersState = await listingBrokersState(context.payload, Number(context.user.id), value);
+    if (brokersState.error) return NextResponse.json({ error: brokersState.error }, { status: 403 });
+    value = brokersState.value;
   }
 
   let savedListings: { id: string; slug: string }[] | undefined;

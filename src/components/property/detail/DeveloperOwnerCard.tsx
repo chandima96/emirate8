@@ -8,7 +8,8 @@ export function DeveloperOwnerCard({ listing, preview = false }) {
   const { user, role } = useSession();
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
-  if (!listing.ownerDirect) return null;
+  // Shown while the developer publishes without brokers, and while it still accepts broker requests (up to 5 brokers).
+  if (!listing.ownerDirect && !listing.claimable) return null;
   const owner = listing.owner?.name || listing.ownerDeveloper?.name || 'Property developer';
   const canClaim = listing.claimable && role === 'broker';
   const claim = async () => {
@@ -20,9 +21,9 @@ export function DeveloperOwnerCard({ listing, preview = false }) {
   };
   return (
     <section className="mt-10 rounded-lg border border-sage/30 bg-sage-soft p-5" aria-labelledby="developer-owner-title">
-      <p className="eyebrow">Developer direct</p>
+      <p className="eyebrow">{listing.ownerDirect ? 'Developer direct' : 'Developer property'}</p>
       <h2 id="developer-owner-title" className="mt-2 font-display text-xl font-semibold text-ink">{owner}</h2>
-      <p className="mt-2 text-sm text-muted">This property is published directly by the developer. Representation is assigned only after developer approval.</p>
+      <p className="mt-2 text-sm text-muted">{listing.ownerDirect ? 'This property is published directly by the developer.' : 'This property is published by the developer with its approved brokers.'} Brokers are added only after developer approval, up to 5 per property.</p>
       {listing.claimable && <p className="mt-2 text-sm font-semibold text-sage-ink">Open for approved broker representation.</p>}
       {!preview && canClaim && <button className="btn btn-dark mt-4" onClick={claim} disabled={busy}>{busy ? 'Sending…' : 'Request to represent'}</button>}
       {!preview && !user && listing.claimable && <Link className="btn btn-dark mt-4" href={`/login?next=${encodeURIComponent(typeof window === 'undefined' ? '/' : window.location.pathname)}`}>Sign in to request representation</Link>}

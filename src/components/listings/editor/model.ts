@@ -3,6 +3,7 @@
 import { TYPES } from '@/config/reference';
 import { im } from '@/config/images';
 import { fileToDataURL, uid } from '@/lib/utils';
+import { brokerIdsOf } from '@/lib/propertyBrokers';
 
 // The standard flow has eight steps; agency editors insert team assignment before publishing.
 export const STEPS = 8;
@@ -137,7 +138,9 @@ export function prepare(l) {
   l.highlights = l.highlights || [];
   l.amenities = l.amenities || [];
   l.amenityCategories = l.amenityCategories || {};
-  if (l.primaryBroker == null) l.primaryBroker = '';
+  // Up to five brokers, no primary: older drafts' single `primaryBroker` becomes the first entry.
+  l.brokers = brokerIdsOf(l);
+  delete l.primaryBroker;
   if (l.ownerDirect !== undefined) l.ownerDirect = l.ownerDirect === true;
   if (l.claimable !== undefined) l.claimable = l.claimable === true;
   // Saved records without a category were residential; new drafts start unanswered.
@@ -231,7 +234,7 @@ export const STEP_KEYS = {
   4: ['price', 'cheques', 'plan'],
   5: [],
   6: ['media.video', 'media.tour'],
-  7: ['permit.number', 'permit.expiry', 'permit.document', 'authorised', 'primaryBroker'],
+  7: ['permit.number', 'permit.expiry', 'permit.document', 'authorised', 'brokers'],
   8: [],
 };
 const URL_RX = /^https:\/\/[^\s.]+\.[^\s]+$/;

@@ -50,17 +50,17 @@ export const PLAN_CATALOG: Record<string, AccountPlan> = {
   'developer-bronze': {
     id: 'developer-bronze', name: 'Bronze', roleAudience: 'developer', audience: 'For developers publishing initial inventory.',
     price: null, seats: 3, listings: 100, aiCredits: 3000, selections: 0, sortOrder: 1,
-    features: ['3 team seats', '100 active properties', 'Primary broker assignment', 'Owner-direct listings', 'Broker claim requests', '3,000 AI credits / month'],
+    features: ['3 team seats', '100 active properties', 'Up to 5 brokers per property', 'Owner-direct listings', 'Broker claim requests', '3,000 AI credits / month'],
   },
   'developer-silver': {
     id: 'developer-silver', name: 'Silver', roleAudience: 'developer', audience: 'For developers with growing project inventory.',
     price: null, seats: 5, listings: 250, aiCredits: 8000, selections: 0, sortOrder: 2, highlighted: true,
-    features: ['5 team seats', '250 active properties', 'Primary broker assignment', 'Owner-direct listings', 'Broker claim requests', 'Broker notifications', '8,000 AI credits / month'],
+    features: ['5 team seats', '250 active properties', 'Up to 5 brokers per property', 'Owner-direct listings', 'Broker claim requests', 'Broker notifications', '8,000 AI credits / month'],
   },
   'developer-gold': {
     id: 'developer-gold', name: 'Gold', roleAudience: 'developer', audience: 'For developers with extensive portfolios.',
     price: null, seats: null, listings: null, aiCredits: 25000, selections: 0, sortOrder: 3,
-    features: ['Configurable team seats', 'Flexible active properties', 'Primary broker assignment', 'Owner-direct listings', 'Broker claim requests', 'Broker notifications', 'Priority support', '25,000 AI credits / month'],
+    features: ['Configurable team seats', 'Flexible active properties', 'Up to 5 brokers per property', 'Owner-direct listings', 'Broker claim requests', 'Broker notifications', 'Priority support', '25,000 AI credits / month'],
   },
 };
 

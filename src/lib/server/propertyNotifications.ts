@@ -1,6 +1,7 @@
 import type { CollectionAfterChangeHook } from 'payload';
+import { brokerIdsOf } from '@/lib/propertyBrokers';
 
-type NotificationType = 'developer_property_published' | 'developer_property_updated' | 'primary_broker_assigned';
+type NotificationType = 'developer_property_published' | 'developer_property_updated' | 'broker_assigned';
 
 /**
  * Fan out a published developer listing to active broker subscriptions.
@@ -29,11 +30,15 @@ export const notifyDeveloperSubscribers: CollectionAfterChangeHook = async ({ do
   const eventType = firstPublication ? 'developer_property_published' : 'developer_property_updated';
   const stamp = doc.updatedAt || new Date().toISOString();
   const recipients: Array<{ recipient: number | string; type: NotificationType }> = (subscriptions.docs as any[]).map((subscription) => ({ recipient: typeof subscription.broker === 'object' ? subscription.broker.id : subscription.broker, type: eventType as NotificationType }));
-  if (doc.primaryBroker) {
-    const brokerId = typeof doc.primaryBroker === 'object' ? doc.primaryBroker.id : doc.primaryBroker;
-    const broker: any = await req.payload.findByID({ collection: 'brokers', id: brokerId, depth: 0, overrideAccess: true });
-    const memberId = broker?.appData?.ownerMemberId;
-    if (memberId && !recipients.some((item) => String(item.recipient) === String(memberId))) recipients.push({ recipient: memberId, type: 'primary_broker_assigned' });
+  // Every broker added to the property since the previous save is told once.
+  const before = new Set(brokerIdsOf(previousDoc));
+  const added = brokerIdsOf(doc).filter((id) => !before.has(id));
+  if (added.length) {
+    const brokers = await req.payload.find({ collection: 'brokers', where: { id: { in: added } }, limit: added.length, depth: 0, overrideAccess: true });
+    for (const broker of brokers.docs as any[]) {
+      const memberId = broker?.appData?.ownerMemberId;
+      if (memberId && !recipients.some((item) => String(item.recipient) === String(memberId))) recipients.push({ recipient: memberId, type: 'broker_assigned' });
+    }
   }
   for (const entry of recipients) {
     const recipient = entry.recipient;
@@ -51,8 +56,8 @@ export const notifyDeveloperSubscribers: CollectionAfterChangeHook = async ({ do
       data: {
         recipient: recipient as any,
         type: entry.type,
-        title: entry.type === 'primary_broker_assigned' ? 'Primary broker assignment' : firstPublication ? 'New developer property' : 'Developer property updated',
-        message: entry.type === 'primary_broker_assigned' ? `You are assigned to ${doc.title}.` : firstPublication ? `${doc.title} is now available.` : `${doc.title} has been updated.`,
+        title: entry.type === 'broker_assigned' ? 'Added as a broker' : firstPublication ? 'New developer property' : 'Developer property updated',
+        message: entry.type === 'broker_assigned' ? `You are now one of the brokers for ${doc.title}.` : firstPublication ? `${doc.title} is now available.` : `${doc.title} has been updated.`,
         property: doc.id,
         developer: typeof developerId === 'object' ? developerId.id : developerId,
         read: false,

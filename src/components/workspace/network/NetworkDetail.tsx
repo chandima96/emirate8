@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Icon } from '@/components/ui/Icon';
 import { useStoreVersion } from '@/hooks/useStore';
-import { fmtNumber, fmtPrice, isSelected, network } from '@/lib/store';
+import { fmtNumber, fmtPrice, network } from '@/lib/store';
 import { cx } from '@/lib/utils';
 import { ContactModal, NetworkCard, PermitBadge, SelectButton, agencyOf, useSelectToggle } from './NetworkBits';
 
@@ -225,10 +225,10 @@ export function NetworkDetail({ id }) {
                 <Icon name="chat-square-text" />
                 Contact Broker
               </button>
-              {(n.available || isSelected(n.id)) && <SelectButton n={n} className="btn-lg w-full" onToggle={toggle} />}
+              {n.available && <SelectButton n={n} className="btn-lg w-full" onToggle={toggle} />}
             </div>
             <p className="mt-4 border-t border-line pt-4 text-2xs leading-[1.6] text-muted">
-              Selecting saves this property to your private collection. It doesn’t notify the listing broker.
+              Properties in your feed are shared with your website through the property feed API. Adding one doesn’t notify the listing broker.
             </p>
           </div>
         </aside>

@@ -24,6 +24,7 @@ import { AmenityDefinitions } from './src/collections/AmenityDefinitions';
 import { AgencyInvitations } from './src/collections/AgencyInvitations';
 import { AiUsage } from './src/collections/AiUsage';
 import { SeoContent } from './src/collections/SeoContent';
+import { ApiFeeds } from './src/collections/ApiFeeds';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -80,6 +81,7 @@ export default buildConfig({
     AgencyInvitations,
     AiUsage,
     SeoContent,
+    ApiFeeds,
   ],
 
   // ── PostgreSQL on Supabase ─────────────────────────────────

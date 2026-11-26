@@ -7,6 +7,7 @@ import { listingFromProperty } from '@/lib/server/member-properties';
 import { generateTemporaryPassword, sendNewMemberCredentials, smtpFailureHint } from '@/lib/server/mailer';
 import { syncMemberBroker } from '@/lib/server/member-brokers';
 import { PLAN_CATALOG, planIdForAudience } from '@/config/plans';
+import { MAX_PROPERTY_BROKERS, brokerIdsOf } from '@/lib/propertyBrokers';
 
 export const dynamic = 'force-dynamic';
 
@@ -435,8 +436,12 @@ export async function POST(request: Request) {
   if (body.action === 'create-claim') {
     if (memberRole(member) !== 'broker') return NextResponse.json({ error: 'Only brokers can request representation.' }, { status: 403 });
     const property: any = await payload.findByID({ collection: 'properties', id: body.propertyId, overrideAccess: true });
-    if (!property?.ownerDirect || !property?.claimable) return NextResponse.json({ error: 'This property is not open for claims.' }, { status: 400 });
-    if (property.primaryBroker || property.broker) return NextResponse.json({ error: 'This property already has a primary broker.' }, { status: 409 });
+    // Open for claims until the property has the maximum number of brokers (claimable is switched off then).
+    if (!property?.claimable) return NextResponse.json({ error: 'This property is not open for claims.' }, { status: 400 });
+    const currentBrokers = brokerIdsOf(property);
+    if (currentBrokers.length >= MAX_PROPERTY_BROKERS) return NextResponse.json({ error: `This property already has ${MAX_PROPERTY_BROKERS} brokers.` }, { status: 409 });
+    const ownBroker = await payload.find({ collection: 'brokers', where: { 'appData.ownerMemberId': { equals: member.id } }, limit: 1, depth: 0, overrideAccess: true });
+    if (ownBroker.docs[0] && currentBrokers.includes(String(ownBroker.docs[0].id))) return NextResponse.json({ error: 'You already represent this property.' }, { status: 409 });
     const developerId = property.ownerDeveloper || property.appData?.ownerMemberId;
     if (!developerId) return NextResponse.json({ error: 'The property has no developer owner.' }, { status: 400 });
     const existing = await payload.find({
@@ -467,12 +472,18 @@ export async function POST(request: Request) {
     const property: any = await payload.findByID({ collection: 'properties', id: claim.property?.id || claim.property, overrideAccess: true });
     const brokerMemberId = claim.brokerMember?.id || claim.brokerMember;
     if (body.decision === 'approved') {
-      if (property.primaryBroker || property.broker) return NextResponse.json({ error: 'A primary broker is already assigned.' }, { status: 409 });
-      const brokers = await payload.find({ collection: 'brokers', where: { appData: { contains: String(brokerMemberId) } }, limit: 1, overrideAccess: true });
-      const broker = brokers.docs[0];
+      const currentBrokers = brokerIdsOf(property);
+      if (currentBrokers.length >= MAX_PROPERTY_BROKERS) return NextResponse.json({ error: `This property already has ${MAX_PROPERTY_BROKERS} brokers.` }, { status: 409 });
+      const brokers = await payload.find({ collection: 'brokers', where: { 'appData.ownerMemberId': { equals: brokerMemberId } }, limit: 5, depth: 0, overrideAccess: true });
+      const broker: any = (brokers.docs as any[]).find((doc) => String(doc.appData?.ownerMemberId) === String(brokerMemberId));
       if (!broker) return NextResponse.json({ error: 'The broker must complete a public broker profile before approval.' }, { status: 409 });
-      await payload.update({ collection: 'properties', id: property.id, data: { primaryBroker: broker.id, broker: broker.id, claimable: false, ownerDirect: false }, overrideAccess: true });
-      await payload.update({ collection: 'property-broker-claims', where: { and: [{ property: { equals: property.id } }, { status: { equals: 'pending' } }] }, data: { status: 'cancelled', decisionReason: 'Another broker was approved for this property.' }, overrideAccess: true });
+      const nextBrokers = [...new Set([...currentBrokers, String(broker.id)])].slice(0, MAX_PROPERTY_BROKERS);
+      const full = nextBrokers.length >= MAX_PROPERTY_BROKERS;
+      // Claims stay open until the property has the maximum number of brokers.
+      await payload.update({ collection: 'properties', id: property.id, data: { brokers: nextBrokers.map(Number), ownerDirect: false, ...(full ? { claimable: false } : {}) }, overrideAccess: true });
+      if (full) {
+        await payload.update({ collection: 'property-broker-claims', where: { and: [{ property: { equals: property.id } }, { status: { equals: 'pending' } }, { id: { not_equals: claim.id } }] }, data: { status: 'cancelled', decisionReason: `This property now has ${MAX_PROPERTY_BROKERS} brokers.` }, overrideAccess: true });
+      }
       claim.broker = broker.id;
     }
     const updated = await payload.update({ collection: 'property-broker-claims', id: claim.id, data: { status: body.decision, decisionReason: body.reason || '', reviewedBy: member.id, reviewedAt: new Date().toISOString() }, overrideAccess: true });
@@ -487,14 +498,16 @@ export async function POST(request: Request) {
   if (body.action === 'create-developer-property') {
     if (memberRole(member) !== 'developer') return NextResponse.json({ error: 'Only developers can create developer properties.' }, { status: 403 });
     if (!body.title || !body.area || !body.type || !body.purpose || !body.price) return NextResponse.json({ error: 'Title, area, type, purpose and price are required.' }, { status: 400 });
-    if (!body.ownerDirect && !body.primaryBroker) return NextResponse.json({ error: 'Select a primary broker or choose owner-direct publishing.' }, { status: 400 });
+    const requestedBrokers = brokerIdsOf({ brokers: Array.isArray(body.brokers) ? body.brokers : [] });
+    if (Array.isArray(body.brokers) && new Set(body.brokers.map(String)).size > MAX_PROPERTY_BROKERS) return NextResponse.json({ error: `Choose at most ${MAX_PROPERTY_BROKERS} brokers.` }, { status: 400 });
+    if (!body.ownerDirect && !requestedBrokers.length) return NextResponse.json({ error: 'Select at least one broker or choose owner-direct publishing.' }, { status: 400 });
     const owned = await payload.find({ collection: 'properties', where: { ownerDeveloper: { equals: member.id } }, limit: 1, pagination: false, overrideAccess: true });
     const developerPlanId = planIdForAudience(member.plan, 'developer');
     const propertyLimit = PLAN_CATALOG[developerPlanId].listings;
     if (propertyLimit != null && owned.totalDocs >= propertyLimit) return NextResponse.json({ error: `Your Developer ${PLAN_CATALOG[developerPlanId].name} plan has reached its ${propertyLimit}-property limit.` }, { status: 403 });
-    if (body.primaryBroker) {
-      const broker = await payload.findByID({ collection: 'brokers', id: body.primaryBroker, overrideAccess: true });
-      if (!broker) return NextResponse.json({ error: 'Selected primary broker was not found.' }, { status: 400 });
+    if (requestedBrokers.length) {
+      const found = await payload.find({ collection: 'brokers', where: { id: { in: requestedBrokers } }, limit: requestedBrokers.length, depth: 0, overrideAccess: true });
+      if (found.docs.length !== requestedBrokers.length) return NextResponse.json({ error: 'One of the selected brokers was not found.' }, { status: 400 });
     }
     const slug = String(body.slug || body.title).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36);
     const property = await payload.create({
@@ -519,7 +532,7 @@ export async function POST(request: Request) {
         ownerDeveloper: member.id,
         ownerDirect: Boolean(body.ownerDirect),
         claimable: Boolean(body.ownerDirect && body.claimable),
-        ...(body.primaryBroker ? { primaryBroker: body.primaryBroker, broker: body.primaryBroker } : {}),
+        brokers: requestedBrokers.map(Number),
         appData: { ownerMemberId: member.id, ownerType: 'developer', ownerDirect: Boolean(body.ownerDirect) },
       } as any,
       overrideAccess: true,

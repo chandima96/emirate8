@@ -36,6 +36,7 @@ import { publicListing } from '@/lib/publicListing';
 import { PreviewModal } from './PreviewModal';
 import { LISTING_AI_PRIVATE_FIELDS } from '@/lib/listingAutofill';
 import { readAiResponse } from '@/components/ai/AiCredits';
+import { BrokerPicker } from './BrokerPicker';
 
 /** Account listing defaults (Account › Listing defaults) copied into a new draft. */
 function withPresets(l, owner) {
@@ -160,7 +161,7 @@ export function ListingEditor({ id = undefined }) {
   const isAgency = user?.type === 'agency';
   const totalSteps = STEPS + (isAgency ? 1 : 0);
   const reviewStep = totalSteps;
-  const stepNames = isAgency ? [...NAMES.slice(0, 7), 'Team member', NAMES[7]] : NAMES;
+  const stepNames = isAgency ? [...NAMES.slice(0, 7), 'Team brokers', NAMES[7]] : NAMES;
   const schemaStep = (uiStep: number) => (isAgency && uiStep === reviewStep ? STEPS : uiStep);
   const stepErrors = (uiStep: number) => isAgency && uiStep === 8 ? [] : validateEditorStep(schemaStep(uiStep), L, user);
   const verified = user.credentialStatus === 'verified';
@@ -412,12 +413,10 @@ export function ListingEditor({ id = undefined }) {
       obj.ownerType = 'developer';
       obj.ownerDeveloper = user.id;
       obj.claimPolicy = 'developer_approval';
-      if (obj.ownerDirect) {
-        obj.primaryBroker = '';
-        obj.claimable = obj.claimable !== false;
-      } else {
-        obj.claimable = false;
-      }
+      // Owner-direct publishes without brokers; either way the property stays open for broker requests
+      // until it has the maximum number of brokers (the server closes claims then).
+      if (obj.ownerDirect) obj.brokers = [];
+      obj.claimable = obj.claimable !== false;
     } else if (isAgency) {
       const agencyId = user.agency?.agencyId || user.agencyId || '';
       const previous = savedRef.current;
@@ -430,7 +429,7 @@ export function ListingEditor({ id = undefined }) {
         obj.ownerType = previous.ownerType;
         obj.ownerAgency = previous.ownerAgency;
         obj.ownerDeveloper = previous.ownerDeveloper;
-        obj.primaryBroker = previous.primaryBroker;
+        obj.brokers = previous.brokers || [];
         obj.ownerDirect = previous.ownerDirect;
         obj.claimable = previous.claimable;
         obj.claimPolicy = previous.claimPolicy;
@@ -931,17 +930,19 @@ export function ListingEditor({ id = undefined }) {
     const uiStep = i + 1;
     if (isAgency && uiStep === 8) return (
       <div key={uiStep}>
-        <h2 className="h3" tabIndex={-1}>Assign a team member</h2>
-        <p className="mt-1 text-[13px] text-muted">Choose which broker in your agency will handle this listing. Existing broker listings stay under their original owner.</p>
+        <h2 className="h3" tabIndex={-1}>Assign team brokers</h2>
+        <p className="mt-1 text-[13px] text-muted">Choose up to 5 brokers from your agency who handle this listing. Existing broker listings stay under their original owner.</p>
         <div className="mt-6 max-w-xl">
-          {!canAssignTeamMember && <p className="mb-4 rounded-md border border-sage/30 bg-sage-soft/40 p-3 text-sm text-sage-ink">This listing already belongs to your broker account. Its ownership and broker assignment will stay unchanged.</p>}
-          <label className="field" htmlFor="agency-listing-broker"><span className="label inline-flex flex-wrap items-center gap-2">Assigned broker <span className="opt">(optional)</span><AiStatus id="agency-listing-broker" value={L.primaryBroker || ''} optional /></span>
-            <select id="agency-listing-broker" className="select" value={L.primaryBroker || ''} disabled={!canAssignTeamMember} onChange={(event) => setField('primaryBroker', event.target.value)}>
-              <option value="">Keep this listing unassigned</option>
-              {agencyBrokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.name} · {broker.email}</option>)}
-            </select>
-          </label>
-          {!agencyBrokers.length && <p className="mt-3 rounded-md border border-line bg-mist p-3 text-sm text-muted">No broker team members yet. Invite a broker by email to assign listings to them.</p>}
+          {!canAssignTeamMember && <p className="mb-4 rounded-md border border-sage/30 bg-sage-soft/40 p-3 text-sm text-sage-ink">This listing already belongs to your broker account. Its ownership and brokers will stay unchanged.</p>}
+          <BrokerPicker
+            id="agency-listing-brokers"
+            label="Brokers for this listing (optional)"
+            options={agencyBrokers}
+            value={L.brokers || []}
+            disabled={!canAssignTeamMember}
+            onChange={(ids) => setField('brokers', ids)}
+            emptyText="No broker team members yet. Invite a broker by email to add them to listings."
+          />
           <Link href="/agency-team" className="btn btn-outline btn-sm mt-4"><Icon name="people" />Invite or manage team members</Link>
         </div>
       </div>
