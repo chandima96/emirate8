@@ -320,6 +320,8 @@ export function saveUser(user) {
     notifications: user.notifications,
     portfolio: user.portfolio,
     portfolioDraft: user.portfolioDraft,
+    // Developer company profile (members.profile.developer); only sent when the account has one.
+    ...(user.developer ? { developer: user.developer } : {}),
     trial: user.trial,
     trialEnds: user.trialEnds,
   });

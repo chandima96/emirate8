@@ -11,7 +11,7 @@ import './profiles.css';
  * /api/profile-autofill or /api/listing-autofill. The page adapter (`onApply`) writes values into ITS form and
  * returns what it did, so the summary reports real counts. Styles: ./profiles.css (ai.css + ai-autofill.css). */
 
-export type AiContext = 'listing' | 'broker-profile' | 'agency-profile';
+export type AiContext = 'listing' | 'broker-profile' | 'agency-profile' | 'developer-profile';
 export type AiSummary = { filled: number; missing: number; kept?: number; errors?: number; review?: number };
 /** `other`: found on the page outside the listing itself (similar listings, articles, area photos). */
 export type AiFoundPhotos = { files: File[]; links: { url: string; source: string; other?: boolean }[] };
@@ -77,6 +77,21 @@ const COPY = {
     steps: ['Reading uploaded documents', 'Checking links', 'Extracting profile details', 'Matching extracted values to form fields'],
     noun: 'profile',
     thing: 'agency',
+  },
+  'developer-profile': {
+    heading: 'Complete Your Developer Profile Faster with AI',
+    desc: 'Upload your company profile or project brochures, paste company information, or add links to your website and social pages. Our AI-assisted workflow helps extract available details and fill your developer profile form.',
+    cta: 'Fill Profile with AI',
+    panel: 'Fill Developer Profile with AI',
+    support: 'Add your company information, documents, or links to automatically populate your developer profile form.',
+    ph: 'Paste company information, e.g. “Established in 2005. 40+ projects delivered across Dubai Hills Estate and Business Bay. Apartments, villas and master communities.”',
+    action: 'Process & Autofill Profile',
+    upload: 'Upload company profile',
+    typeHint: 'PDF, TXT, JPG or PNG — company profile, brochures, fact sheets',
+    linkHint: 'Your company website or public developer page',
+    steps: ['Reading uploaded documents', 'Checking links', 'Extracting company details', 'Matching extracted values to form fields'],
+    noun: 'profile',
+    thing: 'company',
   },
 };
 const TYPES: Record<string, string> = { pdf: 'PDF', txt: 'Text', jpg: 'Image', jpeg: 'Image', png: 'Image', webp: 'Image' };

@@ -68,9 +68,14 @@ export function DeveloperDashboard() {
             {user?.name || 'Developer'} · publish inventory and approve broker representation.
           </p>
         </div>
-        <Link href="/account" className="btn btn-outline">
-          <Icon name="gear" /> Account
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/profile#autofill" className="btn btn-outline">
+            <Icon name="stars" /> Fill company profile with AI
+          </Link>
+          <Link href="/account" className="btn btn-outline">
+            <Icon name="gear" /> Account
+          </Link>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {[
