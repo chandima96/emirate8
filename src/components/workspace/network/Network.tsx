@@ -6,7 +6,9 @@ import { useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/ui/Icon';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { useStoreVersion } from '@/hooks/useStore';
-import { counts, fmtNumber, isSelected, network, plan, select } from '@/lib/store';
+import { fmtNumber, network } from '@/lib/store';
+import { includeInFeed, useFeed } from '@/lib/feedClient';
+import { isInFeed } from '@/lib/propertyFeed';
 import { AREAS, EMIRATES, TYPES } from '@/config/reference';
 import { cx } from '@/lib/utils';
 import { ContactModal, NetworkCard, agencyOf, useSelectToggle } from './NetworkBits';
@@ -119,8 +121,10 @@ export function Network() {
 
   const areaList = f.emirate ? AREAS[f.emirate] : EMIRATES.flatMap((e) => AREAS[e]);
   const list = results(f);
-  const p = plan();
-  const c = counts();
+  const feed = useFeed();
+  const isSelected = (id) => isInFeed(feed.config, id);
+  const published = network().filter((n) => n.available);
+  const inFeedCount = published.filter((n) => isSelected(n.id)).length;
   const chosen = Object.keys(bulk).filter((k) => bulk[k] && !isSelected(k));
   const active = ['emirate', 'area', 'type', 'beds', 'price', 'completion'].filter((k) => f[k] !== '').length;
   const priceOpts = useMemo(() => priceOptions(f.purpose), [f.purpose]);
@@ -146,23 +150,13 @@ export function Network() {
     });
     setBulk(next);
   };
-  const addChosen = () => {
-    const r = select(chosen);
+  const addChosen = async () => {
+    const ok = await includeInFeed(chosen);
+    const added = chosen.length;
     setBulk({});
-    if (r.blocked)
-      toast(
-        <>
-          Added {r.added}. {r.blocked} couldn’t be added — your plan’s {fmtNumber(r.limit)} slots are full.{' '}
-          <Link className="underline" href="/subscription">
-            Compare plans
-          </Link>
-        </>,
-        { icon: 'exclamation-circle', duration: 5500 },
-      );
-    else
-      toast('Added ' + r.added + ' properties to Selected · ' + r.used + ' / ' + fmtNumber(r.limit) + ' slots used.', {
-        icon: 'bookmark-check-fill',
-      });
+    toast(ok ? 'Added ' + added + ' properties to your property feed.' : 'Your property feed could not be updated. Try again.', {
+      icon: ok ? 'plus-circle' : 'exclamation-circle',
+    });
   };
 
   return (
@@ -172,21 +166,23 @@ export function Network() {
           <div>
             <h1 className="h2 text-[24px] lg:text-[28px]">Broker Network</h1>
             <p className="mt-1 max-w-[560px] text-[14px] text-muted">
-              Browse property opportunities published by participating brokers, then select the ones you want to follow
-              up.
+              Browse property opportunities published by participating brokers. Properties in your feed are available to
+              your website through the property feed API.
             </p>
           </div>
-          <div className="w-full max-w-[260px] rounded-lg border border-line bg-white p-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted">Plan quota</span>
-              <span className="font-semibold text-ink">
-                {c.selected} / {fmtNumber(p.selections)} selection slots
-              </span>
-            </div>
-            <div className="meter mt-2">
-              <span style={{ width: Math.min(100, (c.selected / p.selections) * 100) + '%' }} />
-            </div>
-          </div>
+          {feed.status === 'ready' && (
+            <Link href="/selected" className="w-full max-w-[260px] rounded-lg border border-line bg-white p-3 hover:border-ink">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted">Property feed API</span>
+                <span className="font-semibold text-ink">
+                  {fmtNumber(inFeedCount)} / {fmtNumber(published.length)} in feed
+                </span>
+              </div>
+              <div className="meter mt-2">
+                <span style={{ width: (published.length ? (inFeedCount / published.length) * 100 : 0) + '%' }} />
+              </div>
+            </Link>
+          )}
         </div>
 
         {/* Search & filters */}
@@ -349,14 +345,14 @@ export function Network() {
             <Icon name="list-check" className="h-5 w-5 text-sage" />
             <p className="flex-1 text-[13px]" role="status">
               <span className="font-semibold">{chosen.length} chosen</span>
-              <span className="hidden text-[#A9B4B1] sm:inline"> · add them to your Selected Properties</span>
+              <span className="hidden text-[#A9B4B1] sm:inline"> · add them to your property feed</span>
             </p>
             <button type="button" className="btn btn-sm text-white/80 hover:text-white" onClick={() => setBulk({})}>
               Clear
             </button>
             <button type="button" className="btn btn-sage btn-sm" onClick={addChosen}>
-              <Icon name="bookmark-plus" />
-              Select all chosen
+              <Icon name="plus-circle" />
+              Add chosen to feed
             </button>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { slugify } from '../utils';
+import { brokerIdsOf } from '../propertyBrokers';
 import type { Payload } from 'payload';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -64,7 +65,6 @@ export function listingFromProperty(doc: any) {
     'ownerType',
     'ownerDeveloper',
     'ownerAgency',
-    'primaryBroker',
     'ownerDirect',
     'claimable',
     'claimPolicy',
@@ -72,11 +72,14 @@ export function listingFromProperty(doc: any) {
     'updatedAt',
   ]) {
     if (doc[field] !== undefined) {
-      listing[field] = ['ownerDeveloper', 'ownerAgency', 'primaryBroker'].includes(field)
+      listing[field] = ['ownerDeveloper', 'ownerAgency'].includes(field)
         ? relationId(doc[field])
         : doc[field];
     }
   }
+  // The canonical broker list (properties_rels) wins over the workspace copy; the retired single field is dropped.
+  listing.brokers = doc.brokers !== undefined ? brokerIdsOf({ brokers: doc.brokers }) : brokerIdsOf(listing);
+  delete listing.primaryBroker;
   // Merge the canonical permit group with appData so older records that do
   // not yet have the document relationship still retain their uploaded file.
   if (doc.permit || doc.appData?.permit) {
@@ -154,7 +157,7 @@ function option(value: unknown, allowed: Set<string>, fallback: string) {
 export function propertyData(listing: any, memberId: number) {
   const ownerDeveloper = relationId(listing.ownerDeveloper);
   const ownerAgency = relationId(listing.ownerAgency);
-  const primaryBroker = relationId(listing.primaryBroker);
+  const brokers = brokerIdsOf(listing).map(Number);
   const isDeveloperListing =
     listing.ownerType === 'developer' &&
     Boolean(ownerDeveloper || listing.ownerDirect !== undefined || listing.claimable !== undefined);
@@ -162,8 +165,10 @@ export function propertyData(listing: any, memberId: number) {
   const permitDocument = sourcePermit?.document;
   const permitDocumentId =
     permitDocument && typeof permitDocument === 'object' ? permitDocument.id || permitDocument.mediaId : permitDocument;
+  const { primaryBroker: _retiredPrimaryBroker, ...rest } = listing;
   const appData = {
-    ...listing,
+    ...rest,
+    brokers: brokers.map(String),
     ownerMemberId: memberId,
     ...(sourcePermit
       ? {
@@ -235,11 +240,7 @@ export function propertyData(listing: any, memberId: number) {
     ...(listing.ownerType ? { ownerType: listing.ownerType } : {}),
     ...(ownerDeveloper ? { ownerDeveloper } : {}),
     ...(ownerAgency ? { ownerAgency } : {}),
-    ...(isDeveloperListing
-      ? { primaryBroker: primaryBroker || null, broker: primaryBroker || null }
-      : primaryBroker
-        ? { primaryBroker, broker: primaryBroker }
-        : {}),
+    brokers,
     ...(isDeveloperListing && listing.ownerDirect !== undefined ? { ownerDirect: Boolean(listing.ownerDirect) } : {}),
     ...(isDeveloperListing && listing.claimable !== undefined ? { claimable: Boolean(listing.claimable) } : {}),
     ...(isDeveloperListing && listing.claimPolicy ? { claimPolicy: listing.claimPolicy } : {}),

@@ -201,7 +201,7 @@ export const WORKSPACE_NAV = [
 export const WORKSPACE_NETWORK = [
   { label: 'Broker Network', href: '/network', key: 'network', icon: 'diagram-3' },
   { label: 'Developers Network', href: '/developer-network', key: 'developerNetwork', icon: 'building' },
-  { label: 'Selected Properties', href: '/selected', key: 'selected', icon: 'bookmark' },
+  { label: 'Property Feed API', href: '/selected', key: 'selected', icon: 'broadcast' },
   { label: 'Subscription', href: '/subscription', key: 'subscription', icon: 'credit-card' },
 ];
 

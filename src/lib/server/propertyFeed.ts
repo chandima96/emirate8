@@ -1,0 +1,164 @@
+import 'server-only';
+import { createHash, randomBytes } from 'node:crypto';
+import configPromise from '@payload-config';
+import { getPayload, type Payload } from 'payload';
+import { loadPublicData } from './publicData';
+import { DEFAULT_FEED, canUseFeedAccount, isInFeed, normalizeFeedConfig, toFeedProperty, type FeedConfig } from '@/lib/propertyFeed';
+
+/* Property feed API: keys, authentication and the member's selected inventory. See src/lib/propertyFeed.ts. */
+
+const KEY_PREFIX = 'e08_live_';
+
+export function hashApiKey(key: string) {
+  return createHash('sha256').update(key).digest('hex');
+}
+
+/** A new random key. Only the hash is stored; the plaintext is shown to the member once. */
+export function generateApiKey() {
+  const key = KEY_PREFIX + randomBytes(24).toString('base64url');
+  return { key, hash: hashApiKey(key), prefix: key.slice(0, KEY_PREFIX.length + 4) + '…' + key.slice(-4) };
+}
+
+/** Independent brokers and agency admins with an active account (see canUseFeedAccount). */
+export function canUseFeed(member: any) {
+  return Boolean(
+    member && member.isSuspended !== true && canUseFeedAccount(member.accountType, member.profile?.agency?.agencyRole),
+  );
+}
+
+export async function getFeedPayload() {
+  return getPayload({ config: await configPromise });
+}
+
+export async function findFeed(payload: Payload, memberId: string | number) {
+  const { docs } = await payload.find({
+    collection: 'api-feeds',
+    where: { member: { equals: memberId } },
+    limit: 1,
+    depth: 0,
+    overrideAccess: true,
+  });
+  return (docs[0] as any) || null;
+}
+
+export async function saveFeed(payload: Payload, memberId: string | number, data: Record<string, unknown>) {
+  const existing = await findFeed(payload, memberId);
+  if (existing) {
+    return (await payload.update({ collection: 'api-feeds', id: existing.id, data, depth: 0, overrideAccess: true })) as any;
+  }
+  return (await payload.create({
+    collection: 'api-feeds',
+    data: { member: Number(memberId), ...DEFAULT_FEED, ...data } as any,
+    depth: 0,
+    overrideAccess: true,
+  })) as any;
+}
+
+export function feedConfigOf(doc: any): FeedConfig {
+  return doc ? normalizeFeedConfig(doc) : { ...DEFAULT_FEED };
+}
+
+/** Workspace view of the feed: never includes the key hash. */
+export function feedSummary(doc: any) {
+  return {
+    config: feedConfigOf(doc),
+    key: doc?.keyHash
+      ? {
+          prefix: doc.keyPrefix || '',
+          createdAt: doc.keyCreatedAt || null,
+          lastUsedAt: doc.lastUsedAt || null,
+          requestCount: Number(doc.requestCount) || 0,
+        }
+      : null,
+  };
+}
+
+/** Every published, visible property on the platform (the same inventory as the broker network). */
+export async function publishedListings() {
+  const data = await loadPublicData();
+  return (data.listings as any[]).filter((l) => l && l.status === 'published' && l.display?.visible !== false);
+}
+
+export async function feedProperties(config: FeedConfig) {
+  return (await publishedListings()).filter((l) => isInFeed(config, l.id)).map(toFeedProperty);
+}
+
+/* ---------- API key authentication ---------- */
+
+export function readApiKey(request: Request) {
+  const auth = request.headers.get('authorization') || '';
+  const bearer = /^Bearer\s+(\S+)$/i.exec(auth)?.[1];
+  const key = bearer || request.headers.get('x-api-key') || '';
+  return key.startsWith(KEY_PREFIX) && key.length < 200 ? key : '';
+}
+
+/** `error` set → reject with `status`; otherwise the key's feed record (strict mode is off, so no discriminated union). */
+export type FeedAuth = { error?: string; status?: number; payload?: Payload; feed?: any; hash?: string };
+
+export async function authenticateFeedRequest(request: Request): Promise<FeedAuth> {
+  const key = readApiKey(request);
+  if (!key) return { status: 401, error: 'Send your API key as "Authorization: Bearer <key>" or "X-API-Key: <key>".' };
+  const hash = hashApiKey(key);
+  const payload = await getFeedPayload();
+  const { docs } = await payload.find({
+    collection: 'api-feeds',
+    where: { keyHash: { equals: hash } },
+    limit: 1,
+    depth: 1,
+    overrideAccess: true,
+  });
+  // Keys are 192-bit random values looked up by their SHA-256 hash, so a plain equality lookup is safe.
+  const feed: any = docs[0];
+  if (!feed) {
+    return { status: 401, error: 'This API key is invalid or has been revoked.' };
+  }
+  if (!canUseFeed(feed.member)) {
+    return { status: 403, error: 'The property feed is available to active independent broker and agency accounts.' };
+  }
+  return { payload, feed, hash };
+}
+
+/** Usage counters are informational; a failed write never fails the API request. */
+export function recordFeedUse(payload: Payload, feed: any) {
+  void payload
+    .update({
+      collection: 'api-feeds',
+      id: feed.id,
+      data: { lastUsedAt: new Date().toISOString(), requestCount: (Number(feed.requestCount) || 0) + 1 },
+      depth: 0,
+      overrideAccess: true,
+    })
+    .catch((error) => console.error('[property-feed] Could not record usage:', error));
+}
+
+/* ---------- Rate limit (per key, per server instance) ---------- */
+
+export const FEED_RATE_LIMIT = 120;
+const WINDOW_MS = 60_000;
+const hits = new Map<string, number[]>();
+
+export function rateLimit(hash: string, now = Date.now()) {
+  const recent = (hits.get(hash) || []).filter((at) => now - at < WINDOW_MS);
+  const allowed = recent.length < FEED_RATE_LIMIT;
+  if (allowed) recent.push(now);
+  hits.set(hash, recent);
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) if (!v.some((at) => now - at < WINDOW_MS)) hits.delete(k);
+  }
+  const reset = Math.ceil(((recent[0] ?? now) + WINDOW_MS) / 1000);
+  return {
+    allowed,
+    headers: {
+      'X-RateLimit-Limit': String(FEED_RATE_LIMIT),
+      'X-RateLimit-Remaining': String(Math.max(0, FEED_RATE_LIMIT - recent.length)),
+      'X-RateLimit-Reset': String(reset),
+    } as Record<string, string>,
+  };
+}
+
+export const FEED_CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, X-API-Key, Content-Type',
+  'Access-Control-Max-Age': '86400',
+};

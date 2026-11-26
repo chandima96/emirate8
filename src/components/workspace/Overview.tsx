@@ -9,6 +9,8 @@ import { STATUS } from '@/config/reference';
 import { routes } from '@/lib/routes';
 import { bi, credText, trialLeft } from './shared';
 import { ContactModal, NetworkCard, useSelectToggle } from './network/NetworkBits';
+import { useFeed } from '@/lib/feedClient';
+import { isInFeed } from '@/lib/propertyFeed';
 import { PropertyCardBones } from './PageSkeletons';
 
 function greeting() {
@@ -33,6 +35,7 @@ function Kpi({ href, label, icon, value, children }) {
 export function Overview() {
   useStoreVersion();
   const toggle = useSelectToggle();
+  const feed = useFeed();
   const [contactId, setContactId] = useState(null);
   const [opportunityTab, setOpportunityTab] = useState('brokers');
   const [developerProperties, setDeveloperProperties] = useState([]);
@@ -52,6 +55,7 @@ export function Overview() {
   const p = plan(user);
   const c = counts(user);
   const d = data();
+  const feedCount = network().filter((n) => n.available && isInFeed(feed.config, n.id)).length;
   const recent = d.listings
     .slice()
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -172,10 +176,10 @@ export function Overview() {
         <Kpi href="/network" label="Network Opportunities" icon="diagram-3" value={c.network}>
           <p className="mt-2 text-2xs text-muted">Available sample records</p>
         </Kpi>
-        <Kpi href="/selected" label="Selected Properties" icon="bookmark" value={c.selected}>
-          <div className="meter mt-3">
-            <span style={{ width: Math.min(100, (c.selected / p.selections) * 100) + '%' }} />
-          </div>
+        <Kpi href="/selected" label="Property Feed API" icon="broadcast" value={feedCount}>
+          <p className="mt-2 text-2xs text-muted">
+            {feed.status !== 'ready' ? 'Loading…' : feed.key ? 'Published properties shared with your website' : 'Generate an API key to connect your website'}
+          </p>
         </Kpi>
       </div>
 

@@ -11,6 +11,10 @@ export function ListedBy({ listing: l, preview }) {
   const raw = l.broker || {};
   const b = contactBroker(raw, l);
   const st = preview ? { active: '' } : brokerStats(b);
+  // A property has up to five brokers and no "primary" one; the contact above is shown once, the rest below.
+  const others = (l.brokerProfiles || []).filter(
+    (p) => p && String(p.id) !== String(raw.id) && String(p.slug || '') !== String(raw.slug || '-'),
+  );
 
   return (
     <section className="mt-12" aria-labelledby="h-by">
@@ -78,6 +82,29 @@ export function ListedBy({ listing: l, preview }) {
           </PLink>
         </div>
       </div>
+      {others.length > 0 && (
+        <div className="mt-4">
+          <h3 className="text-[13px] font-semibold text-ink">
+            {raw.id || raw.name ? 'Also representing this property' : 'Brokers for this property'}
+          </h3>
+          <ul className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {others.map((p) => {
+              const ob = contactBroker(p, l);
+              return (
+                <li key={String(p.id || p.slug)} className="flex items-center gap-3 rounded-lg border border-line bg-white p-3">
+                  <Avatar person={ob} size={44} />
+                  <div className="min-w-0">
+                    <p className="truncate text-[14px] font-semibold text-ink">
+                      {preview ? ob.name : <Link className="hover:underline" href={brokerUrl(ob)}>{ob.name}</Link>}
+                    </p>
+                    <p className="truncate text-xs text-muted">{ob.agencyName || 'Independent broker'}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -11,6 +11,7 @@ import { listingSchema as S } from './designer-schema';
 import { editorState } from './designer-model';
 import { BuildingPicker } from './AutofillWidgets';
 import { SeoAssistant } from './SeoAssistant';
+import { BrokerPicker } from './BrokerPicker';
 
 const U = S.util;
 export function coordinatesFromMapLink(value) {
@@ -904,7 +905,7 @@ export function Representation({ ed }) {
             'Public developer inventory',
             'Show the developer as owner and allow approved brokers to request a claim.',
           ],
-          [false, 'Assign a primary broker', 'The selected broker becomes the main contact.'],
+          [false, 'Assign brokers', 'Up to 5 brokers represent this property; none of them is primary.'],
         ].map(([direct, label, help]) => (
           <button
             type="button"
@@ -917,8 +918,7 @@ export function Representation({ ed }) {
                 ...prev,
                 ownerType: 'developer',
                 ownerDirect: direct,
-                claimable: direct,
-                primaryBroker: direct ? '' : prev.primaryBroker,
+                brokers: direct ? [] : prev.brokers || [],
               }))
             }
           >
@@ -931,26 +931,17 @@ export function Representation({ ed }) {
         ))}
       </div>
       {!l.ownerDirect && (
-        <Field id="f-primary-broker" label="Primary broker" error={ed.errors.primaryBroker} value={l.primaryBroker || ''}>
-          <select
-            id="f-primary-broker"
-            className="select"
-            value={l.primaryBroker || ''}
-            onChange={(e) => ed.set('primaryBroker', e.target.value)}
-            {...invalidProps('f-primary-broker', ed.errors.primaryBroker)}
-          >
-            <option value="">Select a current broker</option>
-            {ed.developerBrokers.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          {!ed.developerBrokers.length && (
-            <p className="mt-2 text-xs text-muted">No verified brokers are available yet.</p>
-          )}
-        </Field>
+        <BrokerPicker
+          id="f-brokers"
+          label="Brokers for this property"
+          options={ed.developerBrokers}
+          value={l.brokers || []}
+          error={ed.errors.brokers}
+          onChange={(ids) => ed.set('brokers', ids)}
+          emptyText="No verified brokers are available yet."
+        />
       )}
+      <p className="mt-3 text-xs text-muted">Brokers can also request to represent this property until it has 5 brokers; you approve each request.</p>
     </div>
   );
 }
@@ -960,7 +951,9 @@ export function ProfileWidget({ ed, kind }) {
     profile = u.profile || u;
   const credentials = u.credentials || {};
   const agency = u.portfolio?.agency || profile.agency || {};
-  const assigned = ed.isAgency ? (ed.agencyBrokers || []).find((b) => String(b.id) === String(ed.L.primaryBroker)) : null;
+  const assigned = ed.isAgency
+    ? (ed.agencyBrokers || []).filter((b) => (ed.L.brokers || []).map(String).includes(String(b.id)))
+    : [];
   const authority = S.permitAuthority(ed.L.editor.d.emirate || 'Dubai');
   if (kind === 'broker')
     return (
@@ -978,8 +971,8 @@ export function ProfileWidget({ ed, kind }) {
               ]
             : ed.isAgency
               ? [
-                  ['Assigned broker', assigned?.name],
-                  ['Broker BRN', assigned?.brn],
+                  ['Brokers', assigned.map((b) => b.name).join(', ')],
+                  ['Broker BRNs', assigned.map((b) => b.brn).filter(Boolean).join(', ')],
                   ['Agency ORN', credentials.orn || agency.orn],
                   ['Trade licence', credentials.tradeLicence],
                   ['Brokerage', u.name],

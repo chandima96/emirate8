@@ -234,16 +234,32 @@ test('public listing and nested CMS snapshots omit private answers and obey loca
   assert.equal(clean.editor, undefined);
 });
 
-test('developer representation requires a primary broker when owner-direct is disabled', () => {
+// Only the broker rule: the shared fixture has no permit expiry, which step 7 reports separately.
+const brokerErrors = (l, user) => validateEditorStep(7, l, user).filter((e) => e.key === 'brokers');
+
+test('developer representation requires at least one broker when owner-direct is disabled', () => {
   const l = listing();
   l.ownerType = 'developer';
   l.ownerDirect = false;
-  assert.ok(validateEditorStep(7, l, { type: 'developer' }).some((e) => e.key === 'primaryBroker'));
-  l.primaryBroker = '5';
-  assert.deepEqual(validateEditorStep(7, l, { type: 'developer' }), []);
+  l.brokers = [];
+  assert.equal(brokerErrors(l, { type: 'developer' }).length, 1);
+  l.brokers = ['5'];
+  assert.deepEqual(brokerErrors(l, { type: 'developer' }), []);
+  l.brokers = ['5', '6', '7'];
+  assert.deepEqual(brokerErrors(l, { type: 'developer' }), []);
   l.ownerDirect = true;
-  l.primaryBroker = '';
-  assert.deepEqual(validateEditorStep(7, l, { type: 'developer' }), []);
+  l.brokers = [];
+  assert.deepEqual(brokerErrors(l, { type: 'developer' }), []);
+});
+
+test('a property can have at most five brokers', () => {
+  const l = listing();
+  l.ownerType = 'developer';
+  l.ownerDirect = false;
+  l.brokers = ['1', '2', '3', '4', '5'];
+  assert.deepEqual(brokerErrors(l, { type: 'developer' }), []);
+  l.brokers = ['1', '2', '3', '4', '5', '6'];
+  assert.equal(brokerErrors(l, { type: 'developer' }).length, 1);
 });
 
 test('existing listings upgrade without losing amenities or external location names', () => {
@@ -313,15 +329,15 @@ test('floor-plan levels and itemised charge notes survive draft reload and publi
 });
 
 
-test('broker editing a developer-owned record is never blocked by a hidden primary-broker selector', () => {
+test('broker editing a developer-owned record is never blocked by a hidden broker selector', () => {
   const l = listing();
   l.ownerType = 'developer';
   l.ownerDirect = false;
-  l.primaryBroker = '';
+  l.brokers = [];
   const broker = { type: 'broker', credentialStatus: 'verified' };
-  assert.deepEqual(validateEditorStep(7, l, broker), []);
+  assert.deepEqual(brokerErrors(l, broker), []);
   assert.equal(editorReadiness(l, broker).complete, true);
   assert.equal(editorReadiness(l, broker).publishable, true);
-  assert.ok(validateEditorStep(7, l, { type: 'developer' }).some((error) => error.key === 'primaryBroker'));
-  assert.ok(validateEditorStep(7, l, { type: 'owner' }).some((error) => error.key === 'primaryBroker'));
+  assert.ok(validateEditorStep(7, l, { type: 'developer' }).some((error) => error.key === 'brokers'));
+  assert.ok(validateEditorStep(7, l, { type: 'owner' }).some((error) => error.key === 'brokers'));
 });

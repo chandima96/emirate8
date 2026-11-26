@@ -604,11 +604,6 @@ export function saveData(d, user = undefined, immediate = false) {
   if (user) return (immediate ? writeImmediate : write)('data:' + user.id, strip(d));
   return false;
 }
-function saveSelection(d, user = undefined) {
-  user = user || currentUser();
-  if (user) return writeImmediate('selected:' + user.id, d.selected || []);
-  return false;
-}
 export function log(text, icon) {
   var d = data();
   if (!d) return;
@@ -874,65 +869,6 @@ export function counts(user = undefined) {
       return q.status !== 'replied';
     }).length,
   };
-}
-
-/* Selection with plan quota enforcement */
-export function isSelected(id) {
-  var d = data();
-  return !!(
-    d &&
-    d.selected.some(function (s) {
-      return s.id === id;
-    })
-  );
-}
-export function select(ids, candidate = undefined) {
-  var d = data(),
-    p = plan();
-  if (!d) return { ok: false, added: 0 };
-  ids = [].concat(ids);
-  var added = 0,
-    blocked = 0;
-  ids.forEach(function (id) {
-    if (
-      d.selected.some(function (s) {
-        return s.id === id;
-      })
-    )
-      return;
-    var n = network(id) || (candidate && String(candidate.id) === String(id) ? candidate : null);
-    if (!n || !n.available) return;
-    if (p.selections && d.selected.length >= p.selections) {
-      blocked++;
-      return;
-    }
-    d.selected.push({ id: id, note: '', addedAt: new Date().toISOString(), ...(candidate && String(candidate.id) === String(id) ? { listing: candidate } : {}) });
-    added++;
-  });
-  if (added) saveSelection(d);
-  return { ok: blocked === 0, added: added, blocked: blocked, used: d.selected.length, limit: p.selections };
-}
-export function deselect(ids) {
-  var d = data();
-  if (!d) return 0;
-  ids = [].concat(ids);
-  var before = d.selected.length;
-  d.selected = d.selected.filter(function (s) {
-    return ids.indexOf(s.id) === -1;
-  });
-  saveSelection(d);
-  return before - d.selected.length;
-}
-export function setNote(id, note) {
-  var d = data();
-  if (!d) return;
-  d.selected.forEach(function (s) {
-    if (s.id === id) {
-      s.note = note;
-      s.updatedAt = new Date().toISOString();
-    }
-  });
-  saveSelection(d);
 }
 
 /* Own listings */

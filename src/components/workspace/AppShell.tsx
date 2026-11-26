@@ -11,7 +11,9 @@ import { useSession } from '@/components/providers/SessionProvider';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { useStoreVersion } from '@/hooks/useStore';
 import { WORKSPACE_NAV, WORKSPACE_NETWORK } from '@/config/navigation';
-import { counts, fmtNumber, plan, signOut } from '@/lib/store';
+import { counts, fmtNumber, network, plan, signOut } from '@/lib/store';
+import { loadFeed, resetFeedClient, useFeed } from '@/lib/feedClient';
+import { canUseFeedAccount, isInFeed } from '@/lib/propertyFeed';
 import { cx } from '@/lib/utils';
 import { notificationPropertyHref } from '@/lib/notificationLinks';
 
@@ -22,7 +24,7 @@ const SECTIONS = [
   ['/profile', 'profile', 'Profile'],
   ['/account', 'account', 'Account'],
   ['/network', 'network', 'Broker Network'],
-  ['/selected', 'selected', 'Selected Properties'],
+  ['/selected', 'selected', 'Property Feed API'],
   ['/subscription', 'subscription', 'Subscription'],
   ['/agency-dashboard', 'agency', 'Agency Dashboard'],
   ['/agency-team', 'team', 'Team'],
@@ -75,10 +77,21 @@ export function AppShell({ children }) {
     else if (role === 'agency' && pathname === '/dashboard') router.replace('/agency-dashboard');
     else if (role === 'developer' && pathname === '/dashboard') router.replace('/developer-dashboard');
     else if (!['broker', 'agency'].includes(role) && pathname === '/developer-network') router.replace('/developer-dashboard');
-    else if (role !== 'broker' && (pathname === '/network' || pathname.startsWith('/network/') || pathname === '/selected' || pathname.startsWith('/selected/'))) {
+    else if (!canUseFeedAccount(role, user.agency?.agencyRole) && (pathname === '/selected' || pathname.startsWith('/selected/'))) {
+      router.replace(role === 'developer' ? '/developer-dashboard' : '/agency-dashboard');
+    }
+    else if (role !== 'broker' && (pathname === '/network' || pathname.startsWith('/network/'))) {
       router.replace(role === 'developer' ? '/developer-dashboard' : '/agency-dashboard');
     }
   }, [ready, user, role, pathname, router]);
+
+  const feed = useFeed();
+  useEffect(() => {
+    if (!ready) return;
+    // The property feed API belongs to independent brokers and agency admins.
+    if (user && canUseFeedAccount(role, user.agency?.agencyRole)) loadFeed();
+    else resetFeedClient();
+  }, [ready, user, role]);
 
   const close = useCallback(() => setOpen(false), []);
   useEffect(() => {
@@ -148,7 +161,10 @@ export function AppShell({ children }) {
   };
   const c = allowed ? counts(user) : { listings: 0, selected: 0, network: 0, enquiries: 0 };
   const p = allowed ? plan(user) : null;
-  const cnt = { listings: c.listings, selected: c.selected, network: c.network, enquiries: c.enquiries };
+  const feedUser = allowed && canUseFeedAccount(role, user?.agency?.agencyRole);
+  const published = feedUser ? network().filter((n) => n.available) : [];
+  const feedCount = feed.status === 'ready' ? published.filter((n) => isInFeed(feed.config, n.id)).length : 0;
+  const cnt = { listings: c.listings, selected: feedCount, network: c.network, enquiries: c.enquiries };
   const nav =
     role === 'developer'
       ? [
@@ -164,11 +180,13 @@ export function AppShell({ children }) {
             { label: 'Developers Network', href: '/developer-network', key: 'developerNetwork', icon: 'building' },
             { label: 'Properties', href: '/listings', key: 'listings', icon: 'buildings' },
             { label: 'Enquiries', href: '/enquiries', key: 'enquiries', icon: 'inbox' },
+            ...(feedUser ? [{ label: 'Property Feed API', href: '/selected', key: 'selected', icon: 'broadcast' }] : []),
             { label: 'Account', href: '/account', key: 'account', icon: 'gear' },
           ]
         : WORKSPACE_NAV;
 
   const logout = () => {
+    resetFeedClient();
     signOut();
     // Hard navigation avoids a race with the workspace guard while returning to the public homepage.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
@@ -218,16 +236,22 @@ export function AppShell({ children }) {
               <span className="text-[#8C9996]">Plan</span>
               <span className="font-semibold text-white">{p ? p.name + (user.trial ? ' Trial' : '') : '—'}</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-2xs">
-              <span className="text-[#8C9996]">Selections</span>
-              <span className="text-white">{p ? `${c.selected} / ${fmtNumber(p.selections)}` : '—'}</span>
-            </div>
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
-              <span
-                className="block h-full bg-sage"
-                style={{ width: p ? Math.min(100, (c.selected / p.selections) * 100) + '%' : 0 }}
-              />
-            </div>
+            {feedUser && (
+              <>
+                <div className="mt-2 flex items-center justify-between text-2xs">
+                  <span className="text-[#8C9996]">API feed</span>
+                  <span className="text-white">
+                    {feed.status === 'ready' ? `${fmtNumber(feedCount)} / ${fmtNumber(published.length)}` : '—'}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+                  <span
+                    className="block h-full bg-sage"
+                    style={{ width: published.length ? (feedCount / published.length) * 100 + '%' : 0 }}
+                  />
+                </div>
+              </>
+            )}
             <Link
               href="/subscription"
               className="mt-3 inline-flex items-center gap-1 text-2xs font-semibold text-sage"

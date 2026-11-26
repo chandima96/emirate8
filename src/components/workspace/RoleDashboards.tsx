@@ -52,6 +52,8 @@ export function DeveloperDashboard() {
       body: JSON.stringify({ action: 'decide-claim', claimId, decision }),
     });
     if (response.ok) load();
+    // e.g. "This property already has 5 brokers."
+    else setMessage((await response.json().catch(() => null))?.error || 'Could not update this claim.');
   };
   const loading = !data && !message;
   const properties = data?.properties || [];
@@ -88,8 +90,8 @@ export function DeveloperDashboard() {
           <p className="eyebrow">Unified property flow</p>
           <h2 className="h3 mt-2">Add a property</h2>
           <p className="mt-1 text-sm text-muted">
-            Use the same full editor as brokers and agencies. During the permit and display step, choose a primary
-            broker or publish publicly so approved brokers can request representation.
+            Use the same full editor as brokers and agencies. During the permit and display step, choose up to 5
+            brokers or publish publicly; brokers can request to represent it until it has 5.
           </p>
           <Link href="/listings/new" className="btn btn-dark mt-5">
             <Icon name="plus-lg" />

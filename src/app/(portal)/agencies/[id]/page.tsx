@@ -4,6 +4,7 @@ import { BrokerPortfolio, BrokerPortfolioSkeleton } from '@/components/portal/Br
 import { getAgency, getBrokers, getProperties } from '@/lib/cms';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { DEFAULT_AGENCY_COVER, listJoin, profileExtras } from '@/lib/brokerProfile';
+import { brokerIdsOf } from '@/lib/propertyBrokers';
 
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.emirate8.com').replace(/\/$/, '');
 
@@ -225,8 +226,8 @@ function build({ agency, brokers, properties }: { agency: any; brokers: any[]; p
     .map((property: any) => {
       const agencyOwner = property.ownerAgency;
       const ownedByAgency = String(agencyOwner?.id || agencyOwner || '') === String(agency.id);
-      const relation = property.primaryBroker || property.broker;
-      const broker = relation && memberById.get(String(relation.id || relation));
+      // The first of the property's brokers who is on this agency's team, if any.
+      const broker = brokerIdsOf(property).map((id) => memberById.get(id)).find(Boolean);
       if (broker) return { ...listingFromProperty(property), broker, brokerId: broker.id };
       return ownedByAgency ? { ...listingFromProperty(property), broker: initialAgency, brokerId: initialAgency.id } : null;
     })

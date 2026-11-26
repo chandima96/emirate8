@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
-import { deselect, fmtNumber, fmtPrice, fmtSpecs, isSelected, listingUrl, log, network, select } from '@/lib/store';
+import { fmtPrice, fmtSpecs, listingUrl, log, network } from '@/lib/store';
+import { excludeFromFeed, inFeed, includeInFeed, useFeed } from '@/lib/feedClient';
+import { isInFeed } from '@/lib/propertyFeed';
 import { copyText } from '@/lib/share';
 import { cx } from '@/lib/utils';
 
@@ -37,61 +39,57 @@ export function SpecLine({ n }) {
   ));
 }
 
-/** Select / deselect a network property with plan-quota enforcement and toasts. */
+/** Add / remove a network property from the broker's property feed API, with toasts. */
 export function useSelectToggle() {
   const { toast } = useFeedback();
   return useCallback(
-    (id, listing = undefined) => {
-      if (isSelected(id)) {
-        deselect(id);
-        toast('Removed from Selected Properties.', { icon: 'bookmark-dash' });
-        return;
-      }
-      const r = select(id, listing);
-      if (!r.added) {
-        if (!r.blocked) return;
-        toast(
-          <>
-            Your plan’s {fmtNumber(r.limit)} selection slots are full.{' '}
-            <Link className="underline" href="/subscription">
-              Compare plans
-            </Link>
-          </>,
-          { icon: 'exclamation-circle', duration: 5000 },
-        );
+    async (id) => {
+      const adding = !inFeed(id);
+      const ok = await (adding ? includeInFeed(id) : excludeFromFeed(id));
+      if (!ok) {
+        toast('Your property feed could not be updated. Try again.', { icon: 'exclamation-circle' });
         return;
       }
       toast(
-        <>
-          Added to Selected Properties · {r.used} / {fmtNumber(r.limit)} slots used.{' '}
-          <Link className="underline" href="/selected">
-            View
-          </Link>
-        </>,
-        { icon: 'bookmark-check-fill' },
+        adding ? (
+          <>
+            Added to your property feed.{' '}
+            <Link className="underline" href="/selected">
+              View feed
+            </Link>
+          </>
+        ) : (
+          'Removed from your property feed.'
+        ),
+        { icon: adding ? 'plus-circle' : 'dash-circle' },
       );
     },
     [toast],
   );
 }
 
+/** Feed toggle for independent brokers; renders nothing for accounts without the feed API. */
 export function SelectButton({ n, small = undefined, className = undefined, onToggle }) {
-  const on = isSelected(n.id);
+  const feed = useFeed();
+  if (feed.status !== 'ready') return null;
+  const on = isInFeed(feed.config, n.id);
   return (
     <button
       type="button"
       className={cx('btn', small && 'btn-sm', className, on ? 'btn-dark' : 'btn-outline')}
       aria-pressed={on}
       onClick={() => onToggle(n.id, n)}
+      title={on ? 'In your property feed — click to remove' : 'Add to your property feed'}
     >
-      <Icon name={on ? 'bookmark-check-fill' : 'bookmark'} />
-      {on ? 'Selected' : 'Select'}
+      <Icon name={on ? 'broadcast' : 'plus-lg'} />
+      {on ? 'In feed' : 'Add to feed'}
     </button>
   );
 }
 
 export function NetworkCard({ n, bulk = undefined, bulkChecked = undefined, onBulk = undefined, onContact, onToggle, developer = false }) {
-  const selected = isSelected(n.id);
+  const feed = useFeed();
+  const selected = isInFeed(feed.config, n.id);
   const href = developer ? listingUrl(n) : netUrl(n.id);
   const contactName = n.broker?.name || n.developerName || 'Developer';
   return (
@@ -105,7 +103,7 @@ export function NetworkCard({ n, bulk = undefined, bulkChecked = undefined, onBu
             <input
               type="checkbox"
               className="h-4 w-4 accent-[#142326]"
-              aria-label={'Choose ' + n.title + ' for bulk selection'}
+              aria-label={'Choose ' + n.title + ' to add to your feed'}
               disabled={selected}
               checked={!selected && !!bulkChecked}
               onChange={(e) => onBulk(n.id, e.target.checked)}

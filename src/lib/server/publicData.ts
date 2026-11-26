@@ -3,6 +3,7 @@ import configPromise from '@payload-config';
 import { getPayload } from 'payload';
 import { publicListing } from '@/lib/publicListing';
 import { listingFromProperty } from '@/lib/server/member-properties';
+import { brokerIdsOf } from '@/lib/propertyBrokers';
 import { profileExtras } from '@/lib/brokerProfile';
 import { PLAN_CATALOG } from '@/config/plans';
 
@@ -197,25 +198,57 @@ export const loadPublicData = unstable_cache(async () => {
   // Published member listings come from the properties collection. The complete
   // editable listing is stored in appData with its owning member ID.
   const brokersByMemberId = new Map(memberBrokers.map((broker) => [String(broker.id), broker]));
+  // A property's brokers (properties.brokers -> brokers rows) as public profiles: a member's live portfolio when
+  // the row mirrors a member, otherwise the sample profile. Private or unsearchable profiles are left out.
+  const profileByBrokerRowId = new Map<string, any>();
+  for (const row of brokerResult.docs as any[]) {
+    const memberId = row.appData?.ownerMemberId;
+    const profile = memberId ? brokersByMemberId.get(String(memberId)) : row.appData;
+    if (profile && profile.isPublic !== false && profile.searchable !== false && (memberId || profile.slug)) {
+      profileByBrokerRowId.set(String(row.id), profile);
+    }
+  }
+  const profilesOf = (doc: any) => brokerIdsOf(doc).map((id) => profileByBrokerRowId.get(id)).filter(Boolean);
+
   for (const doc of propertyResult.docs as any[]) {
     const listing = publicListing(listingFromProperty(doc));
     const ownerId = doc.appData?.ownerMemberId;
     if (!ownerId || listing.status !== 'published' || listing.display?.visible === false) continue;
+    const brokerProfiles = profilesOf(doc);
     const broker = brokersByMemberId.get(String(ownerId));
     if (broker) {
-      memberListings.push({ ...listing, brokerId: ownerId, broker, own: false });
+      // An independent broker's own listing names them even before it is re-saved with its broker list.
+      const independent = broker.type === 'broker' && !broker.agencyRole;
+      const profiles = brokerProfiles.length || !independent ? brokerProfiles : [broker];
+      memberListings.push({ ...listing, brokerId: ownerId, broker, brokerProfiles: profiles, own: false });
       continue;
     }
     const ownerIdFromRelation = doc.ownerDeveloper?.id || doc.ownerDeveloper;
     const developer = developersById.get(String(ownerIdFromRelation || ownerId));
-    if (developer && doc.ownerDirect && doc.claimable) {
-      memberListings.push({ ...listing, brokerId: null, broker: null, ownerDirect: true, claimable: true, owner: developer, own: false });
+    // Developer properties are public while owner-direct, while open for broker requests, or once they have brokers.
+    if (developer && (doc.ownerDirect || doc.claimable || brokerProfiles.length)) {
+      const lead = brokerProfiles[0] || null;
+      memberListings.push({
+        ...listing,
+        brokerId: lead?.id ?? null,
+        broker: lead,
+        brokerProfiles,
+        ownerDirect: Boolean(doc.ownerDirect),
+        claimable: Boolean(doc.claimable),
+        owner: developer,
+        own: false,
+      });
     }
   }
+  const docsByListingId = new Map((propertyResult.docs as any[]).map((doc) => [String(doc.appData?.id || doc.id), doc]));
+  const sampleWithBrokers = sampleListings.map((listing: any) => {
+    const doc = docsByListingId.get(String(listing.id));
+    return { ...listing, brokerProfiles: doc ? profilesOf(doc) : [] };
+  });
 
   return {
     brokers: sampleBrokers,
-    listings: [...sampleListings, ...memberListings],
+    listings: [...sampleWithBrokers, ...memberListings],
     memberBrokers,
     agencies,
     plans: planResult.docs.filter((plan: any) => Boolean(PLAN_CATALOG[plan.slug])).map((plan: any) => ({
@@ -232,7 +265,7 @@ export const loadPublicData = unstable_cache(async () => {
         highlighted: Boolean(plan.highlighted),
     })),
   };
-}, ['app-public-v2'], { revalidate: 60, tags: ['cms'] });
+}, ['app-public-v3'], { revalidate: 60, tags: ['cms'] });
 
 /** loadPublicData for pages: a CMS outage logs and renders empty results (the client store retries) instead of a 500. */
 export async function loadPublicDataSafe() {
