@@ -9,6 +9,7 @@ export const FEED_ID_LIMIT = 5000;
 export const FEED_PAGE_LIMIT = 100;
 export const FEED_DEFAULT_LIMIT = 25;
 export const FEED_PATH = '/api/v1/feed/properties';
+export const TEAM_PATH = '/api/v1/feed/team';
 
 /**
  * Who can use the feed: independent brokers and agency admins (the agency's own account).
@@ -134,6 +135,9 @@ export function feedEnquiry(propertyId: string, title: string | null, signer: Fe
 /** One broker from a property's broker list (public profile fields only, no contact details). */
 function feedBroker(profile: any) {
   return {
+    // Matches the team API's member `id` / `slug` (GET /api/v1/feed/team) and the `broker` query filter.
+    id: profile.id != null && profile.id !== '' ? String(profile.id) : null,
+    slug: text(profile.slug),
     name: text(profile.name),
     agency:
       profile.agencyRole === 'agency_broker'
@@ -213,6 +217,8 @@ export function toFeedProperty(listing: any, signer?: FeedEnquirySigner) {
       ? {
           // Team brokers have account type "agency" too; they are the contact, and their agency is named separately.
           kind: broker.type === 'agency' && broker.agencyRole !== 'agency_broker' ? 'agency' : 'broker',
+          id: broker.id != null && broker.id !== '' ? String(broker.id) : null,
+          slug: text(broker.slug),
           name: text(broker.name),
           agency:
             broker.agencyRole === 'agency_broker'
@@ -223,7 +229,7 @@ export function toFeedProperty(listing: any, signer?: FeedEnquirySigner) {
           profileUrl: broker.slug ? absoluteUrl('/brokers/' + encodeURIComponent(broker.slug)) : null,
         }
       : owner
-        ? { kind: 'developer', name: text(owner.profile?.developer?.displayName) || text(owner.name), agency: null, brn: null, photo: null, profileUrl: null }
+        ? { kind: 'developer', id: null, slug: null, name: text(owner.profile?.developer?.displayName) || text(owner.name), agency: null, brn: null, photo: null, profileUrl: null }
         : null,
     // Up to 5 brokers represent the property; none of them is "primary". Order is display order.
     brokers: (Array.isArray(listing.brokerProfiles) ? listing.brokerProfiles : []).filter(Boolean).map(feedBroker),
@@ -288,6 +294,7 @@ export function readFeedQuery(params: URLSearchParams) {
     area: params.get('area'),
     q: params.get('q'),
     ids: list('ids'),
+    broker: params.get('broker')?.trim() || null,
     minPrice: number('minPrice'),
     maxPrice: number('maxPrice'),
     minBeds: number('minBeds'),
@@ -306,6 +313,7 @@ export function queryFeed(properties: FeedProperty[], query: FeedQuery) {
   const ids = new Set(query.ids);
   const filtered = properties.filter((p) => {
     if (ids.size && !ids.has(p.id) && !(p.reference && ids.has(p.reference))) return false;
+    if (query.broker && !p.brokers.some((b) => b.id === query.broker || b.slug === query.broker)) return false;
     if (query.purpose && p.purpose !== query.purpose) return false;
     if (query.completion && p.completion !== query.completion) return false;
     if (query.category && p.category !== query.category) return false;
@@ -325,6 +333,42 @@ export function queryFeed(properties: FeedProperty[], query: FeedQuery) {
   const pages = Math.max(1, Math.ceil(total / query.limit));
   const start = (query.page - 1) * query.limit;
   return { data: filtered.slice(start, start + query.limit), meta: { total, page: query.page, limit: query.limit, pages } };
+}
+
+/* ---------- Agency team API ---------- */
+
+const TEAM_ROLES: Record<string, string> = { agency_broker: 'broker', agency_manager: 'manager', agency_viewer: 'viewer' };
+
+/**
+ * One agency team member for the team API, from their public profile (privacy settings already applied by
+ * loadPublicData). Like the property feed, it carries no phone, WhatsApp or email: leads come through Emirate08.
+ */
+export function toFeedTeamMember(profile: any, assignedProperties: number) {
+  return {
+    id: String(profile.id),
+    slug: text(profile.slug),
+    name: text(profile.name),
+    role: TEAM_ROLES[profile.agencyRole] || 'broker',
+    title: text(profile.title),
+    headline: text(profile.headline),
+    bio: text(profile.bio),
+    photo: url(profile.photo),
+    areas: (profile.areas || []).filter((item: unknown) => text(item)),
+    languages: (profile.languages || []).filter((item: unknown) => text(item)),
+    specialties: (profile.specialties || []).filter((item: unknown) => text(item)),
+    experience: text(profile.experience),
+    brn: text(profile.brnNumber),
+    brnVerified: Boolean(profile.brnVerified),
+    profileUrl: profile.slug ? absoluteUrl('/brokers/' + encodeURIComponent(profile.slug)) : null,
+    assignedProperties,
+  };
+}
+
+export type FeedTeamMember = ReturnType<typeof toFeedTeamMember>;
+
+/** Find one team member by ID or profile slug. */
+export function findTeamMember<T extends { member: FeedTeamMember }>(team: T[], key: string) {
+  return team.find((entry) => entry.member.id === key || entry.member.slug === key) || null;
 }
 
 /** Find one feed property by its ID, reference or slug. */

@@ -414,3 +414,23 @@ sequenceDiagram
 ```
 
 The API can't stop a partner from leaving out the iframe. Make embedding it a condition of the API terms, and compare each feed's requests with its enquiries (`enquiries.feed_id`).
+
+---
+
+## 9. Agency team API (agency keys)
+
+An agency admin's API key also reads the agency's team and which agency properties each member handles. An independent broker's key gets `403`.
+
+| Request | Returns |
+|---|---|
+| `GET /api/v1/feed/team` | `{ data: TeamMember[], meta: { total, generatedAt } }`. Optional `?role=broker\|manager\|viewer` |
+| `GET /api/v1/feed/team/<id or slug>` | `{ data: TeamMember & { properties: Property[] } }`: the member and the agency properties assigned to them (same shape as the property feed, with `enquiry` embeds) |
+| `GET /api/v1/feed/properties?broker=<id or slug>` | The feed filtered to properties where that broker is one of `brokers[]` |
+
+`TeamMember`: `id`, `slug`, `name`, `role` (`broker` / `manager` / `viewer`), `title`, `headline`, `bio`, `photo`, `areas`, `languages`, `specialties`, `experience`, `brn`, `brnVerified`, `profileUrl`, `assignedProperties`.
+
+- **Who is listed:** members whose `members.profile->'agency'->>'agencyId'` is the key owner's agency, except the admin account. Members whose profile is private (`portfolio.isPublic = false`, or no public slug) are left out, and their privacy settings (BRN, languages, experience) apply. Data comes from the cached `loadPublicData()` (60 s).
+- **Assigned properties:** published properties the agency owns (`properties.owner_agency_id`) where the member's `brokers` row is in `properties_rels`, limited to the feed selection. A team broker's own listings aren't agency properties, so they aren't included.
+- **No contact details:** like the property feed, team members have no phone, WhatsApp or email, so leads come through the enquiry embeds.
+- **Matching:** `brokers[].id` / `slug` and `contact.id` / `slug` on properties match the team member's `id` / `slug`.
+- Same rate limit (120 per minute per key) and usage counters as the property feed.

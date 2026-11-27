@@ -221,6 +221,14 @@ function ApiAccess({ inFeedCount, onNewKey }) {
             </p>
           </div>
           <div>
+            <p className="font-semibold text-ink">Agency team (agency keys)</p>
+            <p className="mt-1 text-xs text-muted">
+              <code>GET /api/v1/feed/team</code> lists your team (optional <code>?role=broker|manager|viewer</code>).{' '}
+              <code>GET /api/v1/feed/team/&lt;id or slug&gt;</code> returns one member with the agency properties assigned to them.
+              On the properties endpoint, <code>?broker=&lt;id or slug&gt;</code> keeps the properties a broker handles.
+            </p>
+          </div>
+          <div>
             <p className="font-semibold text-ink">Enquiries</p>
             <p className="mt-1 text-xs text-muted">
               The feed has no broker phone numbers or emails. Show each property&apos;s enquiry form by pasting{' '}

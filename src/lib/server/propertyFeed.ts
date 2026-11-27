@@ -2,6 +2,7 @@ import 'server-only';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import configPromise from '@payload-config';
 import { getPayload, type Payload } from 'payload';
+import { NextResponse } from 'next/server';
 import { loadPublicData } from './publicData';
 import {
   DEFAULT_FEED,
@@ -9,6 +10,7 @@ import {
   isInFeed,
   normalizeFeedConfig,
   toFeedProperty,
+  toFeedTeamMember,
   type FeedConfig,
   type FeedEnquirySigner,
 } from '@/lib/propertyFeed';
@@ -215,3 +217,54 @@ export const FEED_CORS = {
   'Access-Control-Allow-Headers': 'Authorization, X-API-Key, Content-Type',
   'Access-Control-Max-Age': '86400',
 };
+
+/* ---------- Request guard shared by the feed routes ---------- */
+
+/**
+ * Authenticate the key and apply the rate limit. Returns the feed and the response headers to use,
+ * or the error response to send as is.
+ */
+export async function startFeedRequest(request: Request) {
+  const auth = await authenticateFeedRequest(request);
+  if (auth.error) return { response: NextResponse.json({ error: auth.error }, { status: auth.status, headers: FEED_CORS }) };
+  const limit = rateLimit(auth.hash!);
+  const headers = { ...FEED_CORS, ...limit.headers, 'Cache-Control': 'private, max-age=60' };
+  if (!limit.allowed) {
+    return {
+      response: NextResponse.json({ error: 'Rate limit exceeded. Try again in a minute.' }, { status: 429, headers: { ...headers, 'Retry-After': '60' } }),
+    };
+  }
+  return { auth: auth as Required<Pick<FeedAuth, 'payload' | 'feed' | 'hash'>>, headers };
+}
+
+/* ---------- Agency team API ---------- */
+
+const idOf = (value: any) => (value && typeof value === 'object' ? String(value.id) : value == null ? '' : String(value));
+
+/** The agency of an agency admin's feed, or null for an independent broker's feed. */
+export function feedAgencyId(feed: any) {
+  const member = feed?.member;
+  if (!member || member.accountType !== 'agency') return null;
+  return idOf(member.profile?.agency?.agencyId ?? member.profile?.agencyId) || null;
+}
+
+/**
+ * The agency's team (public profiles of its brokers, managers and viewers; members who made their profile
+ * private are left out), each with the agency's published properties assigned to them that are in the feed.
+ * A team broker's own listings are theirs, not the agency's, so they are not included.
+ */
+export async function feedTeam(feed: any, agencyId: string) {
+  const data = await loadPublicData();
+  const config = feedConfigOf(feed);
+  const signer = enquirySigner(feed.id);
+  const agencyListings = (await publishedListings()).filter(
+    (l) => idOf(l.ownerAgency) === agencyId && isInFeed(config, l.id),
+  );
+  return (data.memberBrokers as any[])
+    .filter((p) => String(p.organizationId || '') === agencyId && p.agencyRole && p.agencyRole !== 'agency_admin')
+    .map((profile) => {
+      const assigned = agencyListings.filter((l) => (l.brokerProfiles || []).some((b: any) => String(b?.id) === String(profile.id)));
+      return { member: toFeedTeamMember(profile, assigned.length), properties: assigned.map((l) => toFeedProperty(l, signer)) };
+    })
+    .sort((a, b) => String(a.member.name).localeCompare(String(b.member.name)));
+}

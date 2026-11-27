@@ -12,6 +12,8 @@ import {
   readFeedQuery,
   toFeedProperty,
   EMBED_ENQUIRY_PATH,
+  findTeamMember,
+  toFeedTeamMember,
 } from '../src/lib/propertyFeed';
 
 const published = ['a', 'b', 'c', 'd'];
@@ -191,4 +193,38 @@ test('feed properties carry a signed, embeddable enquiry form for the feed', () 
   assert.equal(url.searchParams.get('t'), 'sig-p1');
   assert.match(p.enquiry.embedHtml, /^<iframe src="https?:\/\/[^"]+\/embed\/enquiry\/p1\?f=7&amp;t=sig-p1"/);
   assert.match(p.enquiry.embedHtml, /title="Enquire about Marina &quot;2BR&quot; &lt;view>"/);
+});
+
+test('feed brokers carry an id and slug, and the broker filter matches either', () => {
+  const props = [
+    toFeedProperty(listing({ id: 'a1', brokerProfiles: [{ id: 41, name: 'Omar', slug: 'omar' }] })),
+    toFeedProperty(listing({ id: 'a2', brokerProfiles: [{ id: 42, name: 'Lina', slug: 'lina' }] })),
+  ];
+  assert.deepEqual([props[0].brokers[0].id, props[0].brokers[0].slug], ['41', 'omar']);
+  const byId = queryFeed(props, readFeedQuery(new URLSearchParams('broker=42')));
+  assert.deepEqual(byId.data.map((p) => p.id), ['a2']);
+  const bySlug = queryFeed(props, readFeedQuery(new URLSearchParams('broker=omar')));
+  assert.deepEqual(bySlug.data.map((p) => p.id), ['a1']);
+});
+
+test('team members expose public profile fields only, with their role and assigned count', () => {
+  const member = toFeedTeamMember(
+    {
+      id: 41, slug: 'omar', name: 'Omar Haddad', agencyRole: 'agency_broker', title: 'Senior broker', photo: '/images/omar.webp',
+      areas: ['Dubai Marina'], languages: ['English', 'Arabic'], brnNumber: '12345', brnVerified: true,
+      phone: '+971500000000', whatsapp: '+971500000000', email: 'omar@example.com',
+    },
+    3,
+  );
+  assert.equal(member.id, '41');
+  assert.equal(member.role, 'broker');
+  assert.equal(member.assignedProperties, 3);
+  assert.match(member.profileUrl, /\/brokers\/omar$/);
+  assert.match(member.photo, /^https?:\/\//);
+  for (const key of ['phone', 'whatsapp', 'email']) assert.equal(key in member, false);
+  assert.equal(toFeedTeamMember({ id: 7, name: 'M', agencyRole: 'agency_manager' }, 0).role, 'manager');
+  const team = [{ member, properties: [] }];
+  assert.equal(findTeamMember(team, 'omar'), team[0]);
+  assert.equal(findTeamMember(team, '41'), team[0]);
+  assert.equal(findTeamMember(team, 'nobody'), null);
 });
