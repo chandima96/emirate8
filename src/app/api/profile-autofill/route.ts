@@ -5,7 +5,7 @@ import { getSession } from '@/lib/server/session';
 import { creditsAfter, startAiRequest, type AiContext } from '@/lib/server/aiCredits';
 import { callClaude } from '@/lib/server/anthropic';
 import { dropUnsupported } from '@/lib/aiEvidence';
-import { PROFILE_FREE_TEXT_KEYS, profileAiOutputSchema, profileExtractionPrompt, rowsToProfile } from '@/lib/profileAutofill';
+import { DEVELOPER_FREE_TEXT_KEYS, DEVELOPER_LIST_KEYS, PROFILE_FREE_TEXT_KEYS, PROJECT_STATUSES, developerAiOutputSchema, developerExtractionPrompt, profileAiOutputSchema, profileExtractionPrompt, rowsToProfile } from '@/lib/profileAutofill';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -33,7 +33,7 @@ function structuredData(html: string) {
     try {
       const props = JSON.parse(next[1])?.props?.pageProps || {};
       // Agent / broker pages keep the person under one of these keys; fall back to the whole page props.
-      const key = ['agent', 'agentDetails', 'broker', 'profile', 'agency', 'company'].find((k) => props[k] && typeof props[k] === 'object');
+      const key = ['agent', 'agentDetails', 'broker', 'profile', 'agency', 'company', 'developer'].find((k) => props[k] && typeof props[k] === 'object');
       const picked: Record<string, unknown> = key ? { [key]: props[key] } : props;
       if (props.areasOfExpertise) picked.areasOfExpertise = props.areasOfExpertise;
       parts.push('Page data: ' + JSON.stringify(prune(picked)).slice(0, 24000));
@@ -171,6 +171,41 @@ function cleanSuggestions(value: any) {
   return out;
 }
 
+/** Developer company profile answers: same type and length checks as the broker cleaner. */
+function cleanDeveloperSuggestions(value: any) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The AI response was not usable. Please try again.');
+  const out: Record<string, unknown> = {};
+  const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : '');
+  const url = (v: unknown) => { const s = str(v, 500); try { return s && /^https?:$/.test(new URL(s).protocol) ? s : ''; } catch { return ''; } };
+  const objs = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object').slice(0, max) : []);
+  const LIMITS: Record<string, number> = { description: 2000, tagline: 120 };
+  for (const key of ['displayName', 'tagline', 'description', 'location', 'registrationNumber', 'email', 'phone', 'whatsapp']) {
+    const s = str(value[key], LIMITS[key] || 180);
+    if (s) out[key] = s;
+  }
+  if (url(value.website)) out.website = url(value.website);
+  const year = parseInt(String(value.established ?? ''), 10);
+  if (Number.isInteger(year) && year >= 1900 && year <= new Date().getFullYear()) out.established = String(year);
+  for (const key of ['completedProjects', 'unitsDelivered']) {
+    const n = parseInt(String(value[key] ?? '').replace(/[,\s]/g, ''), 10);
+    if (Number.isInteger(n) && n > 0 && n < 10_000_000) out[key] = n;
+  }
+  for (const key of ['projectTypes', 'areas']) {
+    if (Array.isArray(value[key])) out[key] = [...new Set(value[key].filter((v: unknown) => typeof v === 'string').map((v: string) => v.trim().slice(0, 80)).filter(Boolean))].slice(0, 20);
+  }
+  const projects = objs(value.projects, 20).map((x: any) => ({ name: str(x.name, 100), location: str(x.location, 80), status: PROJECT_STATUSES.includes(x.status) ? x.status : '' })).filter((x) => x.name);
+  if (projects.length) out.projects = projects;
+  const socials = objs(value.socials, 10).map((x: any) => ({ platform: str(x.platform, 30) || 'Other', url: url(x.url) })).filter((x) => x.url);
+  if (socials.length) out.socials = socials;
+  return out;
+}
+
+type ProfileKind = 'professional' | 'developer';
+const PROFILE_KINDS = {
+  professional: { prompt: profileExtractionPrompt, schema: profileAiOutputSchema, listKeys: undefined, freeText: PROFILE_FREE_TEXT_KEYS, clean: cleanSuggestions },
+  developer: { prompt: developerExtractionPrompt, schema: developerAiOutputSchema, listKeys: DEVELOPER_LIST_KEYS, freeText: DEVELOPER_FREE_TEXT_KEYS, clean: cleanDeveloperSuggestions },
+} as const;
+
 type ProfileSource = { label: string; content: Array<Record<string, unknown>>; text: string | null };
 
 /* One extraction call for any number of sources. Structured outputs keep the reply in the
@@ -182,7 +217,9 @@ async function claudeExtract(
   model: string,
   profileContext: Record<string, unknown>,
   ctx: AiContext,
+  kind: ProfileKind = 'professional',
 ) {
+  const spec = PROFILE_KINDS[kind];
   const stage = 'profile_extraction';
   const startedAt = Date.now();
   logStage(stage, startedAt, 'started');
@@ -196,7 +233,7 @@ async function claudeExtract(
       body: {
         model,
         max_tokens: Math.min(32000, 8000 + sources.length * 3000),
-        system: [{ type: 'text', text: profileExtractionPrompt(), cache_control: { type: 'ephemeral' } }],
+        system: [{ type: 'text', text: spec.prompt(), cache_control: { type: 'ephemeral' } }],
         messages: [{
           role: 'user',
           content: [
@@ -207,7 +244,7 @@ async function claudeExtract(
             },
           ],
         }],
-        output_config: { format: { type: 'json_schema', schema: profileAiOutputSchema(sources.map((source) => source.label)) } },
+        output_config: { format: { type: 'json_schema', schema: spec.schema(sources.map((source) => source.label)) } },
       },
       signal: AbortSignal.timeout(PROFILE_ANALYSIS_TIMEOUT_MS),
     }));
@@ -244,12 +281,12 @@ async function claudeExtract(
   for (const source of Array.isArray(parsed?.sources) ? parsed.sources : []) {
     const input = sources.find((item) => item.label === source?.label);
     if (!input || results.some((result) => result.label === input.label)) continue;
-    const { suggestions: raw, evidence } = rowsToProfile(source.fields);
+    const { suggestions: raw, evidence } = rowsToProfile(source.fields, spec.listKeys);
     if (input.text !== null) {
-      const removed = dropUnsupported(raw, evidence, input.text, { skip: PROFILE_FREE_TEXT_KEYS });
+      const removed = dropUnsupported(raw, evidence, input.text, { skip: [...spec.freeText] });
       if (removed.length) console.info(`[profile-autofill] dropped ${removed.length} answer(s) without evidence in the source: ${removed.join(', ')}`);
     }
-    const suggestions = cleanSuggestions(raw);
+    const suggestions = spec.clean(raw);
     if (Object.keys(suggestions).length) results.push({ label: input.label, suggestions });
   }
   if (!results.length) throw new Error('No profile details could be identified in the selected resources.');
@@ -314,7 +351,9 @@ async function claudeFetchWebsiteText(url: URL, apiKey: string, model: string, c
 export async function POST(request: Request) {
   const session = await getSession(request.headers);
   if (!session.data.user) return NextResponse.json({ error: 'Sign in to use profile autofill.' }, { status: 401 });
-  if (!['broker', 'agency'].includes(session.data.user.type)) return NextResponse.json({ error: 'Profile autofill is for broker and agency accounts.' }, { status: 403 });
+  if (!['broker', 'agency', 'developer'].includes(session.data.user.type)) return NextResponse.json({ error: 'Profile autofill is for broker, agency and developer accounts.' }, { status: 403 });
+  // toAppUser maps legacy "owner" accounts to "developer".
+  const kind: ProfileKind = session.data.user.type === 'developer' ? 'developer' : 'professional';
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'Claude is not configured. Add ANTHROPIC_API_KEY to the server environment.' }, { status: 503 });
   const gate = await startAiRequest(session.data.user.id);
@@ -346,7 +385,13 @@ export async function POST(request: Request) {
     if (!pasted && !allFiles.length && !websites.length) return NextResponse.json({ error: 'Add documents, paste your details or add a link to analyze.' }, { status: 400 });
     let current: any = {};
     if (typeof existing === 'string') { try { current = JSON.parse(existing); } catch { /* ignore invalid optional context */ } }
-    const profileContext = {
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((item: unknown) => typeof item === 'string').slice(0, 20) : []);
+    const profileContext = kind === 'developer' ? {
+      displayName: typeof current.displayName === 'string' ? current.displayName.slice(0, 120) : '',
+      projectTypes: list(current.projectTypes),
+      areas: list(current.areas),
+      projects: Array.isArray(current.projects) ? current.projects.map((p: any) => String(p?.name || '').slice(0, 100)).filter(Boolean).slice(0, 20) : [],
+    } : {
       displayName: typeof current.displayName === 'string' ? current.displayName.slice(0, 120) : '',
       title: typeof current.title === 'string' ? current.title.slice(0, 120) : '',
       agencyName: typeof current.agency?.name === 'string' ? current.agency.name.slice(0, 120) : '',
@@ -407,7 +452,7 @@ export async function POST(request: Request) {
     if (!sources.length) return NextResponse.json({ error: 'None of those resources could be read.' }, { status: 422 });
 
     currentStage = 'Claude profile extraction';
-    const results = await claudeExtract(sources, apiKey, model, profileContext, ctx);
+    const results = await claudeExtract(sources, apiKey, model, profileContext, ctx, kind);
     logStage('request_total', requestStartedAt, 'completed');
     return NextResponse.json({ sources: results, warnings, credits: await creditsAfter(ctx) });
   } catch (error) {

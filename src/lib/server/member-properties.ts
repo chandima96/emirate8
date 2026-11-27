@@ -239,7 +239,8 @@ export function propertyData(listing: any, memberId: number) {
     rent: listing.rent || undefined,
     ...(listing.ownerType ? { ownerType: listing.ownerType } : {}),
     ...(ownerDeveloper ? { ownerDeveloper } : {}),
-    ...(ownerAgency ? { ownerAgency } : {}),
+    // null clears agency ownership (a broker's own listing); undefined leaves the stored value alone.
+    ...(ownerAgency ? { ownerAgency } : listing.ownerAgency === null ? { ownerAgency: null } : {}),
     brokers,
     ...(isDeveloperListing && listing.ownerDirect !== undefined ? { ownerDirect: Boolean(listing.ownerDirect) } : {}),
     ...(isDeveloperListing && listing.claimable !== undefined ? { claimable: Boolean(listing.claimable) } : {}),

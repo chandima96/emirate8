@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { listingFromProperty } from '@/lib/server/member-properties';
 import { generateTemporaryPassword, sendNewMemberCredentials, smtpFailureHint } from '@/lib/server/mailer';
 import { syncMemberBroker } from '@/lib/server/member-brokers';
+import { removeTeamMember } from '@/lib/server/agencyTeam';
 import { PLAN_CATALOG, planIdForAudience } from '@/config/plans';
 import { MAX_PROPERTY_BROKERS, brokerIdsOf } from '@/lib/propertyBrokers';
 
@@ -132,13 +133,8 @@ export async function GET(request: Request) {
       includeProperties ? payload.find({ collection: 'properties', where: { or: [{ ownerAgency: { equals: currentAgencyId } }, { 'appData.ownerMemberId': { equals: member.id } }] }, limit: 500, depth: 2, overrideAccess: true }) : Promise.resolve({ docs: [] as any[] }),
       includeProperties ? notifications(payload, member.id) : Promise.resolve([]),
     ]);
-    const brokerMemberIds = includeProperties ? (teamResult.docs as any[]).filter((item) => item.profile?.agency?.agencyRole === 'agency_broker').map((item) => item.id) : [];
-    const brokerPropertyResult = includeProperties && brokerMemberIds.length
-      ? await payload.find({ collection: 'properties', where: { 'appData.ownerMemberId': { in: brokerMemberIds } }, limit: 500, depth: 2, overrideAccess: true })
-      : { docs: [] as any[] };
-    const uniqueProperties = new Map<string, any>();
-    [...(ownedResult.docs as any[]), ...(brokerPropertyResult.docs as any[])].forEach((property) => uniqueProperties.set(String(property.id), property));
-    const properties = [...uniqueProperties.values()]
+    // Agency listings only: team brokers' own listings are theirs alone, so the agency does not load them.
+    const properties = (ownedResult.docs as any[])
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime())
       .map(listingFromProperty);
     const team = (teamResult.docs as any[]).filter((item) => String(item.id) !== String(member.id)).map((item) => {
@@ -409,6 +405,12 @@ export async function POST(request: Request) {
     if (!invitation || String(invitation.agency?.id || invitation.agency) !== String(agencyId(member))) return NextResponse.json({ error: 'Invitation not found.' }, { status: 404 });
     await payload.update({ collection: 'agency-invitations', id: invitation.id, data: { status: 'cancelled' }, overrideAccess: true });
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === 'remove-team-member') {
+    const removed = await removeTeamMember(payload, member, body.id);
+    if ('error' in removed) return NextResponse.json({ error: removed.error }, { status: removed.status });
+    return NextResponse.json(removed);
   }
 
   if (body.action === 'accept-team-invite') {

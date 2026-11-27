@@ -334,8 +334,9 @@ This update isn't awaited, so a failure is logged and never fails the API call.
 | `permit` | `properties.permit_number`, `permit_expiry` |
 | `offplan` | `properties.offplan_developer`, `offplan_handover`, `properties_offplan_payment_plan` |
 | `contact.kind`, `contact.agency` | Listing owner in `members`: `broker` (independent), `agency` (agency's own listing, `agency` = its name), `broker` for a team broker (`agencyRole = agency_broker`, `agency` = `profile->'agency'->>'name'`), or `developer` |
-| `brokers[]` (0–5; `name`, `agency`, `brn`, `phone`, `whatsapp`, `email`, `photo`, `profileUrl`) | `properties_rels` (`path = 'brokers'`) → `brokers` → `members.profile->'portfolio'` for member brokers, or `brokers.app_data` for sample brokers. Independent brokers' older listings fall back to the owner |
-| `contact.name`, `phone`, `whatsapp`, `email`, `photo`, `profileUrl` | `members.profile->'portfolio'` (`displayName`, `publicPhone`, `whatsapp`, `publicEmail`, `photo`, `slug`), filtered by `members.profile->'privacy'`; a listing contact override in `app_data` wins |
+| `brokers[]` (0–5; `name`, `agency`, `brn`, `photo`, `profileUrl`) | `properties_rels` (`path = 'brokers'`) → `brokers` → `members.profile->'portfolio'` for member brokers, or `brokers.app_data` for sample brokers. Independent brokers' older listings fall back to the owner |
+| `contact.name`, `photo`, `profileUrl` | `members.profile->'portfolio'` (`displayName`, `photo`, `slug`), filtered by `members.profile->'privacy'` |
+| `enquiry.embedUrl`, `enquiry.embedHtml` | Calculated: `/embed/enquiry/<id>?f=<api_feeds.id>&t=<signature>` and a ready-to-paste `<iframe>` (see section 8) |
 | `contact.brn` | `members.profile->'credentials'->>'brn'` |
 | `createdAt`, `updatedAt` | `properties.created_at`, `updated_at` |
 | `url`, `price.currency`, `size.unit`, `meta`, `links` | Calculated, not stored |
@@ -373,3 +374,43 @@ sequenceDiagram
 - **Freshness:** removing a property from the feed takes effect on the next call, because `api_feeds` is read on every request. A newly published property appears after the `cms` cache tag is cleared, which normally happens at once and at most 60 s later.
 - **Rate limit:** counted in memory per server instance (120 per minute per key).
 - **Not a SQL join for owners:** because `ownerMemberId` is inside JSON, the database can't index or enforce that link. If the feed grows large, add a real `owner_member_id` column to `properties` with a foreign key.
+
+---
+
+## 8. Enquiries from partner websites (embedded form)
+
+Leads from partner websites must come to Emirate08. That's why the feed carries **no broker phone, WhatsApp or email** (`contact` and `brokers[]` have name, agency, BRN, photo and profile link only). Instead, each property has `enquiry.embedHtml`: an iframe with our enquiry form, which the partner pastes on the property's page.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant V as Visitor on partner site
+    participant F as /embed/enquiry/<id> (our iframe)
+    participant E as POST /api/v1/embed/enquiry
+    participant DB as PostgreSQL
+    V->>F: loads iframe (?f=<feed id>&t=<signature>)
+    F->>F: resolveEmbed(): HMAC check, feed owner can use the feed, property still in feed and published
+    V->>E: submits form (same origin as the iframe, no API key)
+    E->>E: honeypot, field validation, 5 per 10 min per IP + feed
+    E->>DB: INSERT enquiries (broker_member_id = listing's broker, feed_id, source = partner page)
+    E-->>V: 201: "Enquiry sent"
+```
+
+- **Signature:** `t` is an HMAC-SHA256 (key `PAYLOAD_SECRET`) of the feed ID and property ID, so a partner can't credit enquiries to another feed or open a form for a property outside its feed. It doesn't expire; the form stops working when the property leaves the feed, is unpublished, or the feed owner is suspended.
+- **Who receives the enquiry:** the property's broker, exactly as on the property page (`listing.brokerId`: the owner for member listings, the first broker for developer listings). The enquiry records `enquiries.feed_id` → `api_feeds`, so admins can see which partner sent it.
+- **Partner page:** taken from the iframe's `document.referrer` and stored in `enquiries.source`. Browsers often send only the origin.
+- **Framing:** `next.config.mjs` sends `Content-Security-Policy: frame-ancestors *` and `X-Robots-Tag: noindex` for `/embed/*` only.
+- **Auto height:** the iframe posts `{ type: 'emirate08:enquiry-height', propertyId, height }` to the parent page. The default `height` in `embedHtml` is 620 px.
+
+```html
+<script>
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.type !== 'emirate08:enquiry-height') return;
+    document.querySelectorAll('iframe[src*="/embed/enquiry/' + e.data.propertyId + '?"]').forEach(function (f) {
+      f.style.height = e.data.height + 'px';
+    });
+  });
+</script>
+```
+
+The API can't stop a partner from leaving out the iframe. Make embedding it a condition of the API terms, and compare each feed's requests with its enquiries (`enquiries.feed_id`).

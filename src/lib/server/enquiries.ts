@@ -81,8 +81,26 @@ export async function getEnquiries(requestHeaders: Headers) {
 
 const NO_RECIPIENT = { brokerMember: undefined, agency: undefined, agencyName: '' };
 
-/** Resolve the recipient broker and, when they belong to one, their agency at the time of sending. */
-async function resolveRecipient(payload: any, brokerId: string) {
+/** The agency that owns the property with this listing ID, or null (broker-owned, developer or unknown). */
+async function propertyAgencyId(payload: any, listingId: string) {
+  if (!listingId) return null;
+  const found = await payload.find({
+    collection: 'properties',
+    where: { or: [{ 'appData.id': { equals: listingId } }, ...(/^\d+$/.test(listingId) ? [{ id: { equals: listingId } }] : [])] },
+    limit: 1,
+    depth: 0,
+    overrideAccess: true,
+  });
+  const ownerAgency = found.docs[0]?.ownerAgency;
+  return ownerAgency == null || ownerAgency === '' ? null : relationId(ownerAgency);
+}
+
+/**
+ * Resolve the recipient broker and, when the enquiry is about a listing their agency owns, that agency
+ * (its inbox then shows the enquiry). A team broker's own listings and direct broker enquiries stay with
+ * the broker: the agency has no part in them.
+ */
+async function resolveRecipient(payload: any, brokerId: string, listingAgencyId: string | null) {
   if (!/^\d+$/.test(brokerId)) return NO_RECIPIENT;
   const found = await payload.find({
     collection: 'members',
@@ -95,7 +113,7 @@ async function resolveRecipient(payload: any, brokerId: string) {
   if (!member) return NO_RECIPIENT;
 
   const agencyId = memberAgencyId(member);
-  if (!agencyId) return { ...NO_RECIPIENT, brokerMember: Number(member.id) };
+  if (!agencyId || agencyId !== listingAgencyId) return { ...NO_RECIPIENT, brokerMember: Number(member.id) };
   const agencies = await payload.find({
     collection: 'agencies',
     where: { id: { equals: agencyId } },
@@ -125,7 +143,8 @@ export async function createEnquiry(body: unknown, requestHeaders: Headers) {
   const { user } = await payload.auth({ headers: requestHeaders });
   const brokerId = body.brokerId == null ? '' : String(body.brokerId);
   const memberID = user?.collection === 'members' ? Number(user.id) : undefined;
-  const recipient = brokerId ? await resolveRecipient(payload, brokerId) : NO_RECIPIENT;
+  const listingId = typeof body.propertyId === 'string' ? body.propertyId : '';
+  const recipient = brokerId ? await resolveRecipient(payload, brokerId, await propertyAgencyId(payload, listingId)) : NO_RECIPIENT;
 
   const created = await payload.create({
     collection: 'enquiries',
@@ -179,4 +198,68 @@ export async function updateEnquiryStatus(body: unknown, requestHeaders: Headers
     overrideAccess: true,
   });
   return result({ ok: true, updated: updated.docs.length > 0 });
+}
+
+/* ---------- Enquiries from a partner website's embedded form ---------- */
+
+const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const clip = (value: unknown, max: number) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+
+/** Validate the embedded form's fields. Returns the clean values or a list of field errors. */
+export function readPartnerEnquiry(body: unknown) {
+  const errors: Record<string, string> = {};
+  if (!isRecord(body)) return { errors: { form: 'Invalid enquiry.' }, value: null };
+  const value = {
+    name: clip(body.name, 120),
+    email: clip(body.email, 200).toLowerCase(),
+    phone: clip(body.phone, 40),
+    message: clip(body.message, 2000),
+    kind: body.kind === 'viewing' ? ('viewing' as const) : ('message' as const),
+    preferredDate: clip(body.preferredDate, 80),
+  };
+  if (value.name.length < 2) errors.name = 'Enter your name.';
+  if (!EMAIL_RX.test(value.email)) errors.email = 'Enter a valid email address.';
+  if (value.message.length < 10) errors.message = 'Add a short message (10+ characters).';
+  if (value.kind === 'viewing' && !value.preferredDate) errors.preferredDate = 'Choose a preferred date.';
+  if (body.consent !== true) errors.consent = 'Please agree so we can share your details with the broker.';
+  return Object.keys(errors).length ? { errors, value: null } : { errors: null, value };
+}
+
+/**
+ * Store an enquiry sent through a partner's embed of `listing` (resolved and checked by resolveEmbed).
+ * It goes to the listing's broker, exactly like an enquiry from the property page, and records the feed
+ * and the partner page it was sent from.
+ */
+export async function createPartnerEnquiry(
+  payload: any,
+  { feed, listing, partnerPage }: { feed: any; listing: any; partnerPage: string },
+  value: NonNullable<ReturnType<typeof readPartnerEnquiry>['value']>,
+) {
+  const brokerId = String(listing.brokerId ?? listing.broker?.id ?? listing.owner?.id ?? '');
+  const listingAgency = listing.ownerAgency == null || listing.ownerAgency === '' ? null : relationId(listing.ownerAgency);
+  const recipient = brokerId ? await resolveRecipient(payload, brokerId, listingAgency) : NO_RECIPIENT;
+  const created = await payload.create({
+    collection: 'enquiries',
+    overrideAccess: true,
+    data: {
+      name: value.name,
+      email: value.email,
+      phone: value.phone,
+      message: value.message,
+      type: 'property',
+      kind: value.kind,
+      brokerMember: recipient.brokerMember,
+      brokerRef: brokerId,
+      agency: recipient.agency,
+      agencyName: recipient.agencyName,
+      propertyRef: String(listing.id),
+      propertyTitle: listing.title || '',
+      preferredDate: value.kind === 'viewing' ? value.preferredDate : '',
+      preferredContact: 'any',
+      status: 'new',
+      source: partnerPage.slice(0, 500),
+      feed: Number(feed.id),
+    },
+  });
+  return String(created.id);
 }

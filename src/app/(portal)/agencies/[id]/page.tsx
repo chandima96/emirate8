@@ -226,10 +226,12 @@ function build({ agency, brokers, properties }: { agency: any; brokers: any[]; p
     .map((property: any) => {
       const agencyOwner = property.ownerAgency;
       const ownedByAgency = String(agencyOwner?.id || agencyOwner || '') === String(agency.id);
+      // Agency listings only: a team broker's own listings belong to the broker, not to the agency page.
+      if (!ownedByAgency) return null;
       // The first of the property's brokers who is on this agency's team, if any.
       const broker = brokerIdsOf(property).map((id) => memberById.get(id)).find(Boolean);
       if (broker) return { ...listingFromProperty(property), broker, brokerId: broker.id };
-      return ownedByAgency ? { ...listingFromProperty(property), broker: initialAgency, brokerId: initialAgency.id } : null;
+      return { ...listingFromProperty(property), broker: initialAgency, brokerId: initialAgency.id };
     })
     .filter(Boolean);
   return { initialAgency, initialListings, path: `/agencies/${encodeURIComponent(agency.slug || id)}` };

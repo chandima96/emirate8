@@ -19,8 +19,9 @@ const relationId = (value: any) => String(value && typeof value === 'object' && 
 
 /**
  * Who may be one of a listing's brokers (up to MAX_PROPERTY_BROKERS, no "primary" broker):
- * - independent broker: themselves only, set here from their own brokers record;
- * - agency: brokers on the agency's own team;
+ * - independent broker, and a team broker listing their own property: themselves only, set here from their
+ *   own brokers record. A team broker's own listings are theirs, never the agency's (no agency ownership);
+ * - agency (admin and managers): brokers on the agency's own team;
  * - developer: any registered broker.
  * Agency ownership rules are unchanged: only new or agency-owned listings take agency ownership.
  */
@@ -30,11 +31,18 @@ async function listingBrokersState(payload: any, memberId: number, value: any) {
   const tooMany = value.listings.some((listing: any) => Array.isArray(listing?.brokers) && new Set(listing.brokers.map(String)).size > MAX_PROPERTY_BROKERS);
   if (tooMany) return { error: `A property can have at most ${MAX_PROPERTY_BROKERS} brokers.` };
 
-  if (member.accountType === 'broker') {
+  const teamBroker = member.accountType === 'agency' && member.profile?.agency?.agencyRole === 'agency_broker';
+  if (member.accountType === 'broker' || teamBroker) {
     const own = await payload.find({ collection: 'brokers', where: { 'appData.ownerMemberId': { equals: memberId } }, limit: 5, depth: 0, overrideAccess: true });
     const self = (own.docs as any[]).find((doc) => Number(doc.appData?.ownerMemberId) === memberId);
     const brokers = self ? [String(self.id)] : [];
-    return { value: { ...value, listings: value.listings.map((listing: any) => (listing ? { ...listing, brokers } : listing)) } };
+    const ownListing = (listing: any) => ({
+      ...listing,
+      brokers,
+      ownerType: listing.ownerType === 'agency' ? 'other' : listing.ownerType,
+      ownerAgency: null,
+    });
+    return { value: { ...value, listings: value.listings.map((listing: any) => (listing ? ownListing(listing) : listing)) } };
   }
 
   if (member.accountType === 'developer' || member.accountType === 'owner') {
@@ -63,7 +71,14 @@ async function listingBrokersState(payload: any, memberId: number, value: any) {
     return !existing || relationId(existing.ownerAgency) === String(agencyId);
   };
 
+  /*
+   * Team brokers only. A broker newly added to a listing must be on the team now; one already stored on
+   * the listing who no longer is (left the agency, or their account was deleted) is dropped quietly.
+   * The whole workspace is saved at once, so rejecting stale stored brokers would block every save.
+   */
+  const storedBrokers = (listing: any) => new Set(brokerIdsOf(existingByListingId.get(String(listing?.id || ''))));
   const assignments = [...new Set(value.listings.filter(agencyControlled).flatMap((listing: any) => brokerIdsOf(listing)))];
+  const eligibleBrokerIds = new Set<string>();
   if (assignments.length) {
     const [team, brokers] = await Promise.all([
       payload.find({ collection: 'members', where: { or: [{ 'profile.agency.agencyId': { equals: agencyId } }, { 'profile.agencyId': { equals: agencyId } }] }, limit: 500, depth: 0, overrideAccess: true }),
@@ -72,10 +87,12 @@ async function listingBrokersState(payload: any, memberId: number, value: any) {
     const eligibleMemberIds = new Set((team.docs as any[])
       .filter((item) => item.profile?.agency?.agencyRole === 'agency_broker')
       .map((item) => String(item.id)));
-    const assignedBrokers = new Map((brokers.docs as any[]).map((broker) => [String(broker.id), broker]));
-    for (const brokerId of assignments) {
-      const broker: any = assignedBrokers.get(String(brokerId));
-      if (!broker || !eligibleMemberIds.has(String(broker.appData?.ownerMemberId))) {
+    for (const broker of brokers.docs as any[]) {
+      if (eligibleMemberIds.has(String(broker.appData?.ownerMemberId))) eligibleBrokerIds.add(String(broker.id));
+    }
+    for (const listing of value.listings.filter(agencyControlled)) {
+      const stored = storedBrokers(listing);
+      if (brokerIdsOf(listing).some((id) => !stored.has(id) && !eligibleBrokerIds.has(id))) {
         return { error: 'Choose brokers who belong to your agency team.' };
       }
     }
@@ -102,7 +119,12 @@ async function listingBrokersState(payload: any, memberId: number, value: any) {
             claimPolicy: existing.claimPolicy,
           };
         }
-        return { ...listing, brokers: brokerIdsOf(listing), ownerType: 'agency', ownerAgency: agencyId };
+        return {
+          ...listing,
+          brokers: brokerIdsOf(listing).filter((id) => eligibleBrokerIds.has(id)),
+          ownerType: 'agency',
+          ownerAgency: agencyId,
+        };
       }),
     },
   };

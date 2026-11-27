@@ -23,7 +23,8 @@ function profileData(member: any) {
     name,
     slug: textOr(portfolio.slug, `member-${member.id}`),
     reraNumber: textOr(credentials.brn) || null,
-    agency: profile.agency?.agencyId || portfolio.agency?.id || undefined,
+    // null (not undefined) so a broker who leaves an agency has the stored agency cleared.
+    agency: profile.agency?.agencyId || portfolio.agency?.id || null,
     agencyLabel: textOr(portfolio.agency?.name) || textOr(profile.agency?.name) || null,
     title: textOr(portfolio.title, isAgency ? 'Real Estate Agency' : 'Licensed Real Estate Broker'),
     bio: textOr(portfolio.bio) || null,

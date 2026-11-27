@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from '@/components/providers/SessionProvider';
+import { useFeedback } from '@/components/providers/FeedbackProvider';
 import { Icon } from '@/components/ui/Icon';
 import { PropertyCard } from '@/components/property/PropertyCard';
 import { notificationPropertyHref } from '@/lib/notificationLinks';
@@ -68,9 +69,14 @@ export function DeveloperDashboard() {
             {user?.name || 'Developer'} · publish inventory and approve broker representation.
           </p>
         </div>
-        <Link href="/account" className="btn btn-outline">
-          <Icon name="gear" /> Account
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/profile#autofill" className="btn btn-outline">
+            <Icon name="stars" /> Fill company profile with AI
+          </Link>
+          <Link href="/account" className="btn btn-outline">
+            <Icon name="gear" /> Account
+          </Link>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {[
@@ -285,6 +291,7 @@ export function AgencyDashboard() {
 
 export function AgencyTeamDashboard() {
   const { user } = useSession();
+  const { toast, confirm } = useFeedback();
   const [data, setData] = useState<any>(null);
   const [form, setForm] = useState({ name: '', email: '', role: 'agency_broker' });
   const [search, setSearch] = useState('');
@@ -343,6 +350,28 @@ export function AgencyTeamDashboard() {
     await load();
   };
 
+  // Only the agency admin removes people. Brokers leave as independent brokers; managers and viewers are deleted.
+  const isAdmin = !user?.agency?.agencyRole || user.agency.agencyRole === 'agency_admin';
+  const remove = async (item: any) => {
+    const broker = String(item.agencyRole || 'agency_broker') === 'agency_broker';
+    const ok = await confirm({
+      title: `Remove ${item.name} from the team?`,
+      body: broker
+        ? `${item.name} becomes an independent broker and keeps their account and their own listings. They are taken off your agency's listings.`
+        : `${item.name}'s account will be deleted. Any listings they created stay with your agency.`,
+      ok: broker ? 'Remove from team' : 'Remove and delete account',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true); setMessage('');
+    const response = await fetch('/api/role-workspace', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'remove-team-member', id: item.id }) });
+    const result = await response.json().catch(() => ({}));
+    setBusy(false);
+    if (!response.ok) return setMessage(result.error || 'Could not remove this team member.');
+    toast(result.outcome === 'deleted' ? `${item.name} was removed and their account deleted.` : `${item.name} is now an independent broker.`);
+    await load();
+  };
+
   return (
     <div className="mx-auto max-w-[1240px] space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -381,7 +410,7 @@ export function AgencyTeamDashboard() {
         <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Agency roster</p><h2 className="h3 mt-2">Members and invitations</h2></div><Link href="/account" className="btn btn-outline btn-sm">Agency profile</Link></div>
         <div className="mt-5 space-y-2">
           {loading && <RowBones count={3} label="Loading team members…" />}
-          {members.map((item: any) => <div key={`member-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-muted">{item.email}</p></div><span className="badge badge-muted capitalize">{String(item.agencyRole || 'agency_broker').replace('agency_', '')}</span></div>)}
+          {members.map((item: any) => <div key={`member-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3"><div><p className="font-semibold">{item.name}</p><p className="text-xs text-muted">{item.email}</p></div><div className="flex items-center gap-2"><span className="badge badge-muted capitalize">{String(item.agencyRole || 'agency_broker').replace('agency_', '')}</span>{isAdmin && item.agencyRole !== 'agency_admin' && <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={() => void remove(item)}>Remove</button>}</div></div>)}
           {invitations.map((item: any) => <div key={`invite-${item.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-line p-3"><div><p className="font-semibold">{item.name || item.email}</p><p className="text-xs text-muted">Pending invitation · {item.email}</p></div><div className="flex items-center gap-2"><span className="badge badge-muted capitalize">{String(item.role || 'agency_broker').replace('agency_', '')}</span><button type="button" className="btn btn-outline btn-sm" onClick={() => void cancel(item.id)}>Cancel</button></div></div>)}
           {!loading && !members.length && !invitations.length && <p className="text-sm text-muted">No team members or pending invitations yet.</p>}
         </div>

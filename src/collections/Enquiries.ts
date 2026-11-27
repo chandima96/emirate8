@@ -4,7 +4,7 @@ export const Enquiries: CollectionConfig = {
   slug: 'enquiries',
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'email', 'property', 'brokerMember', 'agency', 'type', 'createdAt'],
+    defaultColumns: ['name', 'email', 'property', 'brokerMember', 'agency', 'feed', 'type', 'createdAt'],
   },
   access: {
     // Public creation and member inbox access go through scoped server routes.
@@ -92,6 +92,14 @@ export const Enquiries: CollectionConfig = {
         { label: 'Closed', value: 'closed' },
       ],
       defaultValue: 'new',
+    },
+    {
+      name: 'feed',
+      type: 'relationship',
+      relationTo: 'api-feeds',
+      label: 'Partner Feed',
+      index: true,
+      admin: { description: "Set when the enquiry came through a partner website's embedded form (property feed API)." },
     },
     { name: 'notes', type: 'textarea', label: 'Internal Notes' },
     {

@@ -60,7 +60,7 @@ export function AppShell({ children }) {
   const [open, setOpen] = useState(false);
   const storeVersion = useStoreVersion();
   const [, active, sectionHeading] = sectionFor(pathname);
-  const heading = role === 'agency' && pathname === '/profile' ? 'Agency Portfolio' : sectionHeading;
+  const heading = pathname === '/profile' && role === 'agency' ? 'Agency Portfolio' : pathname === '/profile' && role === 'developer' ? 'Company Profile' : sectionHeading;
 
   useEffect(() => {
     if (!ready) return;
@@ -169,6 +169,7 @@ export function AppShell({ children }) {
     role === 'developer'
       ? [
           { label: 'Developer Dashboard', href: '/developer-dashboard', key: 'developer', icon: 'grid-1x2' },
+          { label: 'Company Profile', href: '/profile', key: 'profile', icon: 'building' },
           { label: 'Properties', href: '/listings', key: 'listings', icon: 'buildings' },
           { label: 'Account', href: '/account', key: 'account', icon: 'gear' },
         ]
@@ -361,7 +362,7 @@ export function AppShell({ children }) {
               )}
             >
               {(role === 'developer'
-                ? [['/developer-dashboard', 'grid-1x2', 'Developer dashboard'], ['/account', 'gear', 'Account settings']]
+                ? [['/developer-dashboard', 'grid-1x2', 'Developer dashboard'], ['/profile', 'building', 'Company profile'], ['/account', 'gear', 'Account settings']]
                 : role === 'agency'
                   ? [['/agency-dashboard', 'grid-1x2', 'Agency dashboard'], ['/account', 'gear', 'Account settings']]
                   : [

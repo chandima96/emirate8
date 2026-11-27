@@ -11,6 +11,7 @@ import {
   readFeedChange,
   readFeedQuery,
   toFeedProperty,
+  EMBED_ENQUIRY_PATH,
 } from '../src/lib/propertyFeed';
 
 const published = ['a', 'b', 'c', 'd'];
@@ -88,8 +89,7 @@ test('feed properties expose public fields with absolute URLs', () => {
   assert.deepEqual(p.price, { amount: 2_000_000, currency: 'AED', onRequest: false, frequency: null, previousAmount: null });
   assert.match(p.images[0].url, /^https?:\/\/.+\/api\/media-assets\/property-images\/marina-night\.webp$/);
   assert.equal(p.images[0].caption, 'Night view');
-  assert.equal(p.contact.phone, '+971511111111');
-  assert.equal(p.contact.email, 'sara@example.com');
+  assert.equal(p.contact.name, 'Sara Ali');
   assert.match(p.contact.profileUrl, /\/brokers\/sara-ali$/);
   assert.deepEqual(p.size, { value: 1200, unit: 'sqft' });
   assert.equal('ownerMemberId' in p, false);
@@ -165,4 +165,30 @@ test('feed properties list all of the property brokers (up to five, no primary)'
   assert.equal(p.brokers[1].brn, '12345');
   assert.match(p.brokers[1].profileUrl, /\/brokers\/sara-ali$/);
   assert.deepEqual(toFeedProperty(listing()).brokers, []);
+});
+
+test('the feed never exposes broker phone, WhatsApp or email, so leads come through Emirate08', () => {
+  const p = toFeedProperty(
+    listing({
+      contactOverride: { phone: '+971511111111', whatsapp: '+971511111111', email: 'direct@example.com' },
+      brokerProfiles: [{ name: 'Sara Ali', slug: 'sara-ali', phone: '+971500000000', whatsapp: '+971500000000', email: 'sara@example.com' }],
+    }),
+  );
+  const json = JSON.stringify(p);
+  for (const leak of ['+971511111111', '+971500000000', 'direct@example.com', 'sara@example.com']) assert.equal(json.includes(leak), false, leak);
+  for (const key of ['phone', 'whatsapp', 'email']) {
+    assert.equal(key in p.contact, false);
+    assert.equal(key in p.brokers[0], false);
+  }
+});
+
+test('feed properties carry a signed, embeddable enquiry form for the feed', () => {
+  assert.equal(toFeedProperty(listing()).enquiry, null);
+  const p = toFeedProperty(listing({ title: 'Marina "2BR" <view>' }), { feedId: 7, sign: (id) => 'sig-' + id });
+  const url = new URL(p.enquiry.embedUrl);
+  assert.equal(url.pathname, EMBED_ENQUIRY_PATH + 'p1');
+  assert.equal(url.searchParams.get('f'), '7');
+  assert.equal(url.searchParams.get('t'), 'sig-p1');
+  assert.match(p.enquiry.embedHtml, /^<iframe src="https?:\/\/[^"]+\/embed\/enquiry\/p1\?f=7&amp;t=sig-p1"/);
+  assert.match(p.enquiry.embedHtml, /title="Enquire about Marina &quot;2BR&quot; &lt;view>"/);
 });

@@ -3,6 +3,7 @@ import { result, isRecord } from './result';
 import configPromise from '@payload-config';
 import { getPayload, type Payload } from 'payload';
 import { syncMemberBroker } from './member-brokers';
+import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
 import { createMemberAgency } from './auth';
 import { PLAN_CATALOG } from '@/config/plans';
 
@@ -92,6 +93,10 @@ export async function updateSession(patch: unknown, requestHeaders: Headers) {
   });
 
   await syncMemberBroker(payload, updated);
+  // The public /developers pages are cached under the "cms" tag; show a saved company profile at once.
+  if (isRecord(patch.profile) && 'developer' in patch.profile && JSON.stringify(patch.profile.developer) !== JSON.stringify((profile as Record<string, unknown>).developer)) {
+    await invalidateCmsCache();
+  }
 
   return result({ user: toAppUser(updated as Record<string, any>) });
 }

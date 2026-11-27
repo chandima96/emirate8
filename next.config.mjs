@@ -75,6 +75,20 @@ const nextConfig = {
     // Property media may be a Supabase Storage URL or a resized data URL.
     unoptimized: true,
   },
+  // The enquiry form partner websites embed (src/app/(standalone)/embed) may be framed by any site;
+  // it is kept out of search results because the property page is the canonical listing.
+  async headers() {
+    return [
+      {
+        source: '/embed/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: 'frame-ancestors *' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        ],
+      },
+    ];
+  },
   // Legacy .html links from the static build keep working.
   async redirects() {
     return [
