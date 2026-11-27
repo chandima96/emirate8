@@ -2,6 +2,8 @@ import * as aiCredits from './20261118_000000_ai_credits';
 import * as enquiryAgency from './20261118_000001_enquiry_agency';
 import * as seoContent from './20261119_000000_seo_content';
 import * as apiFeeds from './20261126_000000_api_feeds';
+import * as enquiryFeed from './20261127_000000_enquiry_feed';
+import * as teamBrokerOwnListings from './20261127_000001_team_broker_own_listings';
 import * as propertyBrokers from './20261126_000001_property_brokers';
 import * as membershipBilling from './20261111_000001_membership_billing';
 import * as membershipPricing from './20261111_000000_membership_pricing';
@@ -95,4 +97,6 @@ export const migrations = [
   { up: seoContent.up, down: seoContent.down, name: '20261119_000000_seo_content' },
   { up: apiFeeds.up, down: apiFeeds.down, name: '20261126_000000_api_feeds' },
   { up: propertyBrokers.up, down: propertyBrokers.down, name: '20261126_000001_property_brokers' },
+  { up: enquiryFeed.up, down: enquiryFeed.down, name: '20261127_000000_enquiry_feed' },
+  { up: teamBrokerOwnListings.up, down: teamBrokerOwnListings.down, name: '20261127_000001_team_broker_own_listings' },
 ];

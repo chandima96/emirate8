@@ -3,7 +3,6 @@ import { findFeedProperty } from '@/lib/propertyFeed';
 import {
   authenticateFeedRequest,
   FEED_CORS,
-  feedConfigOf,
   feedProperties,
   rateLimit,
   recordFeedUse,
@@ -27,7 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   const { id } = await params;
-  const property = findFeedProperty(await feedProperties(feedConfigOf(auth.feed)), decodeURIComponent(id));
+  const property = findFeedProperty(await feedProperties(auth.feed), decodeURIComponent(id));
   recordFeedUse(auth.payload, auth.feed);
   if (!property) {
     return NextResponse.json({ error: 'This property is not in your feed or is no longer published.' }, { status: 404, headers });

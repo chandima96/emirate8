@@ -217,7 +217,16 @@ function ApiAccess({ inFeedCount, onNewKey }) {
               <code>{'{ data: Property[], meta: { total, page, limit, pages, generatedAt }, links: { self, next, prev } }'}</code>.
               Each property has id, reference, url, title, purpose, type, completion, price {'{ amount, currency, onRequest, frequency }'},
               bedrooms, bathrooms, size, location, description, highlights, amenities, featuredImage, images, permit,
-              offplan, contact, createdAt and updatedAt. One property: <code>GET {'{endpoint}'}/&lt;id or reference&gt;</code>.
+              offplan, contact, brokers, enquiry, createdAt and updatedAt. One property: <code>GET {'{endpoint}'}/&lt;id or reference&gt;</code>.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-ink">Enquiries</p>
+            <p className="mt-1 text-xs text-muted">
+              The feed has no broker phone numbers or emails. Show each property&apos;s enquiry form by pasting{' '}
+              <code>enquiry.embedHtml</code> (an iframe) on its page. Enquiries sent from it go to the property&apos;s broker on Emirate08, marked with your feed. To size
+              the frame automatically, listen for <code>message</code> events with <code>type: &apos;emirate08:enquiry-height&apos;</code>{' '}
+              and set the iframe height to <code>event.data.height</code>.
             </p>
           </div>
         </div>

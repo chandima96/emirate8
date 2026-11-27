@@ -4,7 +4,6 @@ import { absoluteUrl } from '@/lib/siteUrl';
 import {
   authenticateFeedRequest,
   FEED_CORS,
-  feedConfigOf,
   feedProperties,
   rateLimit,
   recordFeedUse,
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
   const query = readFeedQuery(request.nextUrl.searchParams);
   if (query.errors.length) return NextResponse.json({ error: 'Invalid query.', details: query.errors }, { status: 400, headers });
 
-  const result = queryFeed(await feedProperties(feedConfigOf(auth.feed)), query);
+  const result = queryFeed(await feedProperties(auth.feed), query);
   recordFeedUse(auth.payload, auth.feed);
 
   const link = (page: number) => {

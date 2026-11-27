@@ -102,7 +102,36 @@ const url = (value: unknown) => {
   return src ? absoluteUrl(mediaDisplayURL(src)) : null;
 };
 
-/** One broker from a property's broker list (public profile fields only). */
+/*
+ * Leads from partner websites must come to Emirate08, so the feed carries no broker phone, WhatsApp or email.
+ * Each property instead has an enquiry form hosted here, which the partner embeds as an iframe
+ * (see src/app/(standalone)/embed/enquiry). The link is signed per feed, so the enquiry is credited to that feed.
+ */
+export const EMBED_ENQUIRY_PATH = '/embed/enquiry/';
+export const EMBED_HEIGHT = 620;
+export const EMBED_RESIZE_MESSAGE = 'emirate08:enquiry-height';
+
+export type FeedEnquirySigner = { feedId: string | number; sign: (propertyId: string) => string };
+
+export function embedEnquiryUrl(propertyId: string, feedId: string | number, token: string) {
+  const params = new URLSearchParams({ f: String(feedId), t: token });
+  return absoluteUrl(EMBED_ENQUIRY_PATH + encodeURIComponent(propertyId) + '?' + params.toString());
+}
+
+const escapeAttr = (value: string) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+export function feedEnquiry(propertyId: string, title: string | null, signer: FeedEnquirySigner) {
+  const embedUrl = embedEnquiryUrl(propertyId, signer.feedId, signer.sign(propertyId));
+  const label = 'Enquire about ' + (title || 'this property');
+  return {
+    embedUrl,
+    embedHtml:
+      `<iframe src="${escapeAttr(embedUrl)}" title="${escapeAttr(label)}" width="100%" height="${EMBED_HEIGHT}" ` +
+      'style="border:0;max-width:560px" loading="lazy"></iframe>',
+  };
+}
+
+/** One broker from a property's broker list (public profile fields only, no contact details). */
 function feedBroker(profile: any) {
   return {
     name: text(profile.name),
@@ -111,18 +140,17 @@ function feedBroker(profile: any) {
         ? text(profile.currentAgency?.name) || text(profile.agencyName)
         : text(profile.agencyName) || (profile.type === 'agency' ? text(profile.name) : null),
     brn: text(profile.brnNumber) || text(profile.brn),
-    phone: text(profile.phone),
-    whatsapp: text(profile.whatsapp),
-    email: text(profile.email),
     photo: url(profile.photo),
     profileUrl: profile.slug ? absoluteUrl('/brokers/' + encodeURIComponent(profile.slug)) : null,
   };
 }
 
-/** A stable, documented record for partner websites. Built only from already-public listing fields. */
-export function toFeedProperty(listing: any) {
+/**
+ * A stable, documented record for partner websites. Built only from already-public listing fields.
+ * With `signer` (the feed API), `enquiry` holds the embeddable enquiry form for this feed.
+ */
+export function toFeedProperty(listing: any, signer?: FeedEnquirySigner) {
   const broker = listing.broker || null;
-  const override = listing.contactOverride;
   const images = (Array.isArray(listing.photos) && listing.photos.length
     ? listing.photos.map((photo: any) => ({ url: url(photo?.src), caption: text(photo?.caption) }))
     : (listing.images || []).map((src: string) => ({ url: url(src), caption: null }))
@@ -191,17 +219,15 @@ export function toFeedProperty(listing: any) {
               ? text(broker.currentAgency?.name) || text(broker.agencyName)
               : text(broker.agencyName) || (broker.type === 'agency' ? text(broker.name) : null),
           brn: text(broker.brnNumber) || text(broker.brn),
-          phone: text(override?.phone) || text(broker.phone),
-          whatsapp: text(override?.whatsapp) || text(broker.whatsapp),
-          email: text(override?.email) || text(broker.email),
           photo: url(broker.photo),
           profileUrl: broker.slug ? absoluteUrl('/brokers/' + encodeURIComponent(broker.slug)) : null,
         }
       : owner
-        ? { kind: 'developer', name: text(owner.profile?.developer?.displayName) || text(owner.name), agency: null, brn: null, phone: null, whatsapp: null, email: null, photo: null, profileUrl: null }
+        ? { kind: 'developer', name: text(owner.profile?.developer?.displayName) || text(owner.name), agency: null, brn: null, photo: null, profileUrl: null }
         : null,
     // Up to 5 brokers represent the property; none of them is "primary". Order is display order.
     brokers: (Array.isArray(listing.brokerProfiles) ? listing.brokerProfiles : []).filter(Boolean).map(feedBroker),
+    enquiry: signer ? feedEnquiry(String(listing.id), text(listing.title), signer) : null,
     createdAt: listing.createdAt || null,
     updatedAt: listing.updatedAt || listing.createdAt || null,
   };

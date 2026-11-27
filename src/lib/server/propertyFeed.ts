@@ -1,9 +1,17 @@
 import 'server-only';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import configPromise from '@payload-config';
 import { getPayload, type Payload } from 'payload';
 import { loadPublicData } from './publicData';
-import { DEFAULT_FEED, canUseFeedAccount, isInFeed, normalizeFeedConfig, toFeedProperty, type FeedConfig } from '@/lib/propertyFeed';
+import {
+  DEFAULT_FEED,
+  canUseFeedAccount,
+  isInFeed,
+  normalizeFeedConfig,
+  toFeedProperty,
+  type FeedConfig,
+  type FeedEnquirySigner,
+} from '@/lib/propertyFeed';
 
 /* Property feed API: keys, authentication and the member's selected inventory. See src/lib/propertyFeed.ts. */
 
@@ -79,8 +87,53 @@ export async function publishedListings() {
   return (data.listings as any[]).filter((l) => l && l.status === 'published' && l.display?.visible !== false);
 }
 
-export async function feedProperties(config: FeedConfig) {
-  return (await publishedListings()).filter((l) => isInFeed(config, l.id)).map(toFeedProperty);
+/** The feed's properties, each with its signed enquiry form (`enquiry.embedUrl` / `embedHtml`). */
+export async function feedProperties(feed: any) {
+  const config = feedConfigOf(feed);
+  const signer = feed?.id != null ? enquirySigner(feed.id) : undefined;
+  return (await publishedListings()).filter((l) => isInFeed(config, l.id)).map((l) => toFeedProperty(l, signer));
+}
+
+/* ---------- Embedded enquiry form links ---------- */
+
+/*
+ * An embed link names the feed and the property and carries an HMAC of both, so a partner cannot
+ * credit its enquiries to another feed or point the form at a property its feed does not carry.
+ * The signature does not expire: it stays valid as long as the feed exists and keeps the property.
+ */
+function embedSecret() {
+  const secret = process.env.PAYLOAD_SECRET;
+  if (!secret) throw new Error('PAYLOAD_SECRET is required to sign enquiry embed links.');
+  return secret;
+}
+
+export function signEmbed(feedId: string | number, propertyId: string) {
+  return createHmac('sha256', embedSecret()).update(`embed-enquiry:${feedId}:${propertyId}`).digest('base64url').slice(0, 22);
+}
+
+export function verifyEmbed(feedId: string, propertyId: string, token: string) {
+  if (!/^\d+$/.test(feedId) || typeof token !== 'string' || token.length !== 22) return false;
+  const expected = Buffer.from(signEmbed(feedId, propertyId));
+  const given = Buffer.from(token);
+  return expected.length === given.length && timingSafeEqual(expected, given);
+}
+
+export function enquirySigner(feedId: string | number): FeedEnquirySigner {
+  return { feedId, sign: (propertyId) => signEmbed(feedId, propertyId) };
+}
+
+/**
+ * Resolve an embed link to the feed and the published listing it shows. Null when the signature is wrong,
+ * the feed's owner can no longer use the feed, or the property left the feed or was unpublished.
+ */
+export async function resolveEmbed(feedId: string, propertyId: string, token: string) {
+  if (!verifyEmbed(feedId, propertyId, token)) return null;
+  const payload = await getFeedPayload();
+  const feed = (await payload.findByID({ collection: 'api-feeds', id: Number(feedId), depth: 1, overrideAccess: true, disableErrors: true })) as any;
+  if (!feed || !canUseFeed(feed.member)) return null;
+  if (!isInFeed(feedConfigOf(feed), propertyId)) return null;
+  const listing = (await publishedListings()).find((l) => String(l.id) === propertyId);
+  return listing ? { payload, feed, listing } : null;
 }
 
 /* ---------- API key authentication ---------- */

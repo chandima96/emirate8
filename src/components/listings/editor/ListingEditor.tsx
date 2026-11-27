@@ -60,6 +60,13 @@ function withPresets(l, owner) {
   return { ...l, editor: { ...l.editor, d, presets, sources } };
 }
 
+/*
+ * The agency organisation (its admin and managers) owns listings it creates and assigns them to team brokers.
+ * A team broker (agencyRole "agency_broker") lists their own properties like an independent broker:
+ * the agency has no ownership of, or say over, those listings.
+ */
+const actsForAgency = (u) => u?.type === 'agency' && u?.agency?.agencyRole !== 'agency_broker';
+
 function initialState(id, q) {
   const existing = id ? getListing(id) : null;
   const owner = currentUser();
@@ -75,7 +82,7 @@ function initialState(id, q) {
       L.ownerDirect = true;
       L.claimable = true;
     }
-  } else if (owner?.type === 'agency') {
+  } else if (actsForAgency(owner)) {
     if (!existing) {
       L.ownerType = 'agency';
       L.ownerAgency = owner.agency?.agencyId || owner.agencyId || L.ownerAgency || '';
@@ -87,7 +94,7 @@ function initialState(id, q) {
     L.purpose = purpose;
     L.editor.d.purpose = purpose;
   }
-  const stepCount = owner?.type === 'agency' ? STEPS + 1 : STEPS;
+  const stepCount = actsForAgency(owner) ? STEPS + 1 : STEPS;
   const step = Math.min(stepCount, Math.max(1, +q.get('step') || 1));
   let note = null;
   if (existing) {
@@ -158,7 +165,7 @@ export function ListingEditor({ id = undefined }) {
   });
   const user = currentUser();
   const isDeveloper = user?.type === 'developer' || user?.type === 'owner';
-  const isAgency = user?.type === 'agency';
+  const isAgency = actsForAgency(user);
   const totalSteps = STEPS + (isAgency ? 1 : 0);
   const reviewStep = totalSteps;
   const stepNames = isAgency ? [...NAMES.slice(0, 7), 'Team brokers', NAMES[7]] : NAMES;
