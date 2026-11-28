@@ -10,7 +10,7 @@ function AcceptAgencyInvite() {
   const token = params.get('token') || '';
   const [message, setMessage] = useState('Checking your invitation…');
   useEffect(() => {
-    if (!token) { setMessage('This invitation link is invalid.'); return; }
+    if (!token) return;
     void (async () => {
       const session = await fetch('/api/app-session', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
       if (!session.user) { router.replace(`/login?next=${encodeURIComponent(`/agency-invite?token=${token}`)}`); return; }
@@ -21,7 +21,7 @@ function AcceptAgencyInvite() {
       window.location.assign('/agency-dashboard');
     })();
   }, [router, token]);
-  return <main className="flex min-h-screen items-center justify-center bg-ink-deep px-5"><div className="w-full max-w-md rounded-2xl bg-white p-8"><Wordmark /><p className="mt-8 text-sm text-muted">{message}</p></div></main>;
+  return <main className="flex min-h-screen items-center justify-center bg-ink-deep px-5"><div className="w-full max-w-md rounded-2xl bg-white p-8"><Wordmark /><p className="mt-8 text-sm text-muted">{token ? message : 'This invitation link is invalid.'}</p></div></main>;
 }
 
 export default function AgencyInvitePage() {

@@ -1,7 +1,7 @@
 'use client';
 
 import { Icon } from '@/components/ui/Icon';
-import { fmtAED } from '@/lib/store';
+import { fmtAED } from '@/lib/listingFormat';
 import { uid } from '@/lib/utils';
 import { GroupError, NumInput } from './inputs';
 import { PLAN_COLORS, STAGES, planTotal, template } from './model';

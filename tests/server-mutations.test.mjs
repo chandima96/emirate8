@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import * as crypto from 'node:crypto';
 import { test } from 'node:test';
 import ts from 'typescript';
 import * as payloadCookies from 'payload/shared';
@@ -17,6 +18,9 @@ function services(payload, config = {}) {
     });
     const exports = {};
     const require = (id) => {
+      if (id === 'node:crypto') return crypto;
+      if (id === '@/config/plans') return load('../../config/plans');
+      if (id === '@/lib/payloadCacheHooks') return { invalidateCmsCache: async () => {} };
       if (id === 'server-only') return {};
       if (id === 'payload') return { getPayload: async () => payload };
       if (id === 'payload/shared') return payloadCookies;
@@ -30,6 +34,19 @@ function services(payload, config = {}) {
   }
   return load;
 }
+
+test('workspace and session member context rejects suspended members and other collections', async () => {
+  const headers = new Headers();
+  const suspended = services({
+    auth: async () => ({ user: { id: 42, collection: 'members' } }),
+    findByID: async () => ({ id: 42, isSuspended: true }),
+  });
+  const staff = services({ auth: async () => ({ user: { id: 42, collection: 'users' } }) });
+  for (const load of [suspended, staff]) {
+    assert.equal(await load('memberContext').getMemberContext(headers), null);
+    assert.equal((await load('session').getSession(headers)).data.user, null);
+  }
+});
 
 test('anonymous callers cannot change accounts, delete accounts, or update enquiries', async () => {
   const load = services({ auth: async () => ({ user: null }) });
@@ -62,6 +79,8 @@ test('account updates use the session identity instead of a supplied member ID',
   const load = services({
     auth: async () => ({ user: { id: 42, collection: 'members' } }),
     findByID: async () => ({ profile: { privacy: { showPhone: false } } }),
+    find: async () => ({ docs: [] }),
+    create: async ({ data }) => ({ id: 1, ...data }),
     update: async (options) => {
       update = options;
       return { id: 42, name: options.data.name, profile: options.data.profile };
@@ -104,6 +123,7 @@ function enquiryPayload(members, created) {
     auth: async () => ({ user: null }),
     find: async ({ collection, where }) => {
       if (collection === 'members') return { docs: members.filter((m) => String(m.id) === String(where.id.equals)) };
+      if (collection === 'properties' && where.or[0]['appData.id'].equals === 'agency-listing') return { docs: [{ ownerAgency: 7 }] };
       if (collection === 'agencies') return { docs: String(where.id.equals) === '7' ? [{ id: 7, name: 'Elite Realty' }] : [] };
       return { docs: [] };
     },
@@ -125,11 +145,13 @@ test('enquiries to an independent broker go to that broker only', async () => {
   assert.equal(created.data.agencyName, '');
 });
 
-test('enquiries to an agency broker are also routed to their agency', async () => {
+test('only enquiries about an agency-owned listing also reach the agency inbox', async () => {
   const created = {};
   const members = [{ id: 6, profile: { agency: { agencyId: 7, agencyRole: 'agency_broker' } } }];
   const load = services(enquiryPayload(members, created));
   await load('enquiries').createEnquiry({ ...enquiryBody, brokerId: '6' }, new Headers());
+  assert.equal(created.data.agency, undefined);
+  await load('enquiries').createEnquiry({ ...enquiryBody, brokerId: '6', propertyId: 'agency-listing' }, new Headers());
   assert.equal(created.data.brokerMember, 6);
   assert.equal(created.data.agency, 7);
   assert.equal(created.data.agencyName, 'Elite Realty');

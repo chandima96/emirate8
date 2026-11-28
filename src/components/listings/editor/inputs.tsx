@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
-import { fmtNumber } from '@/lib/store';
+import { fmtNumber } from '@/lib/listingFormat';
 
 const toNumber = (raw) => {
   const d = String(raw).replace(/[^\d.]/g, '');

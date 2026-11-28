@@ -1,5 +1,5 @@
 import { Icon } from '@/components/ui/Icon';
-import { fmtNumber, fmtSize } from '@/lib/store';
+import { fmtNumber, fmtSize } from '@/lib/listingFormat';
 import { cx } from '@/lib/utils';
 
 export function bedsLabel(l) {

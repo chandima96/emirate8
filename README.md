@@ -55,51 +55,17 @@ App users register through `/register`; Payload Admin users sign in at `/admin`.
 
 ## Project structure
 
-```
-src/
-├─ app/                         App Router — route groups pick the page chrome
-│  ├─ layout.js                 Root: fonts, Bootstrap Icons, globals.css, providers, role script
-│  ├─ globals.css               Tailwind v4 @theme (brand colours, radius ≤ 6px, type scale) + component classes
-│  ├─ icon.svg                  Favicon
-│  ├─ not-found.js              404
-│  ├─ (portal)/                 Market header + role rail + footer
-│  │  ├─ page.js                Home
-│  │  ├─ properties/            Search
-│  │  ├─ property/[slug]/       Property detail page
-│  │  ├─ agents/                Agent & agency directory
-│  │  ├─ brokers/[slug]/        Broker portfolio (`me` = your own)
-│  │  ├─ agencies/[id]/         Agency profile
-│  │  └─ saved/ sell/ help/
-│  ├─ (site)/                   Market header + footer, no rail: platform/ terms/ privacy/
-│  ├─ (pro)/                    Professional header/footer: for-professionals/
-│  ├─ (auth)/                   No chrome: login/ register/ forgot-password/ unauthorized/
-│  ├─ (workspace)/              AppShell + access guard
-│  │  ├─ dashboard/ enquiries/ profile/ account/
-│  │  ├─ listings/ (list) · listings/new · listings/[id] · listings/[id]/edit
-│  │  └─ network/ · network/[id] · selected/ · subscription/
-│  └─ preview/listing/          Iframe target for the editor's Preview Listing modal
-├─ components/
-│  ├─ ui/                       Icon, Modal, Field/Switch, Dropdown, Lightbox
-│  ├─ providers/                SessionProvider, FeedbackProvider (toast/confirm), EnquiryProvider
-│  ├─ layout/                   MarketHeader (mega menu), QuickRail, MarketFooter, ProChrome, Wordmark
-│  ├─ property/                 PropertyCard, PropertyHCard, FavButton, PropertyDetail + detail/ sections & calculators
-│  ├─ broker/                   Avatar, VerifiedBadge, ContactButtons, AgentCard/AgencyCard
-│  ├─ portal/                   Home, search, directory, portfolio, agency, saved, help, legal
-│  ├─ platform/                 Platform page, GSAP motion hook, Dubai map
-│  ├─ auth/                     Login, 4-step registration wizard, password reset, unauthorized
-│  ├─ listings/                 My Listings, listing detail, actions; editor/ (8 steps, payment plan, media, preview)
-│  └─ workspace/                AppShell, overview, enquiries, portfolio (Profile), account, subscription, network/
-├─ data/                        Sample brokers & listings, communities, reference lists, navigation, map, credits
-├─ hooks/                       useStoreVersion / useHydrated (useSyncExternalStore), useDocumentTitle
-├─ lib/
-│  ├─ storage.ts                Reactive in-memory cache; persistence goes through API routes
-│  ├─ store.ts                  Client data layer backed by Payload route handlers / Supabase
-│  ├─ routes.js                 URL helpers
-│  ├─ share.js                  Copy and share helpers
-│  └─ utils.js                  slugify, cx, validation regexes, image → data URL, …
-└─ fonts/                       woff2 files for next/font/local
-public/images/                  Licensed photography (see Images & credits)
-```
+| Path | Responsibility |
+| --- | --- |
+| `src/app/` | Next.js routes, layouts, metadata, API handlers and Server Actions. Route groups supply separate layouts for the portal, workspace, authentication, control room and Payload admin. |
+| `src/components/` | UI grouped by product area. Shared controls live in `ui/` and application providers in `providers/`. The broker profile editor keeps its form controls and draft persistence in `profiles/builder/`. |
+| `src/lib/server/` | Server-side access to Payload and integrations. Session and workspace requests use `memberContext.ts` to load the authenticated member. |
+| `src/lib/server/roleWorkspace/` | Workspace queries and mutations. The API route dispatches each action to its owning module. Each mutation checks the caller's role or ownership before writing. |
+| `src/lib/server/profileAutofill/` | Website retrieval and model extraction. The API route handles authentication, credit checks, request parsing and HTTP responses. |
+| `src/lib/` | Shared domain logic and client data access. Import listing display helpers from `listingFormat.ts` when a view only needs formatting. |
+| `src/collections/`, `src/migrations/` | Payload collection definitions and database migration history. Root-level `payload.config.ts` configures Payload. |
+| `src/config/` | Plans, reference values, navigation and seed data. |
+| `tests/`, `scripts/` | Automated tests and operational commands for seeding, synchronization and verification. |
 
 ### How data flows
 

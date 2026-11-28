@@ -1,6 +1,6 @@
 import { Icon } from '@/components/ui/Icon';
 import { bedsLabel } from '@/components/property/ListingBits';
-import { fmtNumber, fmtSize } from '@/lib/store';
+import { fmtNumber, fmtSize } from '@/lib/listingFormat';
 
 /** 03 — key facts grid. Facts without a value are left out. */
 export function Characteristics({ listing: l }) {

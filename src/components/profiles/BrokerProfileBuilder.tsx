@@ -11,7 +11,6 @@ import {
   brokerFromUser,
   currentUser,
   data,
-  defaultPortfolio,
   listing as getListing,
   listingUrl,
   log,
@@ -19,11 +18,9 @@ import {
   saveListing,
   saveUser,
   uniqueSlug,
-  userById,
 } from '@/lib/store';
-import { AREAS } from '@/config/reference';
 import { uploadMediaDataURL } from '@/lib/mediaClient';
-import { RX, clone, digits, fileToDataURL, slugify } from '@/lib/utils';
+import { RX, clone, digits, fileToDataURL } from '@/lib/utils';
 import { absUrl, copyText } from '@/lib/share';
 import { routes } from '@/lib/routes';
 import {
@@ -43,10 +40,12 @@ import {
   socialErr,
   uid,
   validUrl,
-  withProfileDefaults,
 } from '@/lib/brokerProfile';
 import { BrokerPublicProfile } from './BrokerPublicProfile';
 import { AiAutofill, type AiSummary } from './AiAutofill';
+import { featOrder, featuredListings, initDraft, isDirty, persistDraft } from './builder/draft';
+import { TagInput } from './builder/TagInput';
+import { LocationPicker } from './builder/LocationPicker';
 import './profiles.css';
 
 /* Broker profile dashboard — React port of UI_Changes/emirate8-page-updates/single-broker-profile.html
@@ -102,7 +101,6 @@ function sectionOf(path: string) {
   if (k === 'defaultSort') return 'portfolio';
   return 'visibility';
 }
-const COMMUNITIES: string[] = Array.from(new Set(Object.values(AREAS as Record<string, string[]>).flat()));
 const ST_LABEL: Record<string, string> = { draft: 'Draft', pending: 'Awaiting verification', published: 'Published', unpublished: 'Unpublished', sold: 'Sold', rented: 'Rented', archived: 'Archived' };
 const CRED_LABEL: Record<string, string> = { not_submitted: 'Not Submitted', pending: 'Pending', verified: 'Verified', rejected: 'Rejected', expired: 'Expired' };
 const PHONE = /^\+?[\d\s()-]{7,20}$/;
@@ -118,171 +116,6 @@ type FS = Record<string, string>; // path → filled | edited | missing | verify
 type Err = { path: string; section: string; msg: string; label: string };
 
 const empty = (v: any) => (Array.isArray(v) ? !v.length : !String(v == null ? '' : v).trim());
-const strip = (p: any) => {
-  const c = withProfileDefaults(clone(p || {}));
-  delete c.updatedAt;
-  delete c.publishedAt;
-  delete c.cover;
-  delete c.coverPos;
-  return c;
-};
-
-function featuredListings() {
-  return data().listings.filter((l) => l.display.portfolioFeatured && l.status === 'published');
-}
-/** Keeps the saved order for listings that are still featured and appends newly featured ones. */
-function featOrder(order: string[] | undefined) {
-  const feats = featuredListings();
-  const o = (order || []).filter((id) => feats.some((l) => l.id === id));
-  feats.forEach((l) => {
-    if (o.indexOf(l.id) < 0) o.push(l.id);
-  });
-  return o;
-}
-function initDraft() {
-  const u = currentUser();
-  if (!u.portfolio) {
-    u.portfolio = defaultPortfolio(u, { slug: uniqueSlug(slugify(u.name), u.id) });
-    saveUser(u);
-  }
-  const D = withProfileDefaults(clone(u.portfolioDraft || u.portfolio));
-  D.featuredOrder = featOrder(D.featuredOrder);
-  return D;
-}
-function isDirty(D: any) {
-  const a = strip(D), b = strip(currentUser().portfolio);
-  if (a.featuredOrder && !(b.featuredOrder || []).length && !a.featuredOrder.length) delete a.featuredOrder;
-  if (!(b.featuredOrder || []).length && !(a.featuredOrder || []).length) { delete a.featuredOrder; delete b.featuredOrder; }
-  return JSON.stringify(a) !== JSON.stringify(b);
-}
-
-/** Saves the draft on the user (or clears it when it matches the published profile). Returns false if storage refused it. */
-function persistDraft(next: any) {
-  const cur = currentUser();
-  if (!cur) return true;
-  if (isDirty(next)) cur.portfolioDraft = clone(next);
-  else delete cur.portfolioDraft;
-  saveUser(cur);
-  const stored = userById(cur.id);
-  return JSON.stringify(stored?.portfolioDraft || null) === JSON.stringify(cur.portfolioDraft || null);
-}
-
-/* ---------------- tag input ---------------- */
-function TagInput({ id, path, values, onChange, suggest = [], placeholder = 'Type and press Enter', describedBy }: { id: string; path: string; values: string[]; onChange: (v: string[]) => void; suggest?: string[]; placeholder?: string; describedBy: string }) {
-  const [text, setText] = useState('');
-  const add = (v: string) => {
-    v = v.replace(/,/g, '').trim().slice(0, 60);
-    if (!v || values.some((x) => x.toLowerCase() === v.toLowerCase())) return;
-    onChange([...values, v]);
-    setText('');
-  };
-  const sug = suggest.filter((s) => values.indexOf(s) < 0);
-  return (
-    <>
-      <div className="taginput" data-tags={path}>
-        {values.map((t, i) => (
-          <span className="tag" key={t}>
-            {t}
-            <button type="button" aria-label={'Remove ' + t} onClick={() => { onChange(values.filter((_, j) => j !== i)); document.getElementById(id)?.focus(); }}>
-              <Icon name="x" />
-            </button>
-          </span>
-        ))}
-        <input
-          id={id}
-          aria-labelledby={id + '-l'}
-          aria-describedby={describedBy}
-          placeholder={placeholder}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.key === 'Enter' || e.key === ',') && text.trim()) {
-              e.preventDefault();
-              add(text);
-            } else if (e.key === 'Backspace' && !text && values.length) onChange(values.slice(0, -1));
-          }}
-        />
-      </div>
-      {!!sug.length && (
-        <div className="suggests" aria-label="Suggestions">
-          {sug.slice(0, 8).map((s) => (
-            <button key={s} type="button" onClick={() => add(s)}>
-              <Icon name="plus" />
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ---------------- location picker (combobox) ---------------- */
-function LocationPicker({ chosen, onAdd, invalid }: { chosen: string[]; onAdd: (name: string) => void; invalid: boolean }) {
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState(false);
-  const [idx, setIdx] = useState(-1);
-  const wrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, []);
-  const ql = q.trim().toLowerCase();
-  const opts = COMMUNITIES.filter((c) => !ql || c.toLowerCase().indexOf(ql) > -1);
-  const custom = ql && !COMMUNITIES.some((c) => c.toLowerCase() === ql) ? q.trim() : null;
-  const items = [...opts.map((c) => ({ name: c, label: c, chosen: chosen.includes(c), id: 'loc-o-' + slugify(c) })), ...(custom ? [{ name: custom, label: `Add “${custom}” as another UAE location`, chosen: chosen.includes(custom), id: 'loc-o-custom' }] : [])];
-  const pickable = items.filter((x) => !x.chosen);
-  const pick = (name: string) => {
-    onAdd(name);
-    setQ('');
-    setIdx(-1);
-  };
-  return (
-    <div className="locpick" ref={wrap}>
-      <input
-        className="input"
-        id="loc-input"
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={open}
-        aria-controls="loc-list"
-        aria-activedescendant={open && pickable[idx] ? pickable[idx].id : undefined}
-        aria-invalid={invalid || undefined}
-        autoComplete="off"
-        placeholder="Search Dubai communities and other UAE locations"
-        value={q}
-        onFocus={() => setOpen(true)}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setOpen(true);
-          setIdx(-1);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            setOpen(true);
-            setIdx((i) => Math.max(0, Math.min(pickable.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1))));
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (pickable[idx]) pick(pickable[idx].name);
-            else if (pickable.length === 1) pick(pickable[0].name);
-          } else if (e.key === 'Escape') setOpen(false);
-        }}
-      />
-      <ul className="locpick__list" id="loc-list" role="listbox" aria-label="Locations" hidden={!open || !items.length}>
-        {items.map((x) => (
-          <li key={x.id} role="option" id={x.id} aria-selected={pickable[idx]?.id === x.id} aria-disabled={x.chosen} className={x.chosen ? 'is-chosen' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => !x.chosen && pick(x.name)}>
-            {x.label}
-            {x.chosen && <span className="xs">Added</span>}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 export function BrokerProfileBuilder() {
   useStoreVersion();

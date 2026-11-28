@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { useFeedback } from '@/components/providers/FeedbackProvider';
-import { fmtNumber } from '@/lib/store';
+import { fmtNumber } from '@/lib/listingFormat';
 import { copyText } from '@/lib/share';
 import { cx } from '@/lib/utils';
 import { FEED_PATH } from '@/lib/propertyFeed';

@@ -3,7 +3,7 @@
 import { Field, invalidProps } from '@/components/ui/Field';
 import { Icon } from '@/components/ui/Icon';
 import { AREAS, EMIRATES, TYPES } from '@/config/reference';
-import { fmtNumber } from '@/lib/store';
+import { fmtNumber } from '@/lib/listingFormat';
 import { GroupError, NumInput, OptionSelect } from './inputs';
 import { priceWords } from './model';
 import { PaymentPlan } from './PaymentPlan';

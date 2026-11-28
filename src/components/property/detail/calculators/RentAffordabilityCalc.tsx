@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { fmtAED, fmtNumber } from '@/lib/store';
+import { fmtAED, fmtNumber } from '@/lib/listingFormat';
 import { CalcField, CalcNote, OutLabel, fieldSetter, num } from './CalcField';
 
 const CHEQUES = ['1', '2', '4', '6', '12'];

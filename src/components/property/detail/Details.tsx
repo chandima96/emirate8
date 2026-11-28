@@ -1,5 +1,5 @@
 import { AMENITY_GROUPS } from '@/config/reference';
-import { fmtAED, fmtDate } from '@/lib/store';
+import { fmtAED, fmtDate } from '@/lib/listingFormat';
 
 /** Rows with an empty value are omitted; groups with no rows are omitted. */
 function Group({ title, rows }) {

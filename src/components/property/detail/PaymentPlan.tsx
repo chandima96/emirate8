@@ -1,4 +1,4 @@
-import { fmtAED } from '@/lib/store';
+import { fmtAED } from '@/lib/listingFormat';
 
 const TONES = ['bg-ink', 'bg-ink-2', 'bg-sage-ink', 'bg-sage', 'bg-line'];
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { fmtAED, fmtNumber } from '@/lib/store';
+import { fmtAED, fmtNumber } from '@/lib/listingFormat';
 import { cx } from '@/lib/utils';
 import { CalcField, CalcNote, fieldSetter, num } from './CalcField';
 

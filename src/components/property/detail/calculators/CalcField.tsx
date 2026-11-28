@@ -1,6 +1,6 @@
 'use client';
 
-import { fmtNumber } from '@/lib/store';
+import { fmtNumber } from '@/lib/listingFormat';
 
 /** Parses a typed amount ("1,250,000", "4.5") to a number; empty or invalid → 0. */
 export function num(v) {

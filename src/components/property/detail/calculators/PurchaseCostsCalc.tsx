@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { fmtAED, fmtNumber } from '@/lib/store';
+import { fmtAED, fmtNumber } from '@/lib/listingFormat';
 import { CalcField, CalcNote, OutLabel, fieldSetter, num } from './CalcField';
 
 /** One-off costs on top of the price (DLD / Oqood, agency, trustee, admin, mortgage registration). */

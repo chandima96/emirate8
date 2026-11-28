@@ -2,6 +2,7 @@ import 'server-only';
 import { result, isRecord } from './result';
 import configPromise from '@payload-config';
 import { getPayload, type Payload } from 'payload';
+import { getMemberContext } from './memberContext';
 import { syncMemberBroker } from './member-brokers';
 import { invalidateCmsCache } from '@/lib/payloadCacheHooks';
 import { createMemberAgency } from './auth';
@@ -28,18 +29,8 @@ export function toAppUser(member: Record<string, any>) {
 }
 
 export async function getSession(requestHeaders: Headers) {
-  const config = await configPromise;
-  const payload = await getPayload({ config });
-  const { user } = await payload.auth({ headers: requestHeaders });
-  if (!user || user.collection !== 'members') return result({ user: null });
-
-  const member = await payload.findByID({
-    collection: 'members',
-    id: user.id,
-    overrideAccess: true,
-  });
-  if (member.isSuspended === true) return result({ user: null });
-  return result({ user: toAppUser(member as Record<string, any>) });
+  const context = await getMemberContext(requestHeaders);
+  return result({ user: context ? toAppUser(context.member) : null });
 }
 
 export async function updateSession(patch: unknown, requestHeaders: Headers) {
